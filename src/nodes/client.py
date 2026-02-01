@@ -1,5 +1,5 @@
-from node import Node
-from net import send_message
+from .node import Node
+from common.net import send_message
 import time, threading, logging
 
 logger = logging.getLogger(__name__)

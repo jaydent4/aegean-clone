@@ -1,7 +1,7 @@
 import logging
 from http.server import ThreadingHTTPServer
 
-from net import make_handler
+from common.net import make_handler
 
 logger = logging.getLogger(__name__)
 

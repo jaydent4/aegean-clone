@@ -1,9 +1,9 @@
 import argparse, logging
-from client import Client
-from shim import Shim
-from mixer import Mixer
-from exec import Exec
-from verifier import Verifier
+from nodes.client import Client
+from nodes.shim import Shim
+from nodes.mixer import Mixer
+from nodes.exec import Exec
+from nodes.verifier import Verifier
 from config import config
 
 logger = logging.getLogger(__name__)

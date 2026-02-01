@@ -1,6 +1,6 @@
-from node import Node
-from net import send_message
-from quorum import QuorumHelper
+from .node import Node
+from common.net import send_message
+from common.quorum import QuorumHelper
 import logging
 
 logger = logging.getLogger(__name__)
