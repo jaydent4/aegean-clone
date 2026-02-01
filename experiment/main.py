@@ -43,7 +43,7 @@ def main():
     stop_docker_nodes(node_names)
 
     launch_nodes(node_names)
-    time.sleep(5.0)
+    time.sleep(15.0)
 
     stop_docker_nodes(node_names)
     collect_logs(node_names)
