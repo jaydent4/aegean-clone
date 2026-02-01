@@ -42,7 +42,7 @@ def stop_docker_nodes(node_names):
 
 
 def main():
-    node_names = [f"node{i}" for i in range(1, 10)]
+    node_names = [f"node{i}" for i in range(1, 13)]
     stop_docker_nodes(node_names)
 
     launch_nodes(node_names)

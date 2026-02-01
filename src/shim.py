@@ -21,7 +21,6 @@ class Shim(Node):
         sender = payload.get('sender')
 
         if self.quorum_helper.add(request_id, sender):
-            for exec_node in self.next:
-                send_message(exec_node, '8000', payload)
+            send_message(self.next, '8000', payload)
             return {'status': 'forwarded_to_mid_execs'}
         return {'status': 'waiting_for_quorum'}

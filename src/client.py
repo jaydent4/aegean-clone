@@ -17,7 +17,7 @@ class Client(Node):
     def client_workflow(self):
         time.sleep(2)
 
-        for request_id in range(1, 101):
+        for request_id in range(1, 2):
             timestamp = time.time()
 
             request = {
