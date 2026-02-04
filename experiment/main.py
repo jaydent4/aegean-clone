@@ -11,31 +11,27 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def _ssh(node_name, command):
-    return subprocess.run(["ssh", node_name, command])
-
-
-def _scp(node_name, remote_path, local_path):
-    return subprocess.run(["scp", f"{node_name}:{remote_path}", local_path])
-
-
 def collect_logs(node_names, log_dir="experiment/results"):
+    def _scp(node_name, remote_path, local_path):
+        return subprocess.run(["scp", f"{node_name}:{remote_path}", local_path])
+    
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_dir = os.path.join(log_dir, timestamp)
     os.makedirs(run_dir, exist_ok=True)
     for name in node_names:
         local_path = os.path.join(run_dir, f"{name}.log")
         _scp(name, "/tmp/node.log", local_path)
-        
+
 def launch_nodes(node_names):
     for name in node_names:
-        _ssh(name, "nohup python -u /app/src/start.py "
-            f"--name {name} --host 0.0.0.0 --port 8000 "
-            "> /tmp/node.log 2>&1 &")
+        subprocess.run(["ssh", name, "sh", "-lc",
+                        "'cd /app/src && "
+                        f"nohup go run . --name {name} --host 0.0.0.0 --port 8000 "
+                        "> /tmp/node.log 2>&1 &'"])
 
 def stop_docker_nodes(node_names):
     for name in node_names:
-        _ssh(name, "pkill -9 -f 'python'")
+        subprocess.run(["ssh", name, "pkill -9 -f 'go'"])
 
 
 def main():
@@ -43,7 +39,7 @@ def main():
     stop_docker_nodes(node_names)
 
     launch_nodes(node_names)
-    time.sleep(15.0)
+    time.sleep(5.0)
 
     stop_docker_nodes(node_names)
     collect_logs(node_names)
