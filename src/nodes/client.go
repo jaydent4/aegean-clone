@@ -35,6 +35,8 @@ func (c *Client) clientWorkflow() {
 	// Wait for other nodes to be turned on. TODO: improvable
 	time.Sleep(2 * time.Second)
 
+	logger := GetClientLogger()
+
 	for requestID := 1; requestID <= 10; requestID++ {
 		timestamp := float64(time.Now().UnixNano()) / 1e9
 
@@ -51,15 +53,18 @@ func (c *Client) clientWorkflow() {
 			},
 		}
 
+		expectedResult := "value_" + itoa(requestID)
 		log.Printf("Client %s sending request %d to %v", c.Name, requestID, c.Next)
 
 		for _, nextNode := range c.Next {
 			_, err := common.SendMessage(nextNode, 8000, request)
 			if err != nil {
 				log.Printf("Failed to send to %s: %v", nextNode, err)
+				logger.LogRequest(requestID, nextNode, "error", request, expectedResult)
 				continue
 			}
 			log.Printf("Ack from shim %s", nextNode)
+			logger.LogRequest(requestID, nextNode, "ack", request, expectedResult)
 		}
 	}
 }
@@ -69,13 +74,17 @@ func (c *Client) HandleMessage(payload map[string]any) map[string]any {
 
 	requestID := payload["request_id"]
 	response, _ := payload["response"].(map[string]any)
+	sender, _ := payload["sender"].(string)
 	key := toKey(requestID)
+
+	logger := GetClientLogger()
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if _, done := c.completedRequests[key]; done {
 		log.Printf("Client %s: Ignoring duplicate response for %v", c.Name, requestID)
+		logger.LogResponse(requestID, sender, payload, map[string]any{"status": "duplicate_ignored"})
 		return map[string]any{"status": "already_completed"}
 	}
 
@@ -84,6 +93,8 @@ func (c *Client) HandleMessage(payload map[string]any) map[string]any {
 	c.completedRequests[key] = struct{}{}
 	// TODO: In full BFT mode, would wait for f+1 matching responses
 	log.Printf("Client %s: Request %v completed with: %v", c.Name, requestID, response)
+
+	logger.LogResponse(requestID, sender, payload, response)
 
 	return map[string]any{"status": "response_received", "request_id": requestID}
 }

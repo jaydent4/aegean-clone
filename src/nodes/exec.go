@@ -116,6 +116,8 @@ func (e *Exec) HandleMessage(payload map[string]any) map[string]any {
 
 	switch msgType {
 	case "verify_response":
+		// TODO: If I receive a verify response before I had a chance to execute the parallelBatch
+		// progress will be stuck
 		return e.handleVerifyResponse(payload)
 	case "batch":
 		return e.handleBatch(payload)
