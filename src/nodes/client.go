@@ -53,7 +53,11 @@ func (c *Client) clientWorkflow() {
 			},
 		}
 
-		expectedResult := "value_" + itoa(requestID)
+		expectedResult := map[string]any{
+			"read_value": "value_" + itoa(requestID),
+			"request_id": requestID,
+			"status":     "ok",
+		}
 		log.Printf("Client %s sending request %d to %v", c.Name, requestID, c.Next)
 
 		for _, nextNode := range c.Next {
@@ -84,7 +88,7 @@ func (c *Client) HandleMessage(payload map[string]any) map[string]any {
 
 	if _, done := c.completedRequests[key]; done {
 		log.Printf("Client %s: Ignoring duplicate response for %v", c.Name, requestID)
-		logger.LogResponse(requestID, sender, payload, map[string]any{"status": "duplicate_ignored"})
+		logger.LogResponse(requestID, sender, payload, response)
 		return map[string]any{"status": "already_completed"}
 	}
 

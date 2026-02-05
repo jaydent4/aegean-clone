@@ -20,7 +20,7 @@ type RequestLogEntry struct {
 	SendTo         string         `json:"send_to"`
 	StatusCode     string         `json:"status_code"`
 	Payload        map[string]any `json:"payload"`
-	ExpectedResult string         `json:"expected_result"`
+	ExpectedResult map[string]any `json:"expected_result"`
 	Timestamp      string         `json:"timestamp"`
 }
 
@@ -56,7 +56,7 @@ func (l *ClientLogger) init() {
 }
 
 // LogRequest logs an outgoing request
-func (l *ClientLogger) LogRequest(requestID any, sendTo string, statusCode string, payload map[string]any, expectedResult string) {
+func (l *ClientLogger) LogRequest(requestID any, sendTo string, statusCode string, payload map[string]any, expectedResult map[string]any) {
 	if l.file == nil {
 		return
 	}
