@@ -43,6 +43,13 @@ func (m *Mixer) getKeys(request map[string]any) (map[string]struct{}, map[string
 		if key, ok := payload["write_key"].(string); ok {
 			writeKeys[key] = struct{}{}
 		}
+	case "spin_write_read":
+		if key, ok := payload["read_key"].(string); ok {
+			readKeys[key] = struct{}{}
+		}
+		if key, ok := payload["write_key"].(string); ok {
+			writeKeys[key] = struct{}{}
+		}
 	}
 
 	return readKeys, writeKeys
