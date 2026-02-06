@@ -7,25 +7,23 @@ import (
 )
 
 type Shim struct {
-	*Node
-	Next         string
+	Name         string
+	NextCh       chan<- map[string]any
 	Clients      []string
 	quorumHelper *common.QuorumHelper
 }
 
-func NewShim(name, host string, port int, next string, clients []string) *Shim {
+func NewShim(name string, nextCh chan<- map[string]any, clients []string) *Shim {
+	if nextCh == nil {
+		log.Fatalf("shim component requires non-nil nextCh")
+	}
 	shim := &Shim{
-		Node:         NewNode(name, host, port),
-		Next:         next,
+		Name:         name,
+		NextCh:       nextCh,
 		Clients:      clients,
 		quorumHelper: common.NewQuorumHelper(2), // TODO: Replace hard-coded value with formula
 	}
-	shim.Node.HandleMessage = shim.HandleMessage
 	return shim
-}
-
-func (s *Shim) Start() {
-	s.Node.Start()
 }
 
 func (s *Shim) HandleMessage(payload map[string]any) map[string]any {
@@ -65,7 +63,11 @@ func (s *Shim) HandleMessage(payload map[string]any) map[string]any {
 	sender, _ := payload["sender"].(string)
 
 	if s.quorumHelper.Add(requestID, sender) {
-		_, _ = common.SendMessage(s.Next, 8000, payload)
+		if s.NextCh != nil {
+			s.NextCh <- payload
+		} else {
+			log.Printf("%s: Next channel not set; dropping request %v", s.Name, requestID)
+		}
 		return map[string]any{"status": "forwarded_to_mid_execs"}
 	}
 	return map[string]any{"status": "waiting_for_quorum"}

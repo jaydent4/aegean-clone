@@ -8,8 +8,11 @@ import (
 )
 
 type Verifier struct {
-	*Node
+	Name  string
 	Execs []string
+	// Local component channel (required)
+	ExecCh    chan<- map[string]any
+	LocalName string
 	// TODO: replace hard-coded values with formulas
 	// Fault tolerance parameters (simplified: u=1, r=0 for CFT)
 	u int
@@ -29,10 +32,18 @@ type Verifier struct {
 	verifyBuffer *common.OOOBuffer[map[string]any]
 }
 
-func NewVerifier(name, host string, port int, execs []string) *Verifier {
+func NewVerifier(name string, execs []string, localName string, execCh chan<- map[string]any) *Verifier {
+	if execCh == nil {
+		log.Fatalf("verifier component requires non-nil execCh")
+	}
+	if localName == "" {
+		log.Fatalf("verifier component requires localName")
+	}
 	v := &Verifier{
-		Node:  NewNode(name, host, port),
+		Name:  name,
 		Execs: execs,
+		LocalName: localName,
+		ExecCh: execCh,
 		// TODO: replace hard-coded values with formulas
 		u:            1,
 		r:            0,
@@ -43,12 +54,7 @@ func NewVerifier(name, host string, port int, execs []string) *Verifier {
 	}
 	v.execQuorum = maxInt(v.u, v.r) + 1
 	v.verifyQuorum = 2*v.u + v.r + 1
-	v.Node.HandleMessage = v.HandleMessage
 	return v
-}
-
-func (v *Verifier) Start() {
-	v.Node.Start()
 }
 
 func (v *Verifier) checkAgreement(seqNum int) (string, string) {
@@ -93,6 +99,10 @@ func (v *Verifier) sendVerifyResponse(seqNum int, decision, token string) {
 	}
 
 	for _, execNode := range v.Execs {
+		if execNode == v.LocalName && v.ExecCh != nil {
+			v.ExecCh <- response
+			continue
+		}
 		if _, err := common.SendMessage(execNode, 8000, response); err != nil {
 			log.Printf("Failed to send to exec %s: %v", execNode, err)
 		}

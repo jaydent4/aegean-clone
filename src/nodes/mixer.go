@@ -4,13 +4,11 @@ import (
 	"log"
 	"sync"
 	"time"
-
-	"aegean/common"
 )
 
 type Mixer struct {
-	*Node
-	Next string
+	Name string
+	NextCh chan<- map[string]any
 	// Origin shim for response routing
 	Shim          string
 	batch         []map[string]any
@@ -21,23 +19,23 @@ type Mixer struct {
 	lastBatchTime time.Time
 }
 
-func NewMixer(name, host string, port int, next, shim string) *Mixer {
+func NewMixer(name string, nextCh chan<- map[string]any) *Mixer {
+	if nextCh == nil {
+		log.Fatalf("mixer component requires non-nil nextCh")
+	}
 	m := &Mixer{
-		Node:          NewNode(name, host, port),
-		Next:          next,
-		Shim:          shim,
+		Name:          name,
+		NextCh:        nextCh,
 		batch:         []map[string]any{},
 		batchSize:     10,
 		batchTimeout:  100 * time.Millisecond,
 		lastBatchTime: time.Now(),
 	}
-	m.Node.HandleMessage = m.HandleMessage
 	return m
 }
 
-func (m *Mixer) Start() {
+func (m *Mixer) StartBatchFlusher() {
 	go m.batchFlusher()
-	m.Node.Start()
 }
 
 func (m *Mixer) batchFlusher() {
@@ -171,7 +169,11 @@ func (m *Mixer) flushBatchLocked() {
 		"nd_timestamp":     float64(time.Now().UnixNano()) / 1e9,
 	}
 
-	_, _ = common.SendMessage(m.Next, 8000, message)
+	if m.NextCh != nil {
+		m.NextCh <- message
+	} else {
+		log.Printf("%s: Next channel not set; dropping batch %d", m.Name, m.seqNum)
+	}
 }
 
 func (m *Mixer) HandleMessage(payload map[string]any) map[string]any {

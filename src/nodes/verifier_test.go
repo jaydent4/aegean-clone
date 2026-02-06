@@ -101,7 +101,8 @@ func TestVerifierCommitOnQuorum(t *testing.T) {
 	ts := startVerifierTestServer(t)
 	defer ts.close()
 
-	v := NewVerifier("ver1", "127.0.0.1", 7002, []string{"127.0.0.1", "127.0.0.1"})
+	execCh := make(chan map[string]any, 16)
+	v := NewVerifier("ver1", []string{"127.0.0.1", "127.0.0.1"}, "ver1", execCh)
 
 	first := v.HandleMessage(map[string]any{
 		"seq_num":   1,
@@ -137,7 +138,8 @@ func TestVerifierRollbackOnDivergence(t *testing.T) {
 	ts := startVerifierTestServer(t)
 	defer ts.close()
 
-	v := NewVerifier("ver1", "127.0.0.1", 7002, []string{"127.0.0.1", "127.0.0.1"})
+	execCh := make(chan map[string]any, 16)
+	v := NewVerifier("ver1", []string{"127.0.0.1", "127.0.0.1"}, "ver1", execCh)
 
 	v.HandleMessage(map[string]any{
 		"seq_num":   2,
@@ -163,7 +165,8 @@ func TestVerifierRollbackOnDivergence(t *testing.T) {
 
 // Prev-hash mismatch for seq>1 is rejected without recording tokens
 func TestVerifierRejectsInvalidPrevHash(t *testing.T) {
-	v := NewVerifier("ver1", "127.0.0.1", 7002, []string{"127.0.0.1"})
+	execCh := make(chan map[string]any, 16)
+	v := NewVerifier("ver1", []string{"127.0.0.1"}, "ver1", execCh)
 	v.committed[1] = "good-prev"
 
 	resp := v.HandleMessage(map[string]any{
@@ -182,7 +185,8 @@ func TestVerifierRejectsInvalidPrevHash(t *testing.T) {
 
 // Requests for an already committed seq return the committed token
 func TestVerifierAlreadyCommitted(t *testing.T) {
-	v := NewVerifier("ver1", "127.0.0.1", 7002, []string{"127.0.0.1"})
+	execCh := make(chan map[string]any, 16)
+	v := NewVerifier("ver1", []string{"127.0.0.1"}, "ver1", execCh)
 	v.committed[3] = "tokC"
 
 	resp := v.HandleMessage(map[string]any{
@@ -201,7 +205,8 @@ func TestVerifierAlreadyCommitted(t *testing.T) {
 
 // Duplicate exec IDs do not increase quorum counts
 func TestVerifierIgnoresDuplicateExecID(t *testing.T) {
-	v := NewVerifier("ver1", "127.0.0.1", 7002, []string{"127.0.0.1", "127.0.0.1"})
+	execCh := make(chan map[string]any, 16)
+	v := NewVerifier("ver1", []string{"127.0.0.1", "127.0.0.1"}, "ver1", execCh)
 
 	first := v.HandleMessage(map[string]any{
 		"seq_num":   4,
@@ -229,7 +234,8 @@ func TestVerifierIgnoresDuplicateExecID(t *testing.T) {
 
 // Without quorum and without responses from all execs, verifier waits
 func TestVerifierWaitsWithoutQuorum(t *testing.T) {
-	v := NewVerifier("ver1", "127.0.0.1", 7002, []string{"e1", "e2", "e3"})
+	execCh := make(chan map[string]any, 16)
+	v := NewVerifier("ver1", []string{"e1", "e2", "e3"}, "ver1", execCh)
 
 	resp := v.HandleMessage(map[string]any{
 		"seq_num":   5,
@@ -247,7 +253,8 @@ func TestVerifierAcceptsPrevHashWhenMatching(t *testing.T) {
 	ts := startVerifierTestServer(t)
 	defer ts.close()
 
-	v := NewVerifier("ver1", "127.0.0.1", 7002, []string{"127.0.0.1", "127.0.0.1"})
+	execCh := make(chan map[string]any, 16)
+	v := NewVerifier("ver1", []string{"127.0.0.1", "127.0.0.1"}, "ver1", execCh)
 	v.committed[1] = "prev-ok"
 
 	v.HandleMessage(map[string]any{
@@ -273,7 +280,8 @@ func TestVerifierCommitsWithLowestQuorum(t *testing.T) {
 	ts := startVerifierTestServer(t)
 	defer ts.close()
 
-	v := NewVerifier("ver1", "127.0.0.1", 7002, []string{"127.0.0.1", "127.0.0.1", "127.0.0.1"})
+	execCh := make(chan map[string]any, 16)
+	v := NewVerifier("ver1", []string{"127.0.0.1", "127.0.0.1", "127.0.0.1"}, "ver1", execCh)
 	v.HandleMessage(map[string]any{
 		"seq_num":   6,
 		"token":     "tokA",
@@ -297,7 +305,8 @@ func TestVerifierConcurrentSameSeqCommit(t *testing.T) {
 	ts := startVerifierTestServer(t)
 	defer ts.close()
 
-	v := NewVerifier("ver1", "127.0.0.1", 7002, []string{"127.0.0.1", "127.0.0.1"})
+	execCh := make(chan map[string]any, 16)
+	v := NewVerifier("ver1", []string{"127.0.0.1", "127.0.0.1"}, "ver1", execCh)
 
 	v.HandleMessage(map[string]any{
 		"seq_num":   8,
@@ -334,7 +343,8 @@ func TestVerifierInterleavedSequencesRespectPrevHash(t *testing.T) {
 	ts := startVerifierTestServer(t)
 	defer ts.close()
 
-	v := NewVerifier("ver1", "127.0.0.1", 7002, []string{"127.0.0.1", "127.0.0.1"})
+	execCh := make(chan map[string]any, 16)
+	v := NewVerifier("ver1", []string{"127.0.0.1", "127.0.0.1"}, "ver1", execCh)
 
 	// Seq 1 commit
 	v.HandleMessage(map[string]any{
@@ -387,7 +397,8 @@ func TestVerifierDelayedSecondTokenCommits(t *testing.T) {
 	ts := startVerifierTestServer(t)
 	defer ts.close()
 
-	v := NewVerifier("ver1", "127.0.0.1", 7002, []string{"127.0.0.1", "127.0.0.1"})
+	execCh := make(chan map[string]any, 16)
+	v := NewVerifier("ver1", []string{"127.0.0.1", "127.0.0.1"}, "ver1", execCh)
 
 	first := v.HandleMessage(map[string]any{
 		"seq_num":   9,
@@ -420,7 +431,8 @@ func TestVerifierBuffersUntilPrevCommitted(t *testing.T) {
 	ts := startVerifierTestServer(t)
 	defer ts.close()
 
-	v := NewVerifier("ver1", "127.0.0.1", 7002, []string{"127.0.0.1", "127.0.0.1"})
+	execCh := make(chan map[string]any, 16)
+	v := NewVerifier("ver1", []string{"127.0.0.1", "127.0.0.1"}, "ver1", execCh)
 
 	// Buffer seq 2 tokens that depend on seq 1
 	resp1 := v.HandleMessage(map[string]any{

@@ -85,22 +85,28 @@ func makeSpinRequest(id string, writeKey string, writeValue string, readKey stri
 	}
 }
 
+func makeParallelBatches(requests ...map[string]any) [][]map[string]any {
+	return [][]map[string]any{requests}
+}
+
+func newTestExec(name string, verifiers []string, peers []string) (*Exec, chan map[string]any, chan map[string]any) {
+	verifierCh := make(chan map[string]any, 64)
+	shimCh := make(chan map[string]any, 64)
+	exec := NewExec(name, verifiers, peers, name, verifierCh, shimCh)
+	return exec, verifierCh, shimCh
+}
+
 // Executes a batch, records a snapshot, and emits a verify message with the computed token
 func TestExecHandleBatchSendsVerifyAndTracksPending(t *testing.T) {
-	ts := startTestServer(t, nil)
-	defer ts.close()
-
-	exec := NewExec("exec1", "127.0.0.1", 7001, []string{"127.0.0.1"}, "127.0.0.1", nil)
+	exec, verifierCh, _ := newTestExec("exec1", []string{"exec1"}, nil)
 
 	payload := map[string]any{
 		"type":    "batch",
 		"seq_num": 1,
-		"parallel_batches": []any{
-			[]any{
-				makeSpinRequest("r1", "k1", "v1", "1"),
-				makeSpinRequest("r2", "k2", "v2", "k1"),
-			},
-		},
+		"parallel_batches": makeParallelBatches(
+			makeSpinRequest("r1", "k1", "v1", "1"),
+			makeSpinRequest("r2", "k2", "v2", "k1"),
+		),
 		"nd_seed":      int64(7),
 		"nd_timestamp": float64(123.45),
 	}
@@ -127,7 +133,7 @@ func TestExecHandleBatchSendsVerifyAndTracksPending(t *testing.T) {
 		t.Fatalf("expected pending state to be a snapshot, but it was mutated")
 	}
 
-	verifyMsg := expectMessage(t, ts.received, "verify")
+	verifyMsg := expectMessage(t, verifierCh, "verify")
 	if verifyMsg["seq_num"] != float64(1) && verifyMsg["seq_num"] != 1 {
 		t.Fatalf("expected verify seq_num 1, got %v", verifyMsg["seq_num"])
 	}
@@ -141,20 +147,15 @@ func TestExecHandleBatchSendsVerifyAndTracksPending(t *testing.T) {
 
 // Commit decision stabilizes state/prev-hash and releases responses to the shim
 func TestExecVerifyCommitStabilizesAndResponds(t *testing.T) {
-	ts := startTestServer(t, nil)
-	defer ts.close()
-
-	exec := NewExec("exec1", "127.0.0.1", 7001, []string{"127.0.0.1"}, "127.0.0.1", nil)
+	exec, _, shimCh := newTestExec("exec1", []string{"exec1"}, nil)
 
 	payload := map[string]any{
 		"type":    "batch",
 		"seq_num": 2,
-		"parallel_batches": []any{
-			[]any{
-				makeSpinRequest("r1", "k1", "v1", "1"),
-				makeSpinRequest("r2", "k2", "v2", "k1"),
-			},
-		},
+		"parallel_batches": makeParallelBatches(
+			makeSpinRequest("r1", "k1", "v1", "1"),
+			makeSpinRequest("r2", "k2", "v2", "k1"),
+		),
 	}
 	exec.handleBatch(payload)
 
@@ -184,8 +185,8 @@ func TestExecVerifyCommitStabilizesAndResponds(t *testing.T) {
 	}
 
 	// Expect two response messages sent to shim
-	resp1 := expectMessage(t, ts.received, "response")
-	resp2 := expectMessage(t, ts.received, "response")
+	resp1 := expectMessage(t, shimCh, "response")
+	resp2 := expectMessage(t, shimCh, "response")
 	_ = resp1
 	_ = resp2
 }
@@ -206,7 +207,7 @@ func TestExecVerifyMismatchTriggersStateTransfer(t *testing.T) {
 	})
 	defer ts.close()
 
-	exec := NewExec("exec1", "127.0.0.1", 7001, []string{"127.0.0.1"}, "127.0.0.1", []string{"127.0.0.1"})
+	exec, _, _ := newTestExec("exec1", []string{"exec1"}, []string{"127.0.0.1"})
 	exec.stableSeqNum = 1
 	exec.stableState = map[string]string{"x": "1"}
 	exec.kvStore = copyStringMap(exec.stableState)
@@ -214,9 +215,9 @@ func TestExecVerifyMismatchTriggersStateTransfer(t *testing.T) {
 	payload := map[string]any{
 		"type":    "batch",
 		"seq_num": 2,
-		"parallel_batches": []any{
-			[]any{makeSpinRequest("r1", "k1", "v1", "1")},
-		},
+		"parallel_batches": makeParallelBatches(
+			makeSpinRequest("r1", "k1", "v1", "1"),
+		),
 	}
 	exec.handleBatch(payload)
 
@@ -246,17 +247,14 @@ func TestExecVerifyMismatchTriggersStateTransfer(t *testing.T) {
 
 // Out-of-order batches are buffered until the missing seq arrives
 func TestExecBuffersOutOfOrderBatches(t *testing.T) {
-	ts := startTestServer(t, nil)
-	defer ts.close()
-
-	exec := NewExec("exec1", "127.0.0.1", 7001, []string{"127.0.0.1"}, "127.0.0.1", nil)
+	exec, _, _ := newTestExec("exec1", []string{"exec1"}, nil)
 
 	batch2 := map[string]any{
 		"type":    "batch",
 		"seq_num": 2,
-		"parallel_batches": []any{
-			[]any{makeSpinRequest("r2", "k2", "v2", "1")},
-		},
+		"parallel_batches": makeParallelBatches(
+			makeSpinRequest("r2", "k2", "v2", "1"),
+		),
 	}
 	resp2 := exec.HandleMessage(batch2)
 	if resp2["status"] != "buffered" {
@@ -269,9 +267,9 @@ func TestExecBuffersOutOfOrderBatches(t *testing.T) {
 	batch1 := map[string]any{
 		"type":    "batch",
 		"seq_num": 1,
-		"parallel_batches": []any{
-			[]any{makeSpinRequest("r1", "k1", "v1", "1")},
-		},
+		"parallel_batches": makeParallelBatches(
+			makeSpinRequest("r1", "k1", "v1", "1"),
+		),
 	}
 	exec.HandleMessage(batch1)
 
@@ -282,15 +280,11 @@ func TestExecBuffersOutOfOrderBatches(t *testing.T) {
 		t.Fatalf("expected pending response for seq 2 after flush")
 	}
 
-	_ = ts
 }
 
 // Verify responses arriving before their batches are buffered and flushed later
 func TestExecBuffersVerifyBeforeBatch(t *testing.T) {
-	ts := startTestServer(t, nil)
-	defer ts.close()
-
-	exec := NewExec("exec1", "127.0.0.1", 7001, []string{"127.0.0.1"}, "127.0.0.1", nil)
+	exec, _, _ := newTestExec("exec1", []string{"exec1"}, nil)
 
 	verifyResp := map[string]any{
 		"type":     "verify_response",
@@ -306,9 +300,9 @@ func TestExecBuffersVerifyBeforeBatch(t *testing.T) {
 	batch1 := map[string]any{
 		"type":    "batch",
 		"seq_num": 1,
-		"parallel_batches": []any{
-			[]any{makeSpinRequest("r1", "k1", "v1", "1")},
-		},
+		"parallel_batches": makeParallelBatches(
+			makeSpinRequest("r1", "k1", "v1", "1"),
+		),
 	}
 	exec.HandleMessage(batch1)
 
@@ -327,16 +321,16 @@ func TestExecVerifyMismatchFallbackRollback(t *testing.T) {
 	})
 	defer ts.close()
 
-	exec := NewExec("exec1", "127.0.0.1", 7001, []string{"127.0.0.1"}, "127.0.0.1", []string{"127.0.0.1"})
+	exec, _, _ := newTestExec("exec1", []string{"exec1"}, []string{"127.0.0.1"})
 	exec.stableState = map[string]string{"stable": "yes"}
 	exec.kvStore = map[string]string{"dirty": "no"}
 
 	payload := map[string]any{
 		"type":    "batch",
 		"seq_num": 3,
-		"parallel_batches": []any{
-			[]any{makeSpinRequest("r1", "k1", "v1", "1")},
-		},
+		"parallel_batches": makeParallelBatches(
+			makeSpinRequest("r1", "k1", "v1", "1"),
+		),
 	}
 	exec.handleBatch(payload)
 
@@ -360,7 +354,7 @@ func TestExecVerifyMismatchFallbackRollback(t *testing.T) {
 
 // Rollback decision reverts to stable state and forces sequential execution
 func TestExecRollbackDecisionForcesSequential(t *testing.T) {
-	exec := NewExec("exec1", "127.0.0.1", 7001, nil, "127.0.0.1", nil)
+	exec, _, _ := newTestExec("exec1", nil, nil)
 	exec.stableState = map[string]string{"stable": "yes"}
 	exec.kvStore = map[string]string{"dirty": "no"}
 	exec.pendingResponses[4] = pendingResponse{
@@ -388,7 +382,7 @@ func TestExecRollbackDecisionForcesSequential(t *testing.T) {
 
 // Hashing is deterministic across different map insertion orders
 func TestComputeStateHashDeterministicOrdering(t *testing.T) {
-	exec := NewExec("exec1", "127.0.0.1", 7001, nil, "127.0.0.1", nil)
+	exec, _, _ := newTestExec("exec1", nil, nil)
 
 	stateA := map[string]string{}
 	stateA["b"] = "2"

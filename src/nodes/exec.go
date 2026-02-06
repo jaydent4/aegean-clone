@@ -9,6 +9,7 @@ import (
 	"log"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"aegean/common"
@@ -21,11 +22,16 @@ type pendingResponse struct {
 }
 
 type Exec struct {
-	*Node
+	Name      string
+	ExecID    string
 	Verifiers []string
-	Shim      string
 	Peers     []string
-	kvStore   map[string]string
+	// Local component channels
+	VerifierCh chan<- map[string]any
+	ShimCh     chan<- map[string]any
+	LocalName  string
+	kvStore    map[string]string
+	mu         sync.Mutex
 	// State management for rollback
 	stableState  map[string]string
 	stableSeqNum int
@@ -43,12 +49,21 @@ type Exec struct {
 
 // TODO: request pipelining, parallel pipelining
 // TODO: implement locking
-func NewExec(name, host string, port int, verifiers []string, shim string, peers []string) *Exec {
+func NewExec(name string, verifiers []string, peers []string, localName string, verifierCh chan<- map[string]any, shimCh chan<- map[string]any) *Exec {
+	if verifierCh == nil || shimCh == nil {
+		log.Fatalf("exec component requires non-nil channels")
+	}
+	if localName == "" {
+		log.Fatalf("exec component requires localName")
+	}
 	exec := &Exec{
-		Node:             NewNode(name, host, port),
+		Name:             name,
+		ExecID:           name,
 		Verifiers:        verifiers,
-		Shim:             shim,
 		Peers:            peers,
+		LocalName:        localName,
+		VerifierCh:       verifierCh,
+		ShimCh:           shimCh,
 		kvStore:          map[string]string{"1": "111"},
 		stableSeqNum:     0,
 		prevHash:         strings.Repeat("0", 64),
@@ -59,12 +74,7 @@ func NewExec(name, host string, port int, verifiers []string, shim string, peers
 		nextVerifySeq:    1,
 	}
 	exec.stableState = copyStringMap(exec.kvStore)
-	exec.Node.HandleMessage = exec.HandleMessage
 	return exec
-}
-
-func (e *Exec) Start() {
-	e.Node.Start()
 }
 
 func (e *Exec) computeStateHash(state map[string]string, outputs []map[string]any, prevHash string, seqNum int) string {
@@ -173,7 +183,10 @@ func (e *Exec) flushNextBatch() bool {
 }
 
 func (e *Exec) flushNextVerify() bool {
-	if _, ok := e.pendingResponses[e.nextVerifySeq]; !ok {
+	e.mu.Lock()
+	_, ok := e.pendingResponses[e.nextVerifySeq]
+	e.mu.Unlock()
+	if !ok {
 		return false
 	}
 	msgs := e.verifyBuffer.Pop(e.nextVerifySeq)
@@ -189,29 +202,26 @@ func (e *Exec) flushNextVerify() bool {
 
 func (e *Exec) handleBatch(payload map[string]any) map[string]any {
 	seqNum := getInt(payload, "seq_num")
-	parallelBatches := getSlice(payload, "parallel_batches")
+	parallelBatchesAny, _ := payload["parallel_batches"]
 	ndSeed := getInt64(payload, "nd_seed")
 	ndTimestamp := getFloat(payload, "nd_timestamp")
 	if ndTimestamp == 0 {
 		ndTimestamp = float64(time.Now().UnixNano()) / 1e9
 	}
 
+	parallelBatches, ok := parallelBatchesAny.([][]map[string]any)
+	if !ok {
+		log.Printf("%s: Invalid parallel_batches type %T", e.Name, parallelBatchesAny)
+		return map[string]any{"status": "error", "error": "invalid parallel_batches"}
+	}
 	log.Printf("%s: Executing batch %d with %d parallelBatches", e.Name, seqNum, len(parallelBatches))
 
 	// Execute all parallelBatches and collect outputs
 	outputs := make([]map[string]any, 0)
 	for _, pbAny := range parallelBatches {
-		pbSlice, ok := pbAny.([]any)
-		if !ok {
-			continue
-		}
-		for _, reqAny := range pbSlice {
+		for _, reqMap := range pbAny {
 			// TODO: In prototype, execute sequentially within parallelBatch
 			// (Real impl would use threading for parallel execution)
-			reqMap, ok := reqAny.(map[string]any)
-			if !ok {
-				continue
-			}
 			output := e.executeRequest(reqMap, ndSeed, ndTimestamp)
 			outputs = append(outputs, output)
 		}
@@ -219,11 +229,13 @@ func (e *Exec) handleBatch(payload map[string]any) map[string]any {
 
 	// Compute token (hash of state + outputs)
 	token := e.computeStateHash(e.kvStore, outputs, e.prevHash, seqNum)
+	e.mu.Lock()
 	e.pendingResponses[seqNum] = pendingResponse{
 		outputs: outputs,
 		state:   copyStringMap(e.kvStore),
 		token:   token,
 	}
+	e.mu.Unlock()
 
 	// Send VERIFY message to all verifiers
 	verifyMsg := map[string]any{
@@ -231,10 +243,14 @@ func (e *Exec) handleBatch(payload map[string]any) map[string]any {
 		"seq_num":   seqNum,
 		"token":     token,
 		"prev_hash": e.prevHash,
-		"exec_id":   e.Name,
+		"exec_id":   e.ExecID,
 	}
 
 	for _, verifier := range e.Verifiers {
+		if verifier == e.LocalName && e.VerifierCh != nil {
+			e.VerifierCh <- verifyMsg
+			continue
+		}
 		if _, err := common.SendMessage(verifier, 8000, verifyMsg); err != nil {
 			log.Printf("Failed to send to verifier %s: %v", verifier, err)
 		}
@@ -248,8 +264,14 @@ func (e *Exec) handleVerifyResponse(payload map[string]any) map[string]any {
 	seqNum := getInt(payload, "seq_num")
 	agreedToken, _ := payload["token"].(string)
 
+	e.mu.Lock()
+	if seqNum <= e.stableSeqNum {
+		e.mu.Unlock()
+		return map[string]any{"status": "already_committed", "seq_num": seqNum}
+	}
 	pending, ok := e.pendingResponses[seqNum]
 	if !ok {
+		e.mu.Unlock()
 		return map[string]any{"status": "no_pending_for_seq"}
 	}
 
@@ -262,21 +284,28 @@ func (e *Exec) handleVerifyResponse(payload map[string]any) map[string]any {
 			e.stableState = copyStringMap(pending.state)
 			e.stableSeqNum = seqNum
 			e.forceSequential = false
+			e.prevHash = agreedToken
+			delete(e.pendingResponses, seqNum)
+			outputs := pending.outputs
+			e.mu.Unlock()
 
 			// Send responses back to the server-shim for broadcasting to clients
-			for _, output := range pending.outputs {
+			for _, output := range outputs {
 				requestID := output["request_id"]
 				responseMsg := map[string]any{
 					"type":       "response",
 					"request_id": requestID,
 					"response":   output,
 				}
-				_, _ = common.SendMessage(e.Shim, 8000, responseMsg)
-				log.Printf("%s: Sent response for request %v to shim %s", e.Name, requestID, e.Shim)
+				if e.ShimCh != nil {
+					e.ShimCh <- responseMsg
+				}
+				log.Printf("%s: Sent response for request %v to shim", e.Name, requestID)
 			}
-
-			e.prevHash = agreedToken
+			return map[string]any{"status": "processed", "decision": decision}
 		} else {
+			delete(e.pendingResponses, seqNum)
+			e.mu.Unlock()
 			// TODO: rollback? (I guess we need to introduce parallel pipelining first)
 			// Our state diverged - need state transfer from a replica with correct state
 			log.Printf("%s: State diverged at seq_num %d, requesting state transfer", e.Name, seqNum)
@@ -293,11 +322,15 @@ func (e *Exec) handleVerifyResponse(payload map[string]any) map[string]any {
 		log.Printf("%s: Rolling back to seq_num %d", e.Name, e.stableSeqNum)
 		e.kvStore = copyStringMap(e.stableState)
 		e.forceSequential = true
+		delete(e.pendingResponses, seqNum)
+		e.mu.Unlock()
 		log.Printf("%s: Will execute next batch sequentially", e.Name)
+		return map[string]any{"status": "processed", "decision": decision}
+	default:
+		e.mu.Unlock()
 	}
 
 	// Cleanup
-	delete(e.pendingResponses, seqNum)
 	return map[string]any{"status": "processed", "decision": decision}
 }
 
@@ -441,14 +474,6 @@ func getInt64(m map[string]any, key string) int64 {
 	return 0
 }
 
-func getSlice(m map[string]any, key string) []any {
-	if value, ok := m[key]; ok {
-		if slice, ok := value.([]any); ok {
-			return slice
-		}
-	}
-	return []any{}
-}
 
 // marshalSorted produces JSON with sorted keys to match Python's json.dumps(sort_keys=True)
 func marshalSorted(v any) []byte {

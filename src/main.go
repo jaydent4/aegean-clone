@@ -33,14 +33,8 @@ func main() {
 	switch cfg.Type {
 	case "client":
 		node = nodes.NewClient(*name, *host, *port, cfg.Next)
-	case "shim":
-		node = nodes.NewShim(*name, *host, *port, first(cfg.Next), cfg.Clients)
-	case "mixer":
-		node = nodes.NewMixer(*name, *host, *port, first(cfg.Next), cfg.Shim)
-	case "exec":
-		node = nodes.NewExec(*name, *host, *port, cfg.Verifiers, cfg.Shim, cfg.Peers)
-	case "verifier":
-		node = nodes.NewVerifier(*name, *host, *port, cfg.Execs)
+	case "server":
+		node = nodes.NewServer(*name, *host, *port, cfg.Clients, cfg.Verifiers, cfg.Peers, cfg.Execs)
 	default:
 		log.Fatalf("unrecognized node type: %s", cfg.Type)
 	}
