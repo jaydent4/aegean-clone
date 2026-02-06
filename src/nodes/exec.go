@@ -126,48 +126,39 @@ func (e *Exec) executeRequest(request map[string]any, ndSeed int64, ndTimestamp 
 	return response
 }
 
-func (e *Exec) HandleMessage(payload map[string]any) map[string]any {
+func (e *Exec) HandleBatchMessage(payload map[string]any) map[string]any {
 	log.Printf("Handler called on %s with payload: %v", e.Name, payload)
-
-	msgType, _ := payload["type"].(string)
-	if msgType == "" {
-		msgType = "batch"
-	}
-
-	switch msgType {
-	// For both verify_response and batch, apply a buffer + flush processing style
-	// since messages can arrive out-of-order
-	case "verify_response":
-		// TODO: Buffer then respond, run the flushing in a goroutine, so that mixer can stop waiting for a response
-		seqNum := getInt(payload, "seq_num")
-		e.verifyBuffer.Add(seqNum, payload)
-		for {
-			if !e.flushNextVerify() {
-				break
-			}
+	seqNum := getInt(payload, "seq_num")
+	e.batchBuffer.Add(seqNum, payload)
+	for {
+		progressed := false
+		if e.flushNextBatch() {
+			progressed = true
 		}
-		return map[string]any{"status": "buffered", "seq_num": seqNum}
-	case "batch":
-		seqNum := getInt(payload, "seq_num")
-		e.batchBuffer.Add(seqNum, payload)
-		for {
-			progressed := false
-			if e.flushNextBatch() {
-				progressed = true
-			}
-			if e.flushNextVerify() {
-				progressed = true
-			}
-			if !progressed {
-				break
-			}
+		if e.flushNextVerify() {
+			progressed = true
 		}
-		return map[string]any{"status": "buffered", "seq_num": seqNum}
-	case "state_transfer_request":
-		return e.handleStateTransferRequest(payload)
-	default:
-		return map[string]any{"status": "error", "error": fmt.Sprintf("Unknown message type: %s", msgType)}
+		if !progressed {
+			break
+		}
 	}
+	return map[string]any{"status": "buffered", "seq_num": seqNum}
+}
+
+func (e *Exec) HandleVerifyResponseMessage(payload map[string]any) map[string]any {
+	log.Printf("Handler called on %s with payload: %v", e.Name, payload)
+	seqNum := getInt(payload, "seq_num")
+	e.verifyBuffer.Add(seqNum, payload)
+	for {
+		if !e.flushNextVerify() {
+			break
+		}
+	}
+	return map[string]any{"status": "buffered", "seq_num": seqNum}
+}
+
+func (e *Exec) HandleStateTransferRequestMessage(payload map[string]any) map[string]any {
+	return e.handleStateTransferRequest(payload)
 }
 
 func (e *Exec) flushNextBatch() bool {

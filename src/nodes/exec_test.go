@@ -256,7 +256,7 @@ func TestExecBuffersOutOfOrderBatches(t *testing.T) {
 			makeSpinRequest("r2", "k2", "v2", "1"),
 		),
 	}
-	resp2 := exec.HandleMessage(batch2)
+	resp2 := exec.HandleBatchMessage(batch2)
 	if resp2["status"] != "buffered" {
 		t.Fatalf("expected buffered status for seq 2, got %v", resp2["status"])
 	}
@@ -271,7 +271,7 @@ func TestExecBuffersOutOfOrderBatches(t *testing.T) {
 			makeSpinRequest("r1", "k1", "v1", "1"),
 		),
 	}
-	exec.HandleMessage(batch1)
+	exec.HandleBatchMessage(batch1)
 
 	if _, ok := exec.pendingResponses[1]; !ok {
 		t.Fatalf("expected pending response for seq 1 after flush")
@@ -292,7 +292,7 @@ func TestExecBuffersVerifyBeforeBatch(t *testing.T) {
 		"decision": "commit",
 		"token":    "mismatch-token",
 	}
-	resp := exec.HandleMessage(verifyResp)
+	resp := exec.HandleVerifyResponseMessage(verifyResp)
 	if resp["status"] != "buffered" {
 		t.Fatalf("expected buffered status for verify response, got %v", resp["status"])
 	}
@@ -304,7 +304,7 @@ func TestExecBuffersVerifyBeforeBatch(t *testing.T) {
 			makeSpinRequest("r1", "k1", "v1", "1"),
 		),
 	}
-	exec.HandleMessage(batch1)
+	exec.HandleBatchMessage(batch1)
 
 	if _, ok := exec.pendingResponses[1]; ok {
 		t.Fatalf("expected pending response cleared after buffered verify flush")

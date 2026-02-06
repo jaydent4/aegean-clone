@@ -56,31 +56,31 @@ func (s *Server) Start() {
 	// Wire component loops
 	go func() {
 		for msg := range s.shimToMixer {
-			s.Mixer.HandleMessage(msg)
+			s.Mixer.HandleRequestMessage(msg)
 		}
 	}()
 
 	go func() {
 		for msg := range s.mixerToExec {
-			s.Exec.HandleMessage(msg)
+			s.Exec.HandleBatchMessage(msg)
 		}
 	}()
 
 	go func() {
 		for msg := range s.execToVerifier {
-			s.Verifier.HandleMessage(msg)
+			s.Verifier.HandleVerifyMessage(msg)
 		}
 	}()
 
 	go func() {
 		for msg := range s.verifierToExec {
-			s.Exec.HandleMessage(msg)
+			s.Exec.HandleVerifyResponseMessage(msg)
 		}
 	}()
 
 	go func() {
 		for msg := range s.execToShim {
-			s.Shim.HandleMessage(msg)
+			s.Shim.HandleResponseMessage(msg)
 		}
 	}()
 
@@ -91,20 +91,16 @@ func (s *Server) HandleMessage(payload map[string]any) map[string]any {
 	// Route by message type to the correct component
 	msgType, _ := payload["type"].(string)
 	if msgType == "" || msgType == "request" {
-		return s.Shim.HandleMessage(payload)
+		return s.Shim.HandleRequestMessage(payload)
 	}
 
 	switch msgType {
 	case "verify":
-		return s.Verifier.HandleMessage(payload)
+		return s.Verifier.HandleVerifyMessage(payload)
 	case "verify_response":
-		return s.Exec.HandleMessage(payload)
+		return s.Exec.HandleVerifyResponseMessage(payload)
 	case "state_transfer_request":
-		return s.Exec.HandleMessage(payload)
-	case "batch":
-		return s.Exec.HandleMessage(payload)
-	case "response":
-		return s.Shim.HandleMessage(payload)
+		return s.Exec.HandleStateTransferRequestMessage(payload)
 	default:
 		return map[string]any{"status": "error", "error": "unknown message type"}
 	}

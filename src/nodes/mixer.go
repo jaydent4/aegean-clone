@@ -176,7 +176,7 @@ func (m *Mixer) flushBatchLocked() {
 	}
 }
 
-func (m *Mixer) HandleMessage(payload map[string]any) map[string]any {
+func (m *Mixer) HandleRequestMessage(payload map[string]any) map[string]any {
 	log.Printf("Handler called on %s with payload: %v", m.Name, payload)
 
 	m.mu.Lock()

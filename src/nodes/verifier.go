@@ -111,7 +111,7 @@ func (v *Verifier) sendVerifyResponse(seqNum int, decision, token string) {
 
 // TODO: Any of out-of-order issues?
 // TODO: State transfer is unimplemented?
-func (v *Verifier) HandleMessage(payload map[string]any) map[string]any {
+func (v *Verifier) HandleVerifyMessage(payload map[string]any) map[string]any {
 	log.Printf("Handler called on %s with payload: %v", v.Name, payload)
 
 	seqNum := getInt(payload, "seq_num")

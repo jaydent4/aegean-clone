@@ -104,7 +104,7 @@ func TestVerifierCommitOnQuorum(t *testing.T) {
 	execCh := make(chan map[string]any, 16)
 	v := NewVerifier("ver1", []string{"127.0.0.1", "127.0.0.1"}, "ver1", execCh)
 
-	first := v.HandleMessage(map[string]any{
+	first := v.HandleVerifyMessage(map[string]any{
 		"seq_num":   1,
 		"token":     "tokA",
 		"prev_hash": "",
@@ -114,7 +114,7 @@ func TestVerifierCommitOnQuorum(t *testing.T) {
 		t.Fatalf("expected waiting after first token, got %v", first["status"])
 	}
 
-	second := v.HandleMessage(map[string]any{
+	second := v.HandleVerifyMessage(map[string]any{
 		"seq_num":   1,
 		"token":     "tokA",
 		"prev_hash": "",
@@ -141,13 +141,13 @@ func TestVerifierRollbackOnDivergence(t *testing.T) {
 	execCh := make(chan map[string]any, 16)
 	v := NewVerifier("ver1", []string{"127.0.0.1", "127.0.0.1"}, "ver1", execCh)
 
-	v.HandleMessage(map[string]any{
+	v.HandleVerifyMessage(map[string]any{
 		"seq_num":   2,
 		"token":     "tokA",
 		"prev_hash": "",
 		"exec_id":   "exec1",
 	})
-	resp := v.HandleMessage(map[string]any{
+	resp := v.HandleVerifyMessage(map[string]any{
 		"seq_num":   2,
 		"token":     "tokB",
 		"prev_hash": "",
@@ -169,7 +169,7 @@ func TestVerifierRejectsInvalidPrevHash(t *testing.T) {
 	v := NewVerifier("ver1", []string{"127.0.0.1"}, "ver1", execCh)
 	v.committed[1] = "good-prev"
 
-	resp := v.HandleMessage(map[string]any{
+	resp := v.HandleVerifyMessage(map[string]any{
 		"seq_num":   2,
 		"token":     "tokA",
 		"prev_hash": "bad-prev",
@@ -189,7 +189,7 @@ func TestVerifierAlreadyCommitted(t *testing.T) {
 	v := NewVerifier("ver1", []string{"127.0.0.1"}, "ver1", execCh)
 	v.committed[3] = "tokC"
 
-	resp := v.HandleMessage(map[string]any{
+	resp := v.HandleVerifyMessage(map[string]any{
 		"seq_num":   3,
 		"token":     "tokX",
 		"prev_hash": "",
@@ -208,7 +208,7 @@ func TestVerifierIgnoresDuplicateExecID(t *testing.T) {
 	execCh := make(chan map[string]any, 16)
 	v := NewVerifier("ver1", []string{"127.0.0.1", "127.0.0.1"}, "ver1", execCh)
 
-	first := v.HandleMessage(map[string]any{
+	first := v.HandleVerifyMessage(map[string]any{
 		"seq_num":   4,
 		"token":     "tokA",
 		"prev_hash": "",
@@ -218,7 +218,7 @@ func TestVerifierIgnoresDuplicateExecID(t *testing.T) {
 		t.Fatalf("expected waiting, got %v", first["status"])
 	}
 
-	second := v.HandleMessage(map[string]any{
+	second := v.HandleVerifyMessage(map[string]any{
 		"seq_num":   4,
 		"token":     "tokA",
 		"prev_hash": "",
@@ -237,7 +237,7 @@ func TestVerifierWaitsWithoutQuorum(t *testing.T) {
 	execCh := make(chan map[string]any, 16)
 	v := NewVerifier("ver1", []string{"e1", "e2", "e3"}, "ver1", execCh)
 
-	resp := v.HandleMessage(map[string]any{
+	resp := v.HandleVerifyMessage(map[string]any{
 		"seq_num":   5,
 		"token":     "tokA",
 		"prev_hash": "",
@@ -257,13 +257,13 @@ func TestVerifierAcceptsPrevHashWhenMatching(t *testing.T) {
 	v := NewVerifier("ver1", []string{"127.0.0.1", "127.0.0.1"}, "ver1", execCh)
 	v.committed[1] = "prev-ok"
 
-	v.HandleMessage(map[string]any{
+	v.HandleVerifyMessage(map[string]any{
 		"seq_num":   2,
 		"token":     "tokA",
 		"prev_hash": "prev-ok",
 		"exec_id":   "exec1",
 	})
-	resp := v.HandleMessage(map[string]any{
+	resp := v.HandleVerifyMessage(map[string]any{
 		"seq_num":   2,
 		"token":     "tokA",
 		"prev_hash": "prev-ok",
@@ -282,13 +282,13 @@ func TestVerifierCommitsWithLowestQuorum(t *testing.T) {
 
 	execCh := make(chan map[string]any, 16)
 	v := NewVerifier("ver1", []string{"127.0.0.1", "127.0.0.1", "127.0.0.1"}, "ver1", execCh)
-	v.HandleMessage(map[string]any{
+	v.HandleVerifyMessage(map[string]any{
 		"seq_num":   6,
 		"token":     "tokA",
 		"prev_hash": "",
 		"exec_id":   "exec1",
 	})
-	resp := v.HandleMessage(map[string]any{
+	resp := v.HandleVerifyMessage(map[string]any{
 		"seq_num":   6,
 		"token":     "tokA",
 		"prev_hash": "",
@@ -308,13 +308,13 @@ func TestVerifierConcurrentSameSeqCommit(t *testing.T) {
 	execCh := make(chan map[string]any, 16)
 	v := NewVerifier("ver1", []string{"127.0.0.1", "127.0.0.1"}, "ver1", execCh)
 
-	v.HandleMessage(map[string]any{
+	v.HandleVerifyMessage(map[string]any{
 		"seq_num":   8,
 		"token":     "tokA",
 		"prev_hash": "",
 		"exec_id":   "exec1",
 	})
-	v.HandleMessage(map[string]any{
+	v.HandleVerifyMessage(map[string]any{
 		"seq_num":   8,
 		"token":     "tokA",
 		"prev_hash": "",
@@ -327,7 +327,7 @@ func TestVerifierConcurrentSameSeqCommit(t *testing.T) {
 	}
 
 	// Late divergent token should be ignored as already committed
-	late := v.HandleMessage(map[string]any{
+	late := v.HandleVerifyMessage(map[string]any{
 		"seq_num":   8,
 		"token":     "tokB",
 		"prev_hash": "",
@@ -347,13 +347,13 @@ func TestVerifierInterleavedSequencesRespectPrevHash(t *testing.T) {
 	v := NewVerifier("ver1", []string{"127.0.0.1", "127.0.0.1"}, "ver1", execCh)
 
 	// Seq 1 commit
-	v.HandleMessage(map[string]any{
+	v.HandleVerifyMessage(map[string]any{
 		"seq_num":   1,
 		"token":     "tok1",
 		"prev_hash": "",
 		"exec_id":   "exec1",
 	})
-	v.HandleMessage(map[string]any{
+	v.HandleVerifyMessage(map[string]any{
 		"seq_num":   1,
 		"token":     "tok1",
 		"prev_hash": "",
@@ -374,13 +374,13 @@ func TestVerifierInterleavedSequencesRespectPrevHash(t *testing.T) {
 	}
 
 	// Seq 2 commit with matching prev_hash
-	v.HandleMessage(map[string]any{
+	v.HandleVerifyMessage(map[string]any{
 		"seq_num":   2,
 		"token":     "tok2",
 		"prev_hash": "tok1",
 		"exec_id":   "exec1",
 	})
-	resp := v.HandleMessage(map[string]any{
+	resp := v.HandleVerifyMessage(map[string]any{
 		"seq_num":   2,
 		"token":     "tok2",
 		"prev_hash": "tok1",
@@ -400,7 +400,7 @@ func TestVerifierDelayedSecondTokenCommits(t *testing.T) {
 	execCh := make(chan map[string]any, 16)
 	v := NewVerifier("ver1", []string{"127.0.0.1", "127.0.0.1"}, "ver1", execCh)
 
-	first := v.HandleMessage(map[string]any{
+	first := v.HandleVerifyMessage(map[string]any{
 		"seq_num":   9,
 		"token":     "tokA",
 		"prev_hash": "",
@@ -412,7 +412,7 @@ func TestVerifierDelayedSecondTokenCommits(t *testing.T) {
 
 	go func() {
 		time.Sleep(50 * time.Millisecond)
-		v.HandleMessage(map[string]any{
+		v.HandleVerifyMessage(map[string]any{
 			"seq_num":   9,
 			"token":     "tokA",
 			"prev_hash": "",
@@ -435,7 +435,7 @@ func TestVerifierBuffersUntilPrevCommitted(t *testing.T) {
 	v := NewVerifier("ver1", []string{"127.0.0.1", "127.0.0.1"}, "ver1", execCh)
 
 	// Buffer seq 2 tokens that depend on seq 1
-	resp1 := v.HandleMessage(map[string]any{
+	resp1 := v.HandleVerifyMessage(map[string]any{
 		"seq_num":   2,
 		"token":     "tok2",
 		"prev_hash": "tok1",
@@ -444,7 +444,7 @@ func TestVerifierBuffersUntilPrevCommitted(t *testing.T) {
 	if resp1["status"] != "buffered" {
 		t.Fatalf("expected buffered for seq 2 before seq 1 commit, got %v", resp1["status"])
 	}
-	resp2 := v.HandleMessage(map[string]any{
+	resp2 := v.HandleVerifyMessage(map[string]any{
 		"seq_num":   2,
 		"token":     "tok2",
 		"prev_hash": "tok1",
@@ -458,13 +458,13 @@ func TestVerifierBuffersUntilPrevCommitted(t *testing.T) {
 	}
 
 	// Commit seq 1, which should flush and commit seq 2
-	v.HandleMessage(map[string]any{
+	v.HandleVerifyMessage(map[string]any{
 		"seq_num":   1,
 		"token":     "tok1",
 		"prev_hash": "",
 		"exec_id":   "exec1",
 	})
-	v.HandleMessage(map[string]any{
+	v.HandleVerifyMessage(map[string]any{
 		"seq_num":   1,
 		"token":     "tok1",
 		"prev_hash": "",

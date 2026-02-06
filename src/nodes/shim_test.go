@@ -82,7 +82,7 @@ func TestShimForwardsOnQuorum(t *testing.T) {
 	nextCh := make(chan map[string]any, 16)
 	shim := NewShim("shim", nextCh, nil)
 
-	first := shim.HandleMessage(map[string]any{
+	first := shim.HandleRequestMessage(map[string]any{
 		"type":       "request",
 		"request_id": "r1",
 		"sender":     "clientA",
@@ -92,7 +92,7 @@ func TestShimForwardsOnQuorum(t *testing.T) {
 	}
 	expectNoShimMessage(t, nextCh, 100*time.Millisecond)
 
-	second := shim.HandleMessage(map[string]any{
+	second := shim.HandleRequestMessage(map[string]any{
 		"type":       "request",
 		"request_id": "r1",
 		"sender":     "clientB",
@@ -112,7 +112,7 @@ func TestShimIgnoresDuplicateSenderUntilQuorum(t *testing.T) {
 	nextCh := make(chan map[string]any, 16)
 	shim := NewShim("shim", nextCh, nil)
 
-	first := shim.HandleMessage(map[string]any{
+	first := shim.HandleRequestMessage(map[string]any{
 		"type":       "request",
 		"request_id": "r2",
 		"sender":     "clientA",
@@ -121,7 +121,7 @@ func TestShimIgnoresDuplicateSenderUntilQuorum(t *testing.T) {
 		t.Fatalf("expected waiting_for_quorum, got %v", first["status"])
 	}
 
-	second := shim.HandleMessage(map[string]any{
+	second := shim.HandleRequestMessage(map[string]any{
 		"type":       "request",
 		"request_id": "r2",
 		"sender":     "clientA",
@@ -131,7 +131,7 @@ func TestShimIgnoresDuplicateSenderUntilQuorum(t *testing.T) {
 	}
 	expectNoShimMessage(t, nextCh, 100*time.Millisecond)
 
-	third := shim.HandleMessage(map[string]any{
+	third := shim.HandleRequestMessage(map[string]any{
 		"type":       "request",
 		"request_id": "r2",
 		"sender":     "clientB",
@@ -151,7 +151,7 @@ func TestShimBroadcastsResponseToClients(t *testing.T) {
 	nextCh := make(chan map[string]any, 16)
 	shim := NewShim("shim", nextCh, []string{"127.0.0.1", "127.0.0.1"})
 
-	resp := shim.HandleMessage(map[string]any{
+	resp := shim.HandleResponseMessage(map[string]any{
 		"type":       "response",
 		"request_id": "r3",
 		"response":   map[string]any{"status": "ok"},
@@ -172,11 +172,11 @@ func TestShimDefaultsToRequestType(t *testing.T) {
 	nextCh := make(chan map[string]any, 16)
 	shim := NewShim("shim", nextCh, nil)
 
-	shim.HandleMessage(map[string]any{
+	shim.HandleRequestMessage(map[string]any{
 		"request_id": "r4",
 		"sender":     "clientA",
 	})
-	shim.HandleMessage(map[string]any{
+	shim.HandleRequestMessage(map[string]any{
 		"request_id": "r4",
 		"sender":     "clientB",
 	})
@@ -195,12 +195,12 @@ func TestShimIndependentQuorumsPerRequestID(t *testing.T) {
 	nextCh := make(chan map[string]any, 16)
 	shim := NewShim("shim", nextCh, nil)
 
-	shim.HandleMessage(map[string]any{
+	shim.HandleRequestMessage(map[string]any{
 		"type":       "request",
 		"request_id": "r5",
 		"sender":     "clientA",
 	})
-	shim.HandleMessage(map[string]any{
+	shim.HandleRequestMessage(map[string]any{
 		"type":       "request",
 		"request_id": "r6",
 		"sender":     "clientA",
@@ -208,7 +208,7 @@ func TestShimIndependentQuorumsPerRequestID(t *testing.T) {
 
 	expectNoShimMessage(t, nextCh, 100*time.Millisecond)
 
-	shim.HandleMessage(map[string]any{
+	shim.HandleRequestMessage(map[string]any{
 		"type":       "request",
 		"request_id": "r6",
 		"sender":     "clientB",
@@ -218,7 +218,7 @@ func TestShimIndependentQuorumsPerRequestID(t *testing.T) {
 		t.Fatalf("expected forwarded request_id r6, got %v", msg["request_id"])
 	}
 
-	shim.HandleMessage(map[string]any{
+	shim.HandleRequestMessage(map[string]any{
 		"type":       "request",
 		"request_id": "r5",
 		"sender":     "clientB",
@@ -234,17 +234,17 @@ func TestShimInterleavedSendersAcrossRequests(t *testing.T) {
 	nextCh := make(chan map[string]any, 16)
 	shim := NewShim("shim", nextCh, nil)
 
-	shim.HandleMessage(map[string]any{
+	shim.HandleRequestMessage(map[string]any{
 		"type":       "request",
 		"request_id": "r7",
 		"sender":     "clientA",
 	})
-	shim.HandleMessage(map[string]any{
+	shim.HandleRequestMessage(map[string]any{
 		"type":       "request",
 		"request_id": "r8",
 		"sender":     "clientA",
 	})
-	shim.HandleMessage(map[string]any{
+	shim.HandleRequestMessage(map[string]any{
 		"type":       "request",
 		"request_id": "r7",
 		"sender":     "clientB",
@@ -255,7 +255,7 @@ func TestShimInterleavedSendersAcrossRequests(t *testing.T) {
 		t.Fatalf("expected forwarded request_id r7, got %v", msg["request_id"])
 	}
 
-	shim.HandleMessage(map[string]any{
+	shim.HandleRequestMessage(map[string]any{
 		"type":       "request",
 		"request_id": "r8",
 		"sender":     "clientB",
