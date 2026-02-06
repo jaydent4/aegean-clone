@@ -34,6 +34,11 @@ type Exec struct {
 	pendingResponses map[int]pendingResponse
 	// Sequential execution flag (set after rollback)
 	forceSequential bool
+	// Out-of-order buffers
+	batchBuffer   *common.OOOBuffer[map[string]any]
+	verifyBuffer  *common.OOOBuffer[map[string]any]
+	nextBatchSeq  int
+	nextVerifySeq int
 }
 
 // TODO: request pipelining, parallel pipelining
@@ -47,6 +52,10 @@ func NewExec(name, host string, port int, verifiers []string, shim string, peers
 		stableSeqNum:     0,
 		prevHash:         strings.Repeat("0", 64),
 		pendingResponses: make(map[int]pendingResponse),
+		batchBuffer:      common.NewOOOBuffer[map[string]any](),
+		verifyBuffer:     common.NewOOOBuffer[map[string]any](),
+		nextBatchSeq:     1,
+		nextVerifySeq:    1,
 	}
 	exec.stableState = copyStringMap(exec.kvStore)
 	exec.Node.HandleMessage = exec.HandleMessage
@@ -115,17 +124,66 @@ func (e *Exec) HandleMessage(payload map[string]any) map[string]any {
 	}
 
 	switch msgType {
+	// For both verify_response and batch, apply a buffer + flush processing style
+	// since messages can arrive out-of-order
 	case "verify_response":
-		// TODO: If I receive a verify response before I had a chance to execute the parallelBatch
-		// progress will be stuck
-		return e.handleVerifyResponse(payload)
+		// TODO: Buffer then respond, run the flushing in a goroutine, so that mixer can stop waiting for a response
+		seqNum := getInt(payload, "seq_num")
+		e.verifyBuffer.Add(seqNum, payload)
+		for {
+			if !e.flushNextVerify() {
+				break
+			}
+		}
+		return map[string]any{"status": "buffered", "seq_num": seqNum}
 	case "batch":
-		return e.handleBatch(payload)
+		seqNum := getInt(payload, "seq_num")
+		e.batchBuffer.Add(seqNum, payload)
+		for {
+			progressed := false
+			if e.flushNextBatch() {
+				progressed = true
+			}
+			if e.flushNextVerify() {
+				progressed = true
+			}
+			if !progressed {
+				break
+			}
+		}
+		return map[string]any{"status": "buffered", "seq_num": seqNum}
 	case "state_transfer_request":
 		return e.handleStateTransferRequest(payload)
 	default:
 		return map[string]any{"status": "error", "error": fmt.Sprintf("Unknown message type: %s", msgType)}
 	}
+}
+
+func (e *Exec) flushNextBatch() bool {
+	msgs := e.batchBuffer.Pop(e.nextBatchSeq)
+	if len(msgs) == 0 {
+		return false
+	}
+	for _, msg := range msgs {
+		_ = e.handleBatch(msg)
+	}
+	e.nextBatchSeq++
+	return true
+}
+
+func (e *Exec) flushNextVerify() bool {
+	if _, ok := e.pendingResponses[e.nextVerifySeq]; !ok {
+		return false
+	}
+	msgs := e.verifyBuffer.Pop(e.nextVerifySeq)
+	if len(msgs) == 0 {
+		return false
+	}
+	for _, msg := range msgs {
+		_ = e.handleVerifyResponse(msg)
+	}
+	e.nextVerifySeq++
+	return true
 }
 
 func (e *Exec) handleBatch(payload map[string]any) map[string]any {
@@ -291,6 +349,19 @@ func (e *Exec) requestStateTransfer() bool {
 		e.stableSeqNum = transferredStableSeqNum
 		e.prevHash = transferredPrevHash
 		e.forceSequential = false
+		for seq := range e.pendingResponses {
+			if seq <= e.stableSeqNum {
+				delete(e.pendingResponses, seq)
+			}
+		}
+		e.batchBuffer.Drop(e.stableSeqNum)
+		e.verifyBuffer.Drop(e.stableSeqNum)
+		if e.nextBatchSeq < e.stableSeqNum+1 {
+			e.nextBatchSeq = e.stableSeqNum + 1
+		}
+		if e.nextVerifySeq < e.stableSeqNum+1 {
+			e.nextVerifySeq = e.stableSeqNum + 1
+		}
 
 		log.Printf("%s: Successfully applied state transfer from %s, now at stable_seq_num %d", e.Name, sourceExec, e.stableSeqNum)
 		return true

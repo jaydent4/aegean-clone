@@ -25,6 +25,8 @@ type Verifier struct {
 	// seq_num -> prev_hash from tokens
 	prevHashes map[int]string
 	mu         sync.Mutex
+	// Out-of-order buffer for verify messages
+	verifyBuffer *common.OOOBuffer[map[string]any]
 }
 
 func NewVerifier(name, host string, port int, execs []string) *Verifier {
@@ -32,11 +34,12 @@ func NewVerifier(name, host string, port int, execs []string) *Verifier {
 		Node:  NewNode(name, host, port),
 		Execs: execs,
 		// TODO: replace hard-coded values with formulas
-		u:          1,
-		r:          0,
-		tokens:     make(map[int]map[string]map[string]struct{}),
-		committed:  make(map[int]string),
-		prevHashes: make(map[int]string),
+		u:            1,
+		r:            0,
+		tokens:       make(map[int]map[string]map[string]struct{}),
+		committed:    make(map[int]string),
+		prevHashes:   make(map[int]string),
+		verifyBuffer: common.NewOOOBuffer[map[string]any](),
 	}
 	v.execQuorum = maxInt(v.u, v.r) + 1
 	v.verifyQuorum = 2*v.u + v.r + 1
@@ -97,9 +100,60 @@ func (v *Verifier) sendVerifyResponse(seqNum int, decision, token string) {
 }
 
 // TODO: Any of out-of-order issues?
+// TODO: State transfer is unimplemented?
 func (v *Verifier) HandleMessage(payload map[string]any) map[string]any {
 	log.Printf("Handler called on %s with payload: %v", v.Name, payload)
 
+	seqNum := getInt(payload, "seq_num")
+	prevHash, _ := payload["prev_hash"].(string)
+
+	// Buffer if we do not yet have the previous commit hash to validate against
+	if seqNum > 1 && prevHash != "" {
+		if _, ok := v.committed[seqNum-1]; !ok {
+			v.verifyBuffer.Add(seqNum, payload)
+			return map[string]any{"status": "buffered", "seq_num": seqNum}
+		}
+	}
+
+	resp := v.handleVerifyMessage(payload)
+	if status, _ := resp["status"].(string); status == "committed" || status == "rollback" {
+		v.flushBufferedFrom(seqNum)
+	}
+	return resp
+}
+
+func (v *Verifier) flushBufferedFrom(seqNum int) {
+	next := seqNum + 1
+	for {
+		if next > 1 {
+			if _, ok := v.committed[next-1]; !ok {
+				return
+			}
+		}
+		msgs := v.verifyBuffer.Pop(next)
+		if len(msgs) == 0 {
+			return
+		}
+		var lastResp map[string]any
+		for _, msg := range msgs {
+			lastResp = v.handleVerifyMessage(msg)
+		}
+		if lastResp == nil {
+			return
+		}
+		status, _ := lastResp["status"].(string)
+		if status == "waiting" || status == "invalid_prev_hash" {
+			return
+		}
+		if status == "committed" || status == "rollback" || status == "already_committed" {
+			next++
+			continue
+		}
+		return
+	}
+}
+
+func (v *Verifier) handleVerifyMessage(payload map[string]any) map[string]any {
 	seqNum := getInt(payload, "seq_num")
 	token, _ := payload["token"].(string)
 	prevHash, _ := payload["prev_hash"].(string)
