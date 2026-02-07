@@ -3,16 +3,19 @@ package nodes
 import (
 	"fmt"
 
+	"aegean/components/batcher"
 	"aegean/components/exec"
+	"aegean/components/mixer"
+	"aegean/components/shim"
 	"aegean/components/verifier"
 )
 
 // Server combines shim, mixer, exec, and verifier into one node
 type Server struct {
 	*Node
-	Shim             *Shim
-	Batcher          *Batcher
-	Mixer            *Mixer
+	Shim             *shim.Shim
+	Batcher          *batcher.Batcher
+	Mixer            *mixer.Mixer
 	Exec             *exec.Exec
 	Verifier         *verifier.Verifier
 	isPrimaryBatcher bool
@@ -47,9 +50,9 @@ func NewServer(name, host string, port int, clients []string, verifiers []string
 	}
 
 	// Init each component
-	server.Shim = NewShim(fmt.Sprintf("%s/shim", name), shimToBatcher, clients)
-	server.Batcher = NewBatcher(fmt.Sprintf("%s/batcher", name), batcherToMixer, execs, name, isPrimaryBatcher)
-	server.Mixer = NewMixer(fmt.Sprintf("%s/mixer", name), mixerToExec)
+	server.Shim = shim.NewShim(fmt.Sprintf("%s/shim", name), shimToBatcher, clients)
+	server.Batcher = batcher.NewBatcher(fmt.Sprintf("%s/batcher", name), batcherToMixer, execs, name, isPrimaryBatcher)
+	server.Mixer = mixer.NewMixer(fmt.Sprintf("%s/mixer", name), mixerToExec)
 	server.Exec = exec.NewExec(fmt.Sprintf("%s/exec", name), verifiers, peers, name, execToVerifier, execToShim, executeRequest, responseHandler)
 	server.Exec.ExecID = name
 	server.Verifier = verifier.NewVerifier(fmt.Sprintf("%s/verifier", name), execs, name, verifierToExec)
