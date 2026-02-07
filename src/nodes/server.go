@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"aegean/components/exec"
+	"aegean/components/verifier"
 )
 
 // Server combines shim, mixer, exec, and verifier into one node
@@ -13,7 +14,7 @@ type Server struct {
 	Batcher          *Batcher
 	Mixer            *Mixer
 	Exec             *exec.Exec
-	Verifier         *Verifier
+	Verifier         *verifier.Verifier
 	isPrimaryBatcher bool
 
 	// Internal message buses between components
@@ -51,7 +52,7 @@ func NewServer(name, host string, port int, clients []string, verifiers []string
 	server.Mixer = NewMixer(fmt.Sprintf("%s/mixer", name), mixerToExec)
 	server.Exec = exec.NewExec(fmt.Sprintf("%s/exec", name), verifiers, peers, name, execToVerifier, execToShim, executeRequest, responseHandler)
 	server.Exec.ExecID = name
-	server.Verifier = NewVerifier(fmt.Sprintf("%s/verifier", name), execs, name, verifierToExec)
+	server.Verifier = verifier.NewVerifier(fmt.Sprintf("%s/verifier", name), execs, name, verifierToExec)
 
 	server.Node.HandleMessage = server.HandleMessage
 	return server

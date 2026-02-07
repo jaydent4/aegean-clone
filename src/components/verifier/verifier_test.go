@@ -1,4 +1,4 @@
-package nodes
+package verifier
 
 import (
 	"net"
@@ -123,8 +123,8 @@ func TestVerifierCommitOnQuorum(t *testing.T) {
 	if second["status"] != "committed" {
 		t.Fatalf("expected committed after quorum, got %v", second["status"])
 	}
-	if v.committed[1] != "tokA" {
-		t.Fatalf("expected committed token tokA, got %v", v.committed[1])
+	if v.state.committed[1] != "tokA" {
+		t.Fatalf("expected committed token tokA, got %v", v.state.committed[1])
 	}
 
 	msg := expectVerifierMessage(t, ts.received, "commit")
@@ -167,7 +167,7 @@ func TestVerifierRollbackOnDivergence(t *testing.T) {
 func TestVerifierRejectsInvalidPrevHash(t *testing.T) {
 	execCh := make(chan map[string]any, 16)
 	v := NewVerifier("ver1", []string{"127.0.0.1"}, "ver1", execCh)
-	v.committed[1] = "good-prev"
+	v.state.committed[1] = "good-prev"
 
 	resp := v.HandleVerifyMessage(map[string]any{
 		"seq_num":   2,
@@ -178,7 +178,7 @@ func TestVerifierRejectsInvalidPrevHash(t *testing.T) {
 	if resp["status"] != "invalid_prev_hash" {
 		t.Fatalf("expected invalid_prev_hash, got %v", resp["status"])
 	}
-	if v.tokens[2] != nil {
+	if v.state.tokens[2] != nil {
 		t.Fatalf("expected no token recorded for invalid prev_hash")
 	}
 }
@@ -187,7 +187,7 @@ func TestVerifierRejectsInvalidPrevHash(t *testing.T) {
 func TestVerifierAlreadyCommitted(t *testing.T) {
 	execCh := make(chan map[string]any, 16)
 	v := NewVerifier("ver1", []string{"127.0.0.1"}, "ver1", execCh)
-	v.committed[3] = "tokC"
+	v.state.committed[3] = "tokC"
 
 	resp := v.HandleVerifyMessage(map[string]any{
 		"seq_num":   3,
@@ -227,8 +227,8 @@ func TestVerifierIgnoresDuplicateExecID(t *testing.T) {
 	if second["status"] != "waiting" {
 		t.Fatalf("expected waiting after duplicate exec_id, got %v", second["status"])
 	}
-	if len(v.tokens[4]["tokA"]) != 1 {
-		t.Fatalf("expected single exec_id recorded, got %d", len(v.tokens[4]["tokA"]))
+	if len(v.state.tokens[4]["tokA"]) != 1 {
+		t.Fatalf("expected single exec_id recorded, got %d", len(v.state.tokens[4]["tokA"]))
 	}
 }
 
@@ -255,7 +255,7 @@ func TestVerifierAcceptsPrevHashWhenMatching(t *testing.T) {
 
 	execCh := make(chan map[string]any, 16)
 	v := NewVerifier("ver1", []string{"127.0.0.1", "127.0.0.1"}, "ver1", execCh)
-	v.committed[1] = "prev-ok"
+	v.state.committed[1] = "prev-ok"
 
 	v.HandleVerifyMessage(map[string]any{
 		"seq_num":   2,
@@ -364,7 +364,7 @@ func TestVerifierInterleavedSequencesRespectPrevHash(t *testing.T) {
 	// Wait until committed map is updated before sending seq 2 with prev_hash
 	deadline := time.Now().Add(500 * time.Millisecond)
 	for {
-		if v.committed[1] == "tok1" {
+		if v.state.committed[1] == "tok1" {
 			break
 		}
 		if time.Now().After(deadline) {
@@ -453,7 +453,7 @@ func TestVerifierBuffersUntilPrevCommitted(t *testing.T) {
 	if resp2["status"] != "buffered" {
 		t.Fatalf("expected buffered for seq 2 before seq 1 commit, got %v", resp2["status"])
 	}
-	if v.tokens[2] != nil {
+	if v.state.tokens[2] != nil {
 		t.Fatalf("expected seq 2 tokens not recorded while buffered")
 	}
 
@@ -473,7 +473,7 @@ func TestVerifierBuffersUntilPrevCommitted(t *testing.T) {
 
 	expectVerifierMessageSeq(t, ts.received, "commit", 1)
 	expectVerifierMessageSeq(t, ts.received, "commit", 2)
-	if v.committed[2] != "tok2" {
-		t.Fatalf("expected seq 2 committed to tok2, got %v", v.committed[2])
+	if v.state.committed[2] != "tok2" {
+		t.Fatalf("expected seq 2 committed to tok2, got %v", v.state.committed[2])
 	}
 }

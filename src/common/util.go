@@ -53,3 +53,19 @@ func GetInt64(m map[string]any, key string) int64 {
 	}
 	return 0
 }
+
+// MaxInt returns the larger of a and b
+func MaxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// TruncateToken returns token with a max length of 16 chars
+func TruncateToken(token string) string {
+	if len(token) <= 16 {
+		return token
+	}
+	return token[:16]
+}
