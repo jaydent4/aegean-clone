@@ -20,7 +20,7 @@ type NodeConfig struct {
 	ResponseWorkflow string   `json:"response_workflow"`
 }
 
-const configPath = "experiment/architecture/aegean.json"
+const configPath = "../experiment/architecture/aegean.json"
 
 func loadConfig(path string) (map[string]NodeConfig, error) {
 	data, err := os.ReadFile(path)
