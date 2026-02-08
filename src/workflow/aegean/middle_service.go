@@ -72,6 +72,8 @@ func ExecuteRequestFanout(e *exec.Exec, request map[string]any, ndSeed int64, nd
 	if fanoutResponse != nil {
 		return fanoutResponse
 	}
+	// TODO: This will incorrectly cause shim's ACK messages to be treated as responses by the client
+	// Probably fix this when we introduce request-pipelining
 	return response
 }
 
@@ -80,6 +82,7 @@ func ResponseForwardToClients(e *exec.Exec, payload map[string]any) map[string]a
 	if !responseQuorum.Add(payload["request_id"], sender) {
 		return map[string]any{"status": "waiting_for_quorum", "request_id": payload["request_id"]}
 	}
+
 	clientResponse := map[string]any{
 		"type":       "response",
 		"request_id": payload["request_id"],
@@ -87,11 +90,6 @@ func ResponseForwardToClients(e *exec.Exec, payload map[string]any) map[string]a
 		"sender":     sender,
 	}
 
-	clients := []string{"node1", "node2", "node3"}
-	for _, client := range clients {
-		if _, err := common.SendMessage(client, 8000, clientResponse); err != nil {
-			log.Printf("Failed to send response to %s: %v", client, err)
-		}
-	}
-	return map[string]any{"status": "response_broadcast", "recipients": clients}
+	e.ShimCh <- clientResponse
+	return map[string]any{"status": "response_forwarded"}
 }
