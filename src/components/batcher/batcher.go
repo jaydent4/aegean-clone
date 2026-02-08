@@ -14,7 +14,6 @@ type Batcher struct {
 	Name      string
 	NextCh    chan<- map[string]any
 	Execs     []string
-	LocalName string
 	isPrimary bool
 	// Accumulates incoming client requests until flushed
 	batch        []map[string]any
@@ -26,18 +25,14 @@ type Batcher struct {
 	lastBatchTime time.Time
 }
 
-func NewBatcher(name string, nextCh chan<- map[string]any, execs []string, localName string, isPrimary bool) *Batcher {
+func NewBatcher(name string, nextCh chan<- map[string]any, execs []string, isPrimary bool) *Batcher {
 	if nextCh == nil {
 		log.Fatalf("batcher component requires non-nil nextCh")
-	}
-	if localName == "" {
-		log.Fatalf("batcher component requires localName")
 	}
 	b := &Batcher{
 		Name:          name,
 		NextCh:        nextCh,
 		Execs:         execs,
-		LocalName:     localName,
 		isPrimary:     isPrimary,
 		batch:         []map[string]any{},
 		batchSize:     10,
@@ -90,7 +85,7 @@ func (b *Batcher) flushBatchLocked() {
 	log.Printf("%s: Created batch %d with %d requests", b.Name, b.seqNum, len(batch))
 
 	for _, execNode := range b.Execs {
-		if execNode == b.LocalName && b.NextCh != nil {
+		if execNode == b.Name && b.NextCh != nil {
 			b.NextCh <- message
 			continue
 		}

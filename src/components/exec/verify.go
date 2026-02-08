@@ -31,11 +31,11 @@ func (e *Exec) flushNextVerify() bool {
 			"seq_num":   e.nextVerifySeq,
 			"token":     token,
 			"prev_hash": e.stableState.PrevHash,
-			"exec_id":   e.ExecID,
+			"exec_id":   e.Name,
 		}
 
 		for _, verifier := range e.Verifiers {
-			if verifier == e.LocalName && e.VerifierCh != nil {
+			if verifier == e.Name && e.VerifierCh != nil {
 				e.VerifierCh <- verifyMsg
 				continue
 			}

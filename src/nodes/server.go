@@ -1,8 +1,6 @@
 package nodes
 
 import (
-	"fmt"
-
 	"aegean/components/batcher"
 	"aegean/components/exec"
 	"aegean/components/mixer"
@@ -50,12 +48,11 @@ func NewServer(name, host string, port int, clients []string, verifiers []string
 	}
 
 	// Init each component
-	server.Shim = shim.NewShim(fmt.Sprintf("%s/shim", name), shimToBatcher, clients)
-	server.Batcher = batcher.NewBatcher(fmt.Sprintf("%s/batcher", name), batcherToMixer, execs, name, isPrimaryBatcher)
-	server.Mixer = mixer.NewMixer(fmt.Sprintf("%s/mixer", name), mixerToExec)
-	server.Exec = exec.NewExec(fmt.Sprintf("%s/exec", name), verifiers, peers, name, execToVerifier, execToShim, executeRequest, responseHandler)
-	server.Exec.ExecID = name
-	server.Verifier = verifier.NewVerifier(fmt.Sprintf("%s/verifier", name), execs, name, verifierToExec)
+	server.Shim = shim.NewShim(name, shimToBatcher, clients)
+	server.Batcher = batcher.NewBatcher(name, batcherToMixer, execs, isPrimaryBatcher)
+	server.Mixer = mixer.NewMixer(name, mixerToExec)
+	server.Exec = exec.NewExec(name, verifiers, peers, execToVerifier, execToShim, executeRequest, responseHandler)
+	server.Verifier = verifier.NewVerifier(name, execs, verifierToExec)
 
 	server.Node.HandleMessage = server.HandleMessage
 	return server

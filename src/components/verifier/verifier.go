@@ -11,8 +11,7 @@ type Verifier struct {
 	Name  string
 	Execs []string
 	// Local component channel
-	ExecCh    chan<- map[string]any
-	LocalName string
+	ExecCh chan<- map[string]any
 	// TODO: replace hard-coded values with formulas
 	// Fault tolerance parameters (simplified: u=1, r=0 for CFT)
 	u int
@@ -27,18 +26,14 @@ type Verifier struct {
 	verifyBuffer *common.OOOBuffer[map[string]any]
 }
 
-func NewVerifier(name string, execs []string, localName string, execCh chan<- map[string]any) *Verifier {
+func NewVerifier(name string, execs []string, execCh chan<- map[string]any) *Verifier {
 	if execCh == nil {
 		log.Fatalf("verifier component requires non-nil execCh")
 	}
-	if localName == "" {
-		log.Fatalf("verifier component requires localName")
-	}
 	v := &Verifier{
-		Name:      name,
-		Execs:     execs,
-		LocalName: localName,
-		ExecCh:    execCh,
+		Name:   name,
+		Execs:  execs,
+		ExecCh: execCh,
 		// TODO: replace hard-coded values with formulas
 		u:            1,
 		r:            0,
@@ -92,7 +87,7 @@ func (v *Verifier) sendVerifyResponse(seqNum int, decision, token string) {
 	}
 
 	for _, execNode := range v.Execs {
-		if execNode == v.LocalName && v.ExecCh != nil {
+		if execNode == v.Name && v.ExecCh != nil {
 			v.ExecCh <- response
 			continue
 		}

@@ -92,7 +92,7 @@ func makeParallelBatches(requests ...map[string]any) [][]map[string]any {
 func newTestExec(name string, verifiers []string, peers []string) (*Exec, chan map[string]any, chan map[string]any) {
 	verifierCh := make(chan map[string]any, 64)
 	shimCh := make(chan map[string]any, 64)
-	exec := NewExec(name, verifiers, peers, name, verifierCh, shimCh, testExecuteRequest, testHandleResponse)
+	exec := NewExec(name, verifiers, peers, verifierCh, shimCh, testExecuteRequest, testHandleResponse)
 	return exec, verifierCh, shimCh
 }
 

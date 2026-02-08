@@ -14,7 +14,7 @@ func makeReq(id int) map[string]any {
 // Batches flush immediately when reaching batchSize
 func TestBatcherFlushOnSize(t *testing.T) {
 	outCh := make(chan map[string]any, 1)
-	b := NewBatcher("b", outCh, []string{"local"}, "local", true)
+	b := NewBatcher("b", outCh, []string{"b"}, true)
 	b.batchSize = 2
 	b.batchTimeout = 1 * time.Second
 
@@ -44,7 +44,7 @@ func TestBatcherFlushOnSize(t *testing.T) {
 // Batches flush after timeout even if batchSize is not reached
 func TestBatcherFlushOnTimeout(t *testing.T) {
 	outCh := make(chan map[string]any, 1)
-	b := NewBatcher("b", outCh, []string{"local"}, "local", true)
+	b := NewBatcher("b", outCh, []string{"b"}, true)
 	b.batchSize = 10
 	b.batchTimeout = 10 * time.Millisecond
 
@@ -64,7 +64,7 @@ func TestBatcherFlushOnTimeout(t *testing.T) {
 // Non-primary batchers ignore incoming requests
 func TestBatcherNonPrimaryIgnored(t *testing.T) {
 	outCh := make(chan map[string]any, 1)
-	b := NewBatcher("b", outCh, []string{"local"}, "local", false)
+	b := NewBatcher("b", outCh, []string{"b"}, false)
 	b.batchSize = 1
 
 	resp := b.HandleRequestMessage(makeReq(1))

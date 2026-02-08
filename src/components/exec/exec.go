@@ -24,13 +24,11 @@ type ExecuteResponseFunc func(e *Exec, payload map[string]any) map[string]any
 
 type Exec struct {
 	Name      string
-	ExecID    string
 	Verifiers []string
 	Peers     []string
 	// Local component channels
 	VerifierCh chan<- map[string]any
 	ShimCh     chan<- map[string]any
-	LocalName  string
 	mu         sync.Mutex
 	// State management for rollback
 	stableState  State
@@ -52,12 +50,9 @@ type Exec struct {
 
 // TODO: request pipelining, parallel pipelining
 // TODO: implement locking
-func NewExec(name string, verifiers []string, peers []string, localName string, verifierCh chan<- map[string]any, shimCh chan<- map[string]any, executeRequest ExecuteRequestFunc, handleResponse ExecuteResponseFunc) *Exec {
+func NewExec(name string, verifiers []string, peers []string, verifierCh chan<- map[string]any, shimCh chan<- map[string]any, executeRequest ExecuteRequestFunc, handleResponse ExecuteResponseFunc) *Exec {
 	if verifierCh == nil || shimCh == nil {
 		log.Fatalf("exec component requires non-nil channels")
-	}
-	if localName == "" {
-		log.Fatalf("exec component requires localName")
 	}
 	if executeRequest == nil {
 		log.Fatalf("exec component requires ExecuteRequest")
@@ -80,10 +75,8 @@ func NewExec(name string, verifiers []string, peers []string, localName string, 
 	}
 	exec := &Exec{
 		Name:             name,
-		ExecID:           name,
 		Verifiers:        verifiers,
 		Peers:            peers,
-		LocalName:        localName,
 		VerifierCh:       verifierCh,
 		ShimCh:           shimCh,
 		ExecuteRequest:   executeRequest,
