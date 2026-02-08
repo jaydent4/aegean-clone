@@ -54,6 +54,16 @@ func GetInt64(m map[string]any, key string) int64 {
 	return 0
 }
 
+// GetString extracts a string from a map.
+func GetString(m map[string]any, key string) string {
+	if value, ok := m[key]; ok {
+		if s, ok := value.(string); ok {
+			return s
+		}
+	}
+	return ""
+}
+
 // MaxInt returns the larger of a and b
 func MaxInt(a, b int) int {
 	if a > b {

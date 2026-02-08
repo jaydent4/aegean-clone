@@ -1,0 +1,77 @@
+{
+  "node1": {
+    "type": "client",
+    "next": ["node4", "node5", "node6"],
+    "client_workflow": "default"
+  },
+  "node2": {
+    "type": "client",
+    "next": ["node4", "node5", "node6"],
+    "client_workflow": "default"
+  },
+  "node3": {
+    "type": "client",
+    "next": ["node4", "node5", "node6"],
+    "client_workflow": "default"
+  },
+  "node4": {
+    "type": "server",
+    "clients": ["node1", "node2", "node3"],
+    "verifiers": ["node4", "node5", "node6"],
+    "execs": ["node4", "node5", "node6"],
+    "peers": ["node5", "node6"],
+    "is_primary_batcher": true,
+    "exec_workflow": "fanout",
+    "response_workflow": "forward_to_clients"
+  },
+  "node5": {
+    "type": "server",
+    "clients": ["node1", "node2", "node3"],
+    "verifiers": ["node4", "node5", "node6"],
+    "execs": ["node4", "node5", "node6"],
+    "peers": ["node4", "node6"],
+    "is_primary_batcher": false,
+    "exec_workflow": "fanout",
+    "response_workflow": "forward_to_clients"
+  },
+  "node6": {
+    "type": "server",
+    "clients": ["node1", "node2", "node3"],
+    "verifiers": ["node4", "node5", "node6"],
+    "execs": ["node4", "node5", "node6"],
+    "peers": ["node4", "node5"],
+    "is_primary_batcher": false,
+    "exec_workflow": "fanout",
+    "response_workflow": "forward_to_clients"
+  },
+  "node7": {
+    "type": "server",
+    "clients": ["node4", "node5", "node6"],
+    "verifiers": ["node7", "node8", "node9"],
+    "execs": ["node7", "node8", "node9"],
+    "peers": ["node8", "node9"],
+    "is_primary_batcher": true,
+    "exec_workflow": "default",
+    "response_workflow": "noop"
+  },
+  "node8": {
+    "type": "server",
+    "clients": ["node4", "node5", "node6"],
+    "verifiers": ["node7", "node8", "node9"],
+    "execs": ["node7", "node8", "node9"],
+    "peers": ["node7", "node9"],
+    "is_primary_batcher": false,
+    "exec_workflow": "default",
+    "response_workflow": "noop"
+  },
+  "node9": {
+    "type": "server",
+    "clients": ["node4", "node5", "node6"],
+    "verifiers": ["node7", "node8", "node9"],
+    "execs": ["node7", "node8", "node9"],
+    "peers": ["node7", "node8"],
+    "is_primary_batcher": false,
+    "exec_workflow": "default",
+    "response_workflow": "noop"
+  }
+}
