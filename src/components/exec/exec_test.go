@@ -3,6 +3,8 @@ package exec
 import (
 	"net"
 	"net/http"
+	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -512,5 +514,256 @@ func TestExecBlockedRequestResumesAfterNestedResponse(t *testing.T) {
 	}
 	if pending.outputs[0]["status"] != "ok" {
 		t.Fatalf("expected resumed output status ok, got %v", pending.outputs[0]["status"])
+	}
+}
+
+func TestExecParallelBatchesYieldBlockedToNext(t *testing.T) {
+	verifierCh := make(chan map[string]any, 8)
+	shimCh := make(chan map[string]any, 8)
+	var exec *Exec
+	exec = NewExec("exec1", []string{"exec1"}, nil, verifierCh, shimCh,
+		func(_ *Exec, request map[string]any, _ int64, _ float64) map[string]any {
+			op, _ := request["op"].(string)
+			requestID := request["request_id"]
+			switch op {
+			case "block":
+				if nested, ok := exec.ConsumeNestedResponse(requestID); ok && nested != nil {
+					return map[string]any{"request_id": requestID, "status": "ok"}
+				}
+				return map[string]any{"request_id": requestID, "status": "blocked_for_nested_response"}
+			case "mark":
+				exec.WriteKV("next_batch_progress", "yes")
+				return map[string]any{"request_id": requestID, "status": "ok"}
+			default:
+				return map[string]any{"request_id": requestID, "status": "error"}
+			}
+		},
+	)
+	exec.scheduler.parallelWindowK = 2
+
+	done := make(chan map[string]any, 1)
+	go func() {
+		done <- exec.handleBatch(map[string]any{
+			"type":    "batch",
+			"seq_num": 1,
+			"parallel_batches": [][]map[string]any{
+				{map[string]any{"request_id": "r1", "op": "block"}},
+				{map[string]any{"request_id": "r2", "op": "mark"}},
+			},
+		})
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if got := exec.ReadKV("next_batch_progress"); got == "yes" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected scheduler to yield to next batch while first is blocked")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if !exec.BufferNestedResponse(map[string]any{"request_id": "r1", "status": "ready"}) {
+		t.Fatalf("expected nested response to be accepted for in-flight request")
+	}
+
+	select {
+	case resp := <-done:
+		if resp["status"] != "executed" {
+			t.Fatalf("expected status executed, got %v", resp["status"])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for batch completion")
+	}
+}
+
+func TestExecParallelBatchWindowGatesByStableSeq(t *testing.T) {
+	verifierCh := make(chan map[string]any, 8)
+	shimCh := make(chan map[string]any, 8)
+	var exec *Exec
+	exec = NewExec("exec1", []string{"exec1"}, nil, verifierCh, shimCh,
+		func(_ *Exec, request map[string]any, _ int64, _ float64) map[string]any {
+			op, _ := request["op"].(string)
+			requestID := request["request_id"]
+			switch op {
+			case "block":
+				if nested, ok := exec.ConsumeNestedResponse(requestID); ok && nested != nil {
+					return map[string]any{"request_id": requestID, "status": "ok"}
+				}
+				return map[string]any{"request_id": requestID, "status": "blocked_for_nested_response"}
+			case "mark":
+				key, _ := request["key"].(string)
+				exec.WriteKV(key, "done")
+				return map[string]any{"request_id": requestID, "status": "ok"}
+			default:
+				return map[string]any{"request_id": requestID, "status": "error"}
+			}
+		},
+	)
+	exec.scheduler.parallelWindowK = 2
+
+	done := make(chan map[string]any, 1)
+	go func() {
+		done <- exec.handleBatch(map[string]any{
+			"type":    "batch",
+			"seq_num": 1,
+			"parallel_batches": [][]map[string]any{
+				{map[string]any{"request_id": "r1", "op": "block"}},
+				{map[string]any{"request_id": "r2", "op": "mark", "key": "b1"}},
+				{map[string]any{"request_id": "r3", "op": "mark", "key": "b2"}},
+			},
+		})
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if got := exec.ReadKV("b1"); got == "done" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected batch n+1 inside window to run while n is blocked")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := exec.ReadKV("b2"); got != "" {
+		t.Fatalf("expected batch outside v..v+k window to wait, got %q", got)
+	}
+
+	if !exec.BufferNestedResponse(map[string]any{"request_id": "r1", "status": "ready"}) {
+		t.Fatalf("expected nested response to be accepted for in-flight request")
+	}
+
+	select {
+	case resp := <-done:
+		if resp["status"] != "executed" {
+			t.Fatalf("expected status executed, got %v", resp["status"])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for batch completion")
+	}
+
+	if got := exec.ReadKV("b2"); got != "done" {
+		t.Fatalf("expected wrapped window to eventually execute later batch, got %q", got)
+	}
+}
+
+func TestExecParallelBatchSchedulingDeterministic(t *testing.T) {
+	verifierCh := make(chan map[string]any, 8)
+	shimCh := make(chan map[string]any, 8)
+	var mu sync.Mutex
+	trace := make([]string, 0, 8)
+	var exec *Exec
+	exec = NewExec("exec1", []string{"exec1"}, nil, verifierCh, shimCh,
+		func(_ *Exec, request map[string]any, _ int64, _ float64) map[string]any {
+			requestID, _ := request["request_id"].(string)
+			mu.Lock()
+			trace = append(trace, requestID)
+			mu.Unlock()
+			if nested, ok := exec.ConsumeNestedResponse(requestID); ok && nested != nil {
+				return map[string]any{"request_id": requestID, "status": "ok"}
+			}
+			return map[string]any{"request_id": requestID, "status": "blocked_for_nested_response"}
+		},
+	)
+	exec.workerCount = 1
+	exec.scheduler.parallelWindowK = 2
+
+	done := make(chan map[string]any, 1)
+	go func() {
+		done <- exec.handleBatch(map[string]any{
+			"type":    "batch",
+			"seq_num": 1,
+			"parallel_batches": [][]map[string]any{
+				{map[string]any{"request_id": "r1", "op": "block"}},
+				{map[string]any{"request_id": "r2", "op": "block"}},
+			},
+		})
+	}()
+
+	time.Sleep(40 * time.Millisecond)
+	if !exec.BufferNestedResponse(map[string]any{"request_id": "r1", "status": "ready"}) {
+		t.Fatalf("expected nested response for r1 to be accepted")
+	}
+	if !exec.BufferNestedResponse(map[string]any{"request_id": "r2", "status": "ready"}) {
+		t.Fatalf("expected nested response for r2 to be accepted")
+	}
+
+	select {
+	case resp := <-done:
+		if resp["status"] != "executed" {
+			t.Fatalf("expected status executed, got %v", resp["status"])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for deterministic scheduling run")
+	}
+
+	mu.Lock()
+	got := append([]string(nil), trace...)
+	mu.Unlock()
+	want := []string{"r1", "r2", "r2", "r1"}
+	if len(got) != len(want) {
+		t.Fatalf("expected deterministic trace length %d, got %d (%v)", len(want), len(got), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("expected deterministic trace %v, got %v", want, got)
+		}
+	}
+}
+
+func TestExecParallelBatchConflictsRemainDeterministicAcrossExecs(t *testing.T) {
+	execA, verifierA, _ := newTestExec("execA", []string{"execA"}, nil)
+	execB, verifierB, _ := newTestExec("execB", []string{"execB"}, nil)
+
+	execA.workerCount = 4
+	execB.workerCount = 4
+	execA.scheduler.parallelWindowK = 4
+	execB.scheduler.parallelWindowK = 4
+
+	parallelBatches := make([][]map[string]any, 0, 10)
+	for i := 1; i <= 10; i++ {
+		req := map[string]any{
+			"request_id": strconv.Itoa(i),
+			"op":         "spin_write_read",
+			"op_payload": map[string]any{
+				"spin_time":   0.1,
+				"write_key":   "1",
+				"write_value": "value_" + strconv.Itoa(i),
+				"read_key":    "1",
+			},
+		}
+		parallelBatches = append(parallelBatches, []map[string]any{req})
+	}
+
+	payload := map[string]any{
+		"type":             "batch",
+		"seq_num":          1,
+		"parallel_batches": parallelBatches,
+		"nd_seed":          int64(11),
+		"nd_timestamp":     float64(123.45),
+	}
+
+	respA := execA.handleBatch(payload)
+	respB := execB.handleBatch(payload)
+	if respA["status"] != "executed" || respB["status"] != "executed" {
+		t.Fatalf("expected both execs to execute batch, got %v and %v", respA["status"], respB["status"])
+	}
+
+	execA.flushNextVerify()
+	execB.flushNextVerify()
+	_ = expectMessage(t, verifierA, "verify")
+	_ = expectMessage(t, verifierB, "verify")
+
+	pendingA, ok := execA.pendingResponses[1]
+	if !ok {
+		t.Fatalf("expected pending response on execA")
+	}
+	pendingB, ok := execB.pendingResponses[1]
+	if !ok {
+		t.Fatalf("expected pending response on execB")
+	}
+	if pendingA.token != pendingB.token {
+		t.Fatalf("expected deterministic tokens across execs, got %s vs %s", pendingA.token, pendingB.token)
 	}
 }

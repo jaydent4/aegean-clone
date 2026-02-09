@@ -36,11 +36,7 @@ func (e *Exec) handleBatch(payload map[string]any) map[string]any {
 	log.Printf("%s: Executing batch %d with %d parallelBatches", e.Name, seqNum, len(parallelBatches))
 
 	// Execute all parallelBatches and collect outputs
-	outputs := make([]map[string]any, 0)
-	for _, pb := range parallelBatches {
-		pbOutputs := e.executeParallelBatch(pb, ndSeed, ndTimestamp)
-		outputs = append(outputs, pbOutputs...)
-	}
+	outputs := e.executeParallelBatches(parallelBatches, ndSeed, ndTimestamp)
 
 	e.stateMu.RLock()
 	stateSnapshot := common.CopyStringMap(e.workingState.KVStore)
