@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"sort"
 	"strings"
+	"sync"
 )
 
 type MerkleTree struct {
@@ -12,6 +13,11 @@ type MerkleTree struct {
 	leafHashes map[string]string
 	root       string
 }
+
+const (
+	merkleHashWorkers       = 4
+	merkleParallelPairFloor = 8
+)
 
 func NewMerkleTreeFromMap(kv map[string]string) *MerkleTree {
 	tree := &MerkleTree{
@@ -121,19 +127,55 @@ func (t *MerkleTree) rebuild() {
 	}
 
 	for len(level) > 1 {
-		next := make([]string, 0, (len(level)+1)/2)
-		for i := 0; i < len(level); i += 2 {
-			left := level[i]
-			right := left
-			if i+1 < len(level) {
-				right = level[i+1]
+		pairCount := (len(level) + 1) / 2
+		next := make([]string, pairCount)
+		if pairCount >= merkleParallelPairFloor {
+			t.hashLevelParallel(level, next)
+		} else {
+			for i := 0; i < pairCount; i++ {
+				left := level[2*i]
+				right := left
+				if 2*i+1 < len(level) {
+					right = level[2*i+1]
+				}
+				next[i] = hashHex("node|" + left + "|" + right)
 			}
-			next = append(next, hashHex("node|"+left+"|"+right))
 		}
 		level = next
 	}
 
 	t.root = level[0]
+}
+
+func (t *MerkleTree) hashLevelParallel(level []string, next []string) {
+	workerCount := merkleHashWorkers
+	if workerCount > len(next) {
+		workerCount = len(next)
+	}
+	if workerCount < 1 {
+		workerCount = 1
+	}
+	var wg sync.WaitGroup
+	workCh := make(chan int, len(next))
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for pairIdx := range workCh {
+				left := level[2*pairIdx]
+				right := left
+				if 2*pairIdx+1 < len(level) {
+					right = level[2*pairIdx+1]
+				}
+				next[pairIdx] = hashHex("node|" + left + "|" + right)
+			}
+		}()
+	}
+	for i := range next {
+		workCh <- i
+	}
+	close(workCh)
+	wg.Wait()
 }
 
 func hashHex(v string) string {
