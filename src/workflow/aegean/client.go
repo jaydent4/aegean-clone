@@ -9,6 +9,11 @@ import (
 	"aegean/nodes"
 )
 
+const (
+	writeKeyMod = 100
+	readKeyMod  = 3
+)
+
 func ClientRequestLogic(c *nodes.Client) {
 	runClientRequestLogic(c, false)
 }
@@ -23,7 +28,7 @@ func runClientRequestLogic(c *nodes.Client, waitForResponse bool) {
 
 	logger := nodes.GetClientLogger()
 
-	for requestID := 1; requestID <= 10; requestID++ {
+	for requestID := 1; requestID <= 100; requestID++ {
 		timestamp := float64(time.Now().UnixNano()) / 1e9
 
 		request := map[string]any{
@@ -33,14 +38,14 @@ func runClientRequestLogic(c *nodes.Client, waitForResponse bool) {
 			"op":         "spin_write_read",
 			"op_payload": map[string]any{
 				"spin_time":   0.1,
-				"write_key":   "1",
+				"write_key":   strconv.Itoa(requestID % writeKeyMod),
 				"write_value": "value_" + strconv.Itoa(requestID),
-				"read_key":    "1",
+				"read_key":    strconv.Itoa(requestID % readKeyMod),
 			},
 		}
 
 		expectedResult := map[string]any{
-			"read_value": "value_" + strconv.Itoa(requestID),
+			"read_value": expectedReadValue(requestID),
 			"request_id": requestID,
 			"status":     "ok",
 		}
@@ -64,4 +69,17 @@ func runClientRequestLogic(c *nodes.Client, waitForResponse bool) {
 			c.WaitForRequestCompletion(requestID)
 		}
 	}
+}
+
+func expectedReadValue(requestID int) string {
+	readKey := requestID % readKeyMod
+	for candidate := requestID; candidate >= 1; candidate-- {
+		if candidate%writeKeyMod == readKey {
+			return "value_" + strconv.Itoa(candidate)
+		}
+	}
+	if readKey == 1 {
+		return "111"
+	}
+	return ""
 }
