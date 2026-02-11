@@ -40,7 +40,7 @@ func (v *Verifier) applyCommitMessage(payload map[string]any) map[string]any {
 	v.stopTimerLocked(seqNum)
 
 	go v.sendVerifyResponse(seqNum, v.view, token, false)
-	go v.flushBufferedFrom(seqNum)
+	go v.flushNextVerify()
 
 	return map[string]any{"status": "committed", "token": token}
 }

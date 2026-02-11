@@ -59,7 +59,7 @@ func (v *Verifier) applyPrepareMessage(payload map[string]any) map[string]any {
 		v.setCommitted(seqNum, token)
 		v.stopTimerLocked(seqNum)
 		go v.sendVerifyResponse(seqNum, v.view, token, false)
-		go v.flushBufferedFrom(seqNum)
+		go v.flushNextVerify()
 	}
 	return map[string]any{"status": "prepared", "count": count}
 }

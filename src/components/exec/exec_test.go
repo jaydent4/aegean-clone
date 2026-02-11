@@ -542,8 +542,8 @@ func TestExecHandleVerifyResponseMessageProcessesStableSeqRollbackImmediately(t 
 		"verifier_id":      "ver1",
 	})
 
-	if resp["decision"] != "rollback" {
-		t.Fatalf("expected rollback decision, got %v", resp["decision"])
+	if resp["status"] != "buffered" {
+		t.Fatalf("expected buffered response status, got %v", resp["status"])
 	}
 	if !exec.forceSequential {
 		t.Fatalf("expected forceSequential true after immediate rollback handling")
@@ -606,8 +606,8 @@ func TestExecRollbackReplaysUncommittedBatch(t *testing.T) {
 		"force_sequential": true,
 		"verifier_id":      "ver1",
 	})
-	if resp["decision"] != "rollback" {
-		t.Fatalf("expected rollback decision, got %v", resp["decision"])
+	if resp["status"] != "buffered" {
+		t.Fatalf("expected buffered response status, got %v", resp["status"])
 	}
 	if runCount != 2 {
 		t.Fatalf("expected uncommitted batch to be replayed once after rollback, got execution count %d", runCount)

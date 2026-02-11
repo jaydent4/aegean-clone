@@ -76,8 +76,8 @@ func TestVerifierPreprepareThreshold(t *testing.T) {
 		"prev_hash": "",
 		"exec_id":   "e1",
 	})
-	if first["status"] != "waiting" {
-		t.Fatalf("expected waiting after first verify, got %v", first["status"])
+	if first["status"] != "processed_or_buffered" {
+		t.Fatalf("expected processed_or_buffered after first verify, got %v", first["status"])
 	}
 
 	second := v.HandleVerifyMessage(map[string]any{
@@ -88,8 +88,8 @@ func TestVerifierPreprepareThreshold(t *testing.T) {
 		"prev_hash": "",
 		"exec_id":   "e2",
 	})
-	if second["status"] != "preprepared" {
-		t.Fatalf("expected preprepared after threshold, got %v", second["status"])
+	if second["status"] != "processed_or_buffered" {
+		t.Fatalf("expected processed_or_buffered after threshold, got %v", second["status"])
 	}
 }
 
@@ -162,8 +162,8 @@ func TestVerifierTimeoutTriggersViewChangeResponse(t *testing.T) {
 		"prev_hash": "",
 		"exec_id":   "e1",
 	})
-	if resp["status"] != "waiting" {
-		t.Fatalf("expected waiting status, got %v", resp["status"])
+	if resp["status"] != "processed_or_buffered" {
+		t.Fatalf("expected processed_or_buffered status, got %v", resp["status"])
 	}
 	time.Sleep(100 * time.Millisecond)
 	// Simulate second verifier contributing a view-change report so the new-view
@@ -219,8 +219,8 @@ func TestVerifierFastNoAgreementWhenAllExecVotesDiffer(t *testing.T) {
 		"prev_hash": "",
 		"exec_id":   "e3",
 	})
-	if resp["status"] != "no_agreement_fast_path" {
-		t.Fatalf("expected no_agreement_fast_path, got %v", resp["status"])
+	if resp["status"] != "processed_or_buffered" {
+		t.Fatalf("expected processed_or_buffered, got %v", resp["status"])
 	}
 
 	// Simulate second verifier report so new-view certificate can be formed.

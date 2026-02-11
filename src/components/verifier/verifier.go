@@ -27,8 +27,8 @@ type Verifier struct {
 	// Committed token by sequence number.
 	committed map[int]string
 	mu        sync.Mutex
-	// Out-of-order buffer for verify messages.
-	verifyBuffer *common.OOOBuffer[map[string]any]
+	// Out-of-order buffer for verify messages prioritized by view then seq.
+	verifyBuffer *common.MultiOOOBuffer[map[string]any]
 	// Timeout trigger for no-agreement path (paper mentions throughput-based trigger).
 	viewChangeTimeout time.Duration
 	// One timer per seq/view round.
@@ -41,7 +41,7 @@ type verifySlot struct {
 	seqNum int
 	view   int
 
-	verifyVotes map[string]map[string]struct{} // token -> exec_id set
+	verifyVotes  map[string]map[string]struct{} // token -> exec_id set
 	prepareVotes map[string]map[string]struct{} // token -> verifier_id set
 	commitVotes  map[string]map[string]struct{} // token -> verifier_id set
 
@@ -55,18 +55,18 @@ func NewVerifier(name string, verifiers []string, execs []string, execCh chan<- 
 		log.Fatalf("verifier component requires non-nil execCh")
 	}
 	v := &Verifier{
-		Name:             name,
-		Verifiers:        verifiers,
-		Execs:            execs,
-		ExecCh:           execCh,
-		u:                1,
-		r:                0,
-		slots:            make(map[int]*verifySlot),
-		committed:        make(map[int]string),
-		verifyBuffer:     common.NewOOOBuffer[map[string]any](),
+		Name:              name,
+		Verifiers:         verifiers,
+		Execs:             execs,
+		ExecCh:            execCh,
+		u:                 1,
+		r:                 0,
+		slots:             make(map[int]*verifySlot),
+		committed:         make(map[int]string),
+		verifyBuffer:      common.NewMultiOOOBuffer[map[string]any](),
 		viewChangeTimeout: 2 * time.Second,
-		viewTimers:       make(map[int]*time.Timer),
-		viewChangeRounds: make(map[int]*viewChangeRound),
+		viewTimers:        make(map[int]*time.Timer),
+		viewChangeRounds:  make(map[int]*viewChangeRound),
 	}
 	v.execVerifyQuorum = common.MaxInt(v.u, v.r) + 1
 	v.phaseQuorum = v.u + v.r + 1 // nV-u where nV=2u+r+1
@@ -155,42 +155,21 @@ func (v *Verifier) stopTimerLocked(seqNum int) {
 	}
 }
 
-func (v *Verifier) flushBufferedFrom(seqNum int) {
-	next := seqNum + 1
-	for {
-		v.mu.Lock()
-		_, committed := v.committedToken(next - 1)
-		v.mu.Unlock()
-		if next > 1 && !committed {
-			return
-		}
-
-		msgs := v.verifyBuffer.Pop(next)
-		if len(msgs) == 0 {
-			return
-		}
-
-		for _, msg := range msgs {
-			_ = v.applyVerifyMessage(msg)
-		}
-		next++
-	}
-}
-
 func (v *Verifier) HandleVerifyMessage(payload map[string]any) map[string]any {
 	seqNum := common.GetInt(payload, "seq_num")
-	prevHash, _ := payload["prev_hash"].(string)
-	if seqNum > 1 && prevHash != "" {
-		v.mu.Lock()
-		_, committed := v.committedToken(seqNum - 1)
-		if !committed {
-			v.verifyBuffer.Add(seqNum, payload)
-			v.mu.Unlock()
-			return map[string]any{"status": "buffered", "seq_num": seqNum}
+	view := common.GetInt(payload, "view")
+	v.verifyBuffer.Add(view, seqNum, payload)
+	progressed := false
+	for {
+		if !v.flushNextVerify() {
+			break
 		}
-		v.mu.Unlock()
+		progressed = true
 	}
-	return v.applyVerifyMessage(payload)
+	if progressed {
+		return map[string]any{"status": "processed_or_buffered", "view": view, "seq_num": seqNum}
+	}
+	return map[string]any{"status": "buffered", "view": view, "seq_num": seqNum}
 }
 
 func (v *Verifier) HandlePrepareMessage(payload map[string]any) map[string]any {

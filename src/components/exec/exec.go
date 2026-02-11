@@ -73,7 +73,7 @@ type Exec struct {
 	verifyResponseTimers  map[int]*time.Timer
 	// Out-of-order buffers
 	batchBuffer   *common.OOOBuffer[map[string]any]
-	verifyBuffer  *common.OOOBuffer[map[string]any]
+	verifyBuffer  *common.MultiOOOBuffer[map[string]any]
 	nextBatchSeq  int
 	nextVerifySeq int
 	// recoveringTransfers tracks seq numbers currently blocked on state transfer
@@ -131,7 +131,7 @@ func NewExec(name string, verifiers []string, peers []string, verifierCh chan<- 
 		verifyResponseTimeout: 2 * time.Second,
 		verifyResponseTimers:  make(map[int]*time.Timer),
 		batchBuffer:           common.NewOOOBuffer[map[string]any](),
-		verifyBuffer:          common.NewOOOBuffer[map[string]any](),
+		verifyBuffer:          common.NewMultiOOOBuffer[map[string]any](),
 		nextBatchSeq:          1,
 		nextVerifySeq:         1,
 		recoveringTransfers:   make(map[int]struct{}),
@@ -257,35 +257,11 @@ func (e *Exec) HandleBatchMessage(payload map[string]any) map[string]any {
 func (e *Exec) HandleVerifyResponseMessage(payload map[string]any) map[string]any {
 	log.Printf("Handler called on %s with payload: %v", e.Name, payload)
 	seqNum := common.GetInt(payload, "seq_num")
+	view := common.GetInt(payload, "view")
 	e.processMu.Lock()
 	defer e.processMu.Unlock()
 
-	view := common.GetInt(payload, "view")
-	forceSequential, forceOK := payload["force_sequential"].(bool)
-	e.mu.Lock()
-	stableSeq := e.stableState.SeqNum
-	currentView := e.view
-	e.mu.Unlock()
-	// View-change/rollback control responses for already-stable sequence numbers
-	// must be handled immediately instead of waiting behind nextVerifySeq.
-	if payload["view"] != nil && forceOK && seqNum <= stableSeq && (forceSequential || view > currentView) {
-		resp := e.handleVerifyResponse(payload)
-		for {
-			progressed := false
-			if e.flushNextBatch() {
-				progressed = true
-			}
-			if e.flushNextVerify() {
-				progressed = true
-			}
-			if !progressed {
-				break
-			}
-		}
-		return resp
-	}
-
-	e.verifyBuffer.Add(seqNum, payload)
+	e.verifyBuffer.Add(view, seqNum, payload)
 	for {
 		progressed := false
 		if e.flushNextBatch() {
@@ -298,7 +274,7 @@ func (e *Exec) HandleVerifyResponseMessage(payload map[string]any) map[string]an
 			break
 		}
 	}
-	return map[string]any{"status": "buffered", "seq_num": seqNum}
+	return map[string]any{"status": "buffered", "view": view, "seq_num": seqNum}
 }
 
 func (e *Exec) HandleStateTransferRequestMessage(payload map[string]any) map[string]any {

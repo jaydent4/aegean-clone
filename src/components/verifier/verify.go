@@ -6,6 +6,38 @@ import (
 	"aegean/common"
 )
 
+func (v *Verifier) flushNextVerify() bool {
+	view, seqNum, ok := v.verifyBuffer.PeekNext()
+	if !ok {
+		return false
+	}
+
+	// Always prioritize highest-view traffic; within that, process earliest seq first.
+	v.mu.Lock()
+	currentView := v.view
+	if view < currentView {
+		v.mu.Unlock()
+		_ = v.verifyBuffer.Pop(view, seqNum)
+		return true
+	}
+	if seqNum > 1 {
+		if _, committed := v.committedToken(seqNum - 1); !committed {
+			v.mu.Unlock()
+			return false
+		}
+	}
+	v.mu.Unlock()
+
+	msgs := v.verifyBuffer.Pop(view, seqNum)
+	if len(msgs) == 0 {
+		return false
+	}
+	for _, msg := range msgs {
+		_ = v.applyVerifyMessage(msg)
+	}
+	return true
+}
+
 func (v *Verifier) applyVerifyMessage(payload map[string]any) map[string]any {
 	seqNum := common.GetInt(payload, "seq_num")
 	token, _ := payload["token"].(string)
@@ -34,8 +66,7 @@ func (v *Verifier) applyVerifyMessage(payload map[string]any) map[string]any {
 	if seqNum > 1 {
 		prevCommitted, ok := v.committedToken(seqNum - 1)
 		if !ok {
-			v.verifyBuffer.Add(seqNum, payload)
-			return map[string]any{"status": "buffered", "seq_num": seqNum}
+			return map[string]any{"status": "waiting_prev_commit", "seq_num": seqNum}
 		}
 		if prevHash != prevCommitted {
 			return map[string]any{"status": "invalid_prev_hash"}
@@ -94,7 +125,7 @@ func (v *Verifier) applyVerifyMessage(payload map[string]any) map[string]any {
 			v.setCommitted(seqNum, token)
 			v.stopTimerLocked(seqNum)
 			go v.sendVerifyResponse(seqNum, v.view, token, false)
-			go v.flushBufferedFrom(seqNum)
+			go v.flushNextVerify()
 		}
 	}
 
