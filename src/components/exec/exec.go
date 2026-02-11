@@ -79,14 +79,13 @@ type Exec struct {
 	// recoveringTransfers tracks seq numbers currently blocked on state transfer
 	// so flushNextVerify can retry recovery without advancing sequence pointers.
 	recoveringTransfers map[int]struct{}
-	workerCount   int
-	scheduler     *execScheduler
-	batchCtx      *batchMerkleContext
+	workerCount         int
+	scheduler           *execScheduler
+	batchCtx            *batchMerkleContext
 	// Request execution hook
 	ExecuteRequest ExecuteRequestFunc
 }
 
-// TODO: request pipelining, parallel pipelining
 func NewExec(name string, verifiers []string, peers []string, verifierCh chan<- map[string]any, shimCh chan<- map[string]any, executeRequest ExecuteRequestFunc) *Exec {
 	if verifierCh == nil || shimCh == nil {
 		log.Fatalf("exec component requires non-nil channels")

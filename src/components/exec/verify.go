@@ -16,6 +16,8 @@ func (e *Exec) flushNextVerify() bool {
 	view := e.view
 	_, recovering := e.recoveringTransfers[seq]
 	e.mu.Unlock()
+
+	// If this seq is mid-recovery, retry state transfer before further verify work
 	if recovering {
 		if e.requestStateTransferWithRetry(seq, 6, 10*time.Millisecond) {
 			e.mu.Lock()
@@ -31,6 +33,7 @@ func (e *Exec) flushNextVerify() bool {
 	if seq != stableSeqNum+1 {
 		return false
 	}
+
 	// Compute token with committed prevHash to avoid divergence
 	if !pending.verifySent {
 		if pending.merkle == nil {
@@ -41,7 +44,7 @@ func (e *Exec) flushNextVerify() bool {
 		pending.token = token
 		pending.verifySent = true
 		e.mu.Lock()
-		// Guard against rollover while token was being computed.
+		// Guard against rollover while token was being computed
 		if e.nextVerifySeq != seq || e.stableState.SeqNum != stableSeqNum {
 			e.mu.Unlock()
 			return false
@@ -49,6 +52,7 @@ func (e *Exec) flushNextVerify() bool {
 		e.pendingResponses[seq] = pending
 		e.mu.Unlock()
 
+		// Broadcast verify request for this sequence to all verifiers
 		verifyMsg := map[string]any{
 			"type":      "verify",
 			"view":      view,
@@ -69,6 +73,8 @@ func (e *Exec) flushNextVerify() bool {
 		}
 		return true
 	}
+
+	// Consume buffered verify responses for this seq and apply quorum decisions
 	msgs := e.verifyBuffer.Pop(seq)
 	if len(msgs) == 0 {
 		return false
@@ -81,6 +87,7 @@ func (e *Exec) flushNextVerify() bool {
 		}
 	}
 	if resolved {
+		// Advance verify pointer only after this sequence is fully resolved
 		e.mu.Lock()
 		if e.nextVerifySeq == seq {
 			e.nextVerifySeq++
@@ -101,6 +108,7 @@ func (e *Exec) handleVerifyResponse(payload map[string]any) map[string]any {
 	}
 
 	e.mu.Lock()
+	// Handle responses for already-committed sequence numbers (rollback-only path)
 	if seqNum <= e.stableState.SeqNum {
 		shouldRollback := view > e.view || forceSequential
 		if !shouldRollback {
@@ -108,6 +116,7 @@ func (e *Exec) handleVerifyResponse(payload map[string]any) map[string]any {
 			return map[string]any{"status": "already_committed", "seq_num": seqNum}
 		}
 
+		// Track this vote and wait until quorum agrees on the same rollback tuple
 		tupleKey := responseTupleKey(view, seqNum, agreedToken, forceSequential)
 		e.verifyResponseMsgs[tupleKey] = payload
 		if _, ok := e.verifyResponseBySeq[seqNum]; !ok {
@@ -120,12 +129,14 @@ func (e *Exec) handleVerifyResponse(payload map[string]any) map[string]any {
 			return map[string]any{"status": "waiting_quorum", "resolved": false}
 		}
 
+		// Quorum reached: clear tracking, advance view if needed, and release lock before recovery work
 		e.clearVerifyResponseTrackingLocked(seqNum)
 		if view > e.view {
 			e.view = view
 		}
 		e.mu.Unlock()
 
+		// Try rollback first; if unavailable, recover state via transfer and fall back to stable state on failure
 		log.Printf("%s: applying rollback response at stable seq=%d view=%d token=%s", e.Name, seqNum, view, common.TruncateToken(agreedToken))
 		if e.rollbackTo(seqNum, agreedToken) {
 			e.mu.Lock()
@@ -146,12 +157,15 @@ func (e *Exec) handleVerifyResponse(payload map[string]any) map[string]any {
 		e.rollbackWorkingToStable()
 		return map[string]any{"status": "processed", "decision": "rollback_fallback_retrying", "resolved": false}
 	}
+
+	// For future sequence numbers, require a pending candidate state to reconcile against
 	pending, ok := e.pendingResponses[seqNum]
 	if !ok {
 		e.mu.Unlock()
 		return map[string]any{"status": "no_pending_for_seq"}
 	}
 
+	// Track quorum votes for this (view, seq, token, force_sequential) tuple
 	tupleKey := responseTupleKey(view, seqNum, agreedToken, forceSequential)
 	e.verifyResponseMsgs[tupleKey] = payload
 	if _, ok := e.verifyResponseBySeq[seqNum]; !ok {
@@ -165,11 +179,12 @@ func (e *Exec) handleVerifyResponse(payload map[string]any) map[string]any {
 		return map[string]any{"status": "waiting_quorum", "resolved": false}
 	}
 
-	// Quorum reached for (view, seq_num, token, force_sequential)
+	// Quorum reached: stop timers and clear temporary vote tracking
 	e.stopVerifyResponseTimerLocked(seqNum)
 	e.clearVerifyResponseTrackingLocked(seqNum)
 	e.mu.Unlock()
 
+	// Re-evaluate rollback requirement after quorum and update view when moving forward
 	e.mu.Lock()
 	shouldRollback := view > e.view || forceSequential
 	if shouldRollback && view > e.view {
@@ -177,6 +192,7 @@ func (e *Exec) handleVerifyResponse(payload map[string]any) map[string]any {
 	}
 	e.mu.Unlock()
 	if shouldRollback {
+		// Execute rollback recovery flow for agreed rollback decision
 		log.Printf("%s: quorum rollback response received for seq=%d view=%d token=%s", e.Name, seqNum, view, common.TruncateToken(agreedToken))
 		e.mu.Lock()
 		delete(e.pendingResponses, seqNum)
@@ -201,11 +217,13 @@ func (e *Exec) handleVerifyResponse(payload map[string]any) map[string]any {
 		return map[string]any{"status": "processed", "decision": "rollback_fallback_retrying", "resolved": false}
 	}
 
+	// If token matches pending state, commit it as the next stable checkpoint
 	if pending.token == agreedToken {
 		e.finalizeCommit(seqNum, pending, agreedToken)
 		return map[string]any{"status": "processed", "decision": "commit", "resolved": true}
 	}
 
+	// If token mismatches, recover by state transfer and retry from stable state if needed
 	log.Printf("%s: state diverged at seq=%d, agreed token mismatch", e.Name, seqNum)
 	e.mu.Lock()
 	delete(e.pendingResponses, seqNum)
