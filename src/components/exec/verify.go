@@ -14,7 +14,17 @@ func (e *Exec) flushNextVerify() bool {
 	stableSeqNum := e.stableState.SeqNum
 	prevHash := e.stableState.PrevHash
 	view := e.view
+	_, recovering := e.recoveringTransfers[seq]
 	e.mu.Unlock()
+	if recovering {
+		if e.requestStateTransferWithRetry(seq, 6, 10*time.Millisecond) {
+			e.mu.Lock()
+			delete(e.recoveringTransfers, seq)
+			e.mu.Unlock()
+			return true
+		}
+		return false
+	}
 	if !ok {
 		return false
 	}
@@ -131,16 +141,23 @@ func (e *Exec) handleVerifyResponse(payload map[string]any) map[string]any {
 		delete(e.pendingResponses, seqNum)
 		e.mu.Unlock()
 		if e.rollbackTo(seqNum, agreedToken) {
+			e.mu.Lock()
+			delete(e.recoveringTransfers, seqNum)
+			e.mu.Unlock()
 			return map[string]any{"status": "processed", "decision": "rollback", "resolved": true}
 		}
-		if e.requestStateTransfer() {
+		e.mu.Lock()
+		e.recoveringTransfers[seqNum] = struct{}{}
+		e.mu.Unlock()
+		if e.requestStateTransferWithRetry(seqNum, 8, 10*time.Millisecond) {
 			e.mu.Lock()
 			e.forceSequential = true
+			delete(e.recoveringTransfers, seqNum)
 			e.mu.Unlock()
 			return map[string]any{"status": "processed", "decision": "state_transfer", "resolved": true}
 		}
 		e.rollbackWorkingToStable()
-		return map[string]any{"status": "processed", "decision": "rollback_fallback", "resolved": true}
+		return map[string]any{"status": "processed", "decision": "rollback_fallback_retrying", "resolved": false}
 	}
 
 	if pending.token == agreedToken {
@@ -151,12 +168,16 @@ func (e *Exec) handleVerifyResponse(payload map[string]any) map[string]any {
 	log.Printf("%s: state diverged at seq=%d, agreed token mismatch", e.Name, seqNum)
 	e.mu.Lock()
 	delete(e.pendingResponses, seqNum)
+	e.recoveringTransfers[seqNum] = struct{}{}
 	e.mu.Unlock()
-	if e.requestStateTransfer() {
+	if e.requestStateTransferWithRetry(seqNum, 8, 10*time.Millisecond) {
+		e.mu.Lock()
+		delete(e.recoveringTransfers, seqNum)
+		e.mu.Unlock()
 		return map[string]any{"status": "processed", "decision": "state_transfer", "resolved": true}
 	}
 	e.rollbackWorkingToStable()
-	return map[string]any{"status": "processed", "decision": "rollback_fallback", "resolved": true}
+	return map[string]any{"status": "processed", "decision": "state_transfer_retrying", "resolved": false}
 }
 
 func (e *Exec) finalizeCommit(seqNum int, pending pendingResponse, agreedToken string) {

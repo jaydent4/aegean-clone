@@ -74,6 +74,9 @@ type Exec struct {
 	verifyBuffer  *common.OOOBuffer[map[string]any]
 	nextBatchSeq  int
 	nextVerifySeq int
+	// recoveringTransfers tracks seq numbers currently blocked on state transfer
+	// so flushNextVerify can retry recovery without advancing sequence pointers.
+	recoveringTransfers map[int]struct{}
 	workerCount   int
 	scheduler     *execScheduler
 	batchCtx      *batchMerkleContext
@@ -129,6 +132,7 @@ func NewExec(name string, verifiers []string, peers []string, verifierCh chan<- 
 		verifyBuffer:          common.NewOOOBuffer[map[string]any](),
 		nextBatchSeq:          1,
 		nextVerifySeq:         1,
+		recoveringTransfers:   make(map[int]struct{}),
 		workerCount:           4,
 	}
 	exec.verifyResponseQuorum = common.NewQuorumHelper(exec.r + 1)

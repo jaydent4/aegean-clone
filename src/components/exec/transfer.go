@@ -3,11 +3,38 @@ package exec
 import (
 	"fmt"
 	"log"
+	"time"
 
 	"aegean/common"
 )
 
-func (e *Exec) requestStateTransfer() bool {
+func (e *Exec) requestStateTransferWithRetry(minStableSeq int, maxAttempts int, initialBackoff time.Duration) bool {
+	if maxAttempts < 1 {
+		maxAttempts = 1
+	}
+	backoff := initialBackoff
+	if backoff <= 0 {
+		backoff = 10 * time.Millisecond
+	}
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if e.requestStateTransfer(minStableSeq, attempt) {
+			return true
+		}
+		if attempt == maxAttempts-1 {
+			break
+		}
+		time.Sleep(backoff)
+		if backoff < 100*time.Millisecond {
+			backoff *= 2
+			if backoff > 100*time.Millisecond {
+				backoff = 100 * time.Millisecond
+			}
+		}
+	}
+	return false
+}
+
+func (e *Exec) requestStateTransfer(minStableSeq int, _ int) bool {
 	// TODO: should state transfer be async? Meaning that should state transfer request
 	// spin and wait for a response before processing other requests
 	// TODO: after state transfer, do we send back client the response?
@@ -51,8 +78,8 @@ func (e *Exec) requestStateTransfer() bool {
 		e.mu.Lock()
 		currentStableSeq := e.stableState.SeqNum
 		e.mu.Unlock()
-		if transferredStableSeqNum <= currentStableSeq {
-			log.Printf("%s: Received stable_seq_num %d from %s is not higher than ours (%d)", e.Name, transferredStableSeqNum, sourceExec, currentStableSeq)
+		if transferredStableSeqNum <= currentStableSeq || transferredStableSeqNum < minStableSeq {
+			log.Printf("%s: Received stable_seq_num %d from %s does not satisfy required seq (current=%d required=%d)", e.Name, transferredStableSeqNum, sourceExec, currentStableSeq, minStableSeq)
 			continue
 		}
 
