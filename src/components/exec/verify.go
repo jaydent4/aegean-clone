@@ -9,7 +9,7 @@ import (
 func (e *Exec) flushNextVerify() bool {
 	e.mu.Lock()
 	seq := e.nextVerifySeq
-	pending, ok := e.pendingResponses[seq]
+	pending, ok := e.pendingExecResults[seq]
 	stableSeqNum := e.stableState.SeqNum
 	prevHash := e.stableState.PrevHash
 	view := e.view
@@ -29,7 +29,7 @@ func (e *Exec) flushNextVerify() bool {
 			e.mu.Unlock()
 			return false
 		}
-		e.pendingResponses[seq] = pending
+		e.pendingExecResults[seq] = pending
 		e.mu.Unlock()
 
 		// Broadcast verify request for this sequence to all verifiers
@@ -56,14 +56,14 @@ func (e *Exec) flushNextVerify() bool {
 	return false
 }
 
-func (e *Exec) finalizeCommit(seqNum int, pending pendingResponse, agreedToken string) {
+func (e *Exec) finalizeCommit(seqNum int, pending pendingExecResult, agreedToken string) {
 	log.Printf("%s: Committing seq_num %d", e.Name, seqNum)
 	if pending.merkle == nil {
 		pending.merkle = NewMerkleTreeFromMap(pending.state)
 		pending.merkleRoot = pending.merkle.Root()
 	}
 	e.mu.Lock()
-	delete(e.pendingResponses, seqNum)
+	delete(e.pendingExecResults, seqNum)
 	e.mu.Unlock()
 
 	e.stateMu.Lock()
@@ -82,9 +82,9 @@ func (e *Exec) finalizeCommit(seqNum int, pending pendingResponse, agreedToken s
 		Verified:   true,
 	}
 	e.storeCheckpoint(seqNum, agreedToken, pending.merkle, pending.merkleRoot)
-	for batchSeq := range e.batchPayloads {
+	for batchSeq := range e.replayableBatchInputs {
 		if batchSeq <= seqNum {
-			delete(e.batchPayloads, batchSeq)
+			delete(e.replayableBatchInputs, batchSeq)
 		}
 	}
 	e.forceSequential = false

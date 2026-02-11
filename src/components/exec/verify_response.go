@@ -15,7 +15,7 @@ func (e *Exec) flushNextVerifyResponse() bool {
 	}
 	e.mu.Lock()
 	stableSeqNum := e.stableState.SeqNum
-	_, hasPending := e.pendingResponses[msgSeq]
+	_, hasPending := e.pendingExecResults[msgSeq]
 	e.mu.Unlock()
 	// Keep the highest-priority tuple buffered until this seq is actionable.
 	if msgSeq > stableSeqNum && !hasPending {
@@ -48,7 +48,7 @@ func (e *Exec) handleVerifyResponse(payload map[string]any) map[string]any {
 
 	e.mu.Lock()
 	stableSeqNum := e.stableState.SeqNum
-	pending, hasPending := e.pendingResponses[seqNum]
+	pending, hasPending := e.pendingExecResults[seqNum]
 	if seqNum > stableSeqNum && !hasPending {
 		e.mu.Unlock()
 		return map[string]any{"status": "no_pending_for_seq", "resolved": false}
@@ -74,7 +74,7 @@ func (e *Exec) handleVerifyResponse(payload map[string]any) map[string]any {
 		e.view = view
 	}
 	if shouldRollback && hasPending {
-		delete(e.pendingResponses, seqNum)
+		delete(e.pendingExecResults, seqNum)
 	}
 	e.mu.Unlock()
 
@@ -101,7 +101,7 @@ func (e *Exec) handleVerifyResponse(payload map[string]any) map[string]any {
 	if pending.token != agreedToken {
 		log.Printf("%s: state diverged at seq=%d, agreed token mismatch", e.Name, seqNum)
 		e.mu.Lock()
-		delete(e.pendingResponses, seqNum)
+		delete(e.pendingExecResults, seqNum)
 		e.mu.Unlock()
 		// Note: calling this will implicitly act as a global stall (because processMu), until state transfer is complete
 		e.requestStateTransferWithRetry(seqNum, 0, 10*time.Millisecond)

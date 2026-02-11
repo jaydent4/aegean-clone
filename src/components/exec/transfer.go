@@ -134,20 +134,20 @@ func (e *Exec) requestStateTransfer(minStableSeq int, _ int) bool {
 		}
 		e.storeCheckpoint(e.stableState.SeqNum, e.stableState.PrevHash, mergedMerkle, mergedMerkle.Root())
 		e.forceSequential = false
-		for seq := range e.pendingResponses {
-			delete(e.pendingResponses, seq)
+		for seq := range e.pendingExecResults {
+			delete(e.pendingExecResults, seq)
 		}
 		e.batchBuffer.Clear()
 		e.verifyBuffer.Clear()
 		replaySeqs := make([]int, 0)
-		for seq := range e.batchPayloads {
+		for seq := range e.replayableBatchInputs {
 			if seq > e.stableState.SeqNum {
 				replaySeqs = append(replaySeqs, seq)
 			}
 		}
 		sort.Ints(replaySeqs)
 		for _, replaySeq := range replaySeqs {
-			e.batchBuffer.Add(replaySeq, e.batchPayloads[replaySeq])
+			e.batchBuffer.Add(replaySeq, e.replayableBatchInputs[replaySeq])
 		}
 		e.nextBatchSeq = e.stableState.SeqNum + 1
 		e.nextVerifySeq = e.stableState.SeqNum + 1

@@ -15,7 +15,7 @@ func (e *Exec) rollbackTo(seqNum int, token string) bool {
 	}
 
 	replaySeqs := make([]int, 0)
-	for batchSeq := range e.batchPayloads {
+	for batchSeq := range e.replayableBatchInputs {
 		if batchSeq > seqNum {
 			replaySeqs = append(replaySeqs, batchSeq)
 		}
@@ -23,15 +23,15 @@ func (e *Exec) rollbackTo(seqNum int, token string) bool {
 	sort.Ints(replaySeqs)
 
 	// Discard pending work above rollback point
-	for pendingSeq := range e.pendingResponses {
+	for pendingSeq := range e.pendingExecResults {
 		if pendingSeq > seqNum {
-			delete(e.pendingResponses, pendingSeq)
+			delete(e.pendingExecResults, pendingSeq)
 		}
 	}
 	e.batchBuffer.Clear()
 	e.verifyBuffer.Clear()
 	for _, replaySeq := range replaySeqs {
-		e.batchBuffer.Add(replaySeq, e.batchPayloads[replaySeq])
+		e.batchBuffer.Add(replaySeq, e.replayableBatchInputs[replaySeq])
 	}
 	e.nextBatchSeq = seqNum + 1
 	e.nextVerifySeq = seqNum + 1

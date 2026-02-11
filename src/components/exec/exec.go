@@ -11,7 +11,7 @@ import (
 	"aegean/common"
 )
 
-type pendingResponse struct {
+type pendingExecResult struct {
 	outputs    []map[string]any
 	state      map[string]string
 	merkle     *MerkleTree
@@ -37,7 +37,7 @@ type Exec struct {
 	VerifierCh chan<- map[string]any
 	ShimCh     chan<- map[string]any
 	// mu protects protocol/control-plane fields:
-	// stableState, pendingResponses, forceSequential, view, checkpoints,
+	// stableState, pendingExecResults, forceSequential, view, checkpoints,
 	// verify-response quorum/timers/maps, nextBatchSeq, nextVerifySeq
 	mu sync.Mutex
 	// processMu serializes flush pipelines
@@ -51,10 +51,12 @@ type Exec struct {
 	// State management for rollback
 	stableState  State
 	workingState State
-	// Pending responses (held until commit)
-	pendingResponses map[int]pendingResponse
-	// Batch payloads indexed by sequence number; used to replay uncommitted work after rollback.
-	batchPayloads map[int]map[string]any
+	// Buffers tentative execution results until verifiers confirm, then either commits or discards them
+	// keys: outputs, state, merkle, merkleRoot, token, verifySent
+	pendingExecResults map[int]pendingExecResult
+	// Stores original inputs so the exec can deterministically replay later if needed
+	// maps seq_num to batch payload object
+	replayableBatchInputs map[int]map[string]any
 	// Sequential execution flag (set after rollback)
 	forceSequential bool
 	// Hard-coded fault parameters for now.
@@ -67,6 +69,7 @@ type Exec struct {
 	verifyResponseMsgs   map[string]map[string]any // response tuple key -> payload
 	verifyResponseBySeq  map[int]map[string]struct{}
 	// Checkpoints for rollback to agreed (n, T).
+	// Need to fix this: implement GC
 	checkpoints map[int]rollbackCheckpoint
 	// Timeout for unresolved verifier responses.
 	verifyResponseTimeout time.Duration
@@ -117,8 +120,8 @@ func NewExec(name string, verifiers []string, peers []string, verifierCh chan<- 
 		ExecuteRequest:        executeRequest,
 		stableState:           stable,
 		workingState:          working,
-		pendingResponses:      make(map[int]pendingResponse),
-		batchPayloads:         make(map[int]map[string]any),
+		pendingExecResults:    make(map[int]pendingExecResult),
+		replayableBatchInputs: make(map[int]map[string]any),
 		u:                     1,
 		r:                     0,
 		view:                  1,

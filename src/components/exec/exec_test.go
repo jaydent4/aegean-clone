@@ -173,7 +173,7 @@ func TestExecHandleBatchSendsVerifyAndTracksPending(t *testing.T) {
 	}
 	exec.flushNextVerify()
 
-	pending, ok := exec.pendingResponses[1]
+	pending, ok := exec.pendingExecResults[1]
 	if !ok {
 		t.Fatalf("expected pending response for seq_num 1")
 	}
@@ -216,9 +216,9 @@ func TestExecVerifyCommitStabilizesAndResponds(t *testing.T) {
 	}
 	exec.handleBatch(payload)
 
-	pending := exec.pendingResponses[2]
+	pending := exec.pendingExecResults[2]
 	pending.token = exec.computeStateHash(pending.merkleRoot, pending.outputs, exec.stableState.PrevHash, 2)
-	exec.pendingResponses[2] = pending
+	exec.pendingExecResults[2] = pending
 	commitResp := exec.handleVerifyResponse(map[string]any{
 		"type":             "verify_response",
 		"view":             1,
@@ -241,8 +241,8 @@ func TestExecVerifyCommitStabilizesAndResponds(t *testing.T) {
 		t.Fatalf("expected forceSequential false after commit")
 	}
 
-	if _, ok := exec.pendingResponses[2]; ok {
-		t.Fatalf("expected pendingResponses to be cleared after commit")
+	if _, ok := exec.pendingExecResults[2]; ok {
+		t.Fatalf("expected pendingExecResults to be cleared after commit")
 	}
 
 	// Expect two response messages sent to shim
@@ -286,7 +286,7 @@ func TestExecVerifyMismatchTriggersStateTransfer(t *testing.T) {
 	}
 	exec.handleBatch(payload)
 
-	pending := exec.pendingResponses[2]
+	pending := exec.pendingExecResults[2]
 	exec.handleVerifyResponse(map[string]any{
 		"type":             "verify_response",
 		"view":             1,
@@ -327,7 +327,7 @@ func TestExecBuffersOutOfOrderBatches(t *testing.T) {
 	if resp2["status"] != "buffered" {
 		t.Fatalf("expected buffered status for seq 2, got %v", resp2["status"])
 	}
-	if _, ok := exec.pendingResponses[2]; ok {
+	if _, ok := exec.pendingExecResults[2]; ok {
 		t.Fatalf("expected no pending response for seq 2 before seq 1 arrives")
 	}
 
@@ -340,10 +340,10 @@ func TestExecBuffersOutOfOrderBatches(t *testing.T) {
 	}
 	exec.HandleBatchMessage(batch1)
 
-	if _, ok := exec.pendingResponses[1]; !ok {
+	if _, ok := exec.pendingExecResults[1]; !ok {
 		t.Fatalf("expected pending response for seq 1 after flush")
 	}
-	if _, ok := exec.pendingResponses[2]; !ok {
+	if _, ok := exec.pendingExecResults[2]; !ok {
 		t.Fatalf("expected pending response for seq 2 after flush")
 	}
 
@@ -392,7 +392,7 @@ func TestExecBuffersVerifyBeforeBatch(t *testing.T) {
 
 	expectMessage(t, ts.received, "state_transfer_request")
 
-	if _, ok := exec.pendingResponses[1]; ok {
+	if _, ok := exec.pendingExecResults[1]; ok {
 		t.Fatalf("expected pending response cleared after buffered verify flush")
 	}
 }
@@ -427,7 +427,7 @@ func TestExecVerifyMismatchFallbackRollback(t *testing.T) {
 	}
 	exec.handleBatch(payload)
 
-	pending := exec.pendingResponses[3]
+	pending := exec.pendingExecResults[3]
 	exec.handleVerifyResponse(map[string]any{
 		"type":             "verify_response",
 		"view":             1,
@@ -453,7 +453,7 @@ func TestExecRollbackDecisionForcesSequential(t *testing.T) {
 	checkpointKV := map[string]string{"stable": "yes"}
 	checkpointMerkle := NewMerkleTreeFromMap(checkpointKV)
 	exec.storeCheckpoint(4, "t1", checkpointMerkle, checkpointMerkle.Root())
-	exec.pendingResponses[4] = pendingResponse{
+	exec.pendingExecResults[4] = pendingExecResult{
 		outputs: []map[string]any{{"request_id": "r1", "status": "ok"}},
 		state:   map[string]string{"dirty": "no"},
 		token:   "t1",
@@ -474,8 +474,8 @@ func TestExecRollbackDecisionForcesSequential(t *testing.T) {
 	if !exec.forceSequential {
 		t.Fatalf("expected forceSequential true after rollback")
 	}
-	if _, ok := exec.pendingResponses[4]; ok {
-		t.Fatalf("expected pendingResponses to be cleared after rollback")
+	if _, ok := exec.pendingExecResults[4]; ok {
+		t.Fatalf("expected pendingExecResults to be cleared after rollback")
 	}
 }
 
@@ -501,7 +501,7 @@ func TestExecRollbackAtStableSeqAppliesForceSequential(t *testing.T) {
 		Verified:   false,
 	}
 	exec.storeCheckpoint(2, "stable-token", stableMerkle, stableMerkle.Root())
-	exec.pendingResponses[3] = pendingResponse{
+	exec.pendingExecResults[3] = pendingExecResult{
 		outputs: []map[string]any{{"request_id": "r3", "status": "ok"}},
 		state:   map[string]string{"dirty": "no"},
 		token:   "t3",
@@ -525,7 +525,7 @@ func TestExecRollbackAtStableSeqAppliesForceSequential(t *testing.T) {
 	if exec.view != 2 {
 		t.Fatalf("expected view to advance to 2, got %d", exec.view)
 	}
-	if _, ok := exec.pendingResponses[3]; ok {
+	if _, ok := exec.pendingExecResults[3]; ok {
 		t.Fatalf("expected higher pending work to be cleared after rollback")
 	}
 }
@@ -552,7 +552,7 @@ func TestExecHandleVerifyResponseMessageProcessesStableSeqRollbackImmediately(t 
 	}
 	exec.storeCheckpoint(2, "stable-token", stableMerkle, stableMerkle.Root())
 	exec.nextVerifySeq = 3 // Simulate outstanding seq=3 path.
-	exec.pendingResponses[3] = pendingResponse{
+	exec.pendingExecResults[3] = pendingExecResult{
 		outputs: []map[string]any{{"request_id": "r3", "status": "ok"}},
 		state:   map[string]string{"dirty": "no"},
 		token:   "t3",
@@ -576,7 +576,7 @@ func TestExecHandleVerifyResponseMessageProcessesStableSeqRollbackImmediately(t 
 	if exec.view != 2 {
 		t.Fatalf("expected view to advance to 2, got %d", exec.view)
 	}
-	if _, ok := exec.pendingResponses[3]; ok {
+	if _, ok := exec.pendingExecResults[3]; ok {
 		t.Fatalf("expected seq=3 pending response to be cleared by rollback")
 	}
 }
@@ -637,7 +637,7 @@ func TestExecRollbackReplaysUncommittedBatch(t *testing.T) {
 	if runCount != 2 {
 		t.Fatalf("expected uncommitted batch to be replayed once after rollback, got execution count %d", runCount)
 	}
-	if _, ok := exec.pendingResponses[3]; !ok {
+	if _, ok := exec.pendingExecResults[3]; !ok {
 		t.Fatalf("expected replayed seq=3 to be pending again")
 	}
 }
@@ -740,7 +740,7 @@ func TestExecBlockedRequestResumesAfterNestedResponse(t *testing.T) {
 		t.Fatalf("timed out waiting for blocked request to resume")
 	}
 
-	pending, ok := exec.pendingResponses[1]
+	pending, ok := exec.pendingExecResults[1]
 	if !ok {
 		t.Fatalf("expected pending response for seq 1")
 	}
@@ -1049,11 +1049,11 @@ func TestExecParallelBatchConflictsRemainDeterministicAcrossExecs(t *testing.T) 
 	_ = expectMessage(t, verifierA, "verify")
 	_ = expectMessage(t, verifierB, "verify")
 
-	pendingA, ok := execA.pendingResponses[1]
+	pendingA, ok := execA.pendingExecResults[1]
 	if !ok {
 		t.Fatalf("expected pending response on execA")
 	}
-	pendingB, ok := execB.pendingResponses[1]
+	pendingB, ok := execB.pendingExecResults[1]
 	if !ok {
 		t.Fatalf("expected pending response on execB")
 	}

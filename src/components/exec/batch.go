@@ -65,8 +65,8 @@ func (e *Exec) handleBatch(payload map[string]any) map[string]any {
 	e.stateMu.Unlock()
 
 	e.mu.Lock()
-	e.batchPayloads[seqNum] = payload
-	e.pendingResponses[seqNum] = pendingResponse{
+	e.replayableBatchInputs[seqNum] = payload
+	e.pendingExecResults[seqNum] = pendingExecResult{
 		outputs:    outputs,
 		state:      stateSnapshot,
 		merkle:     merkleSnapshot,
