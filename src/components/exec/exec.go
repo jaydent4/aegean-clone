@@ -243,6 +243,9 @@ func (e *Exec) HandleBatchMessage(payload map[string]any) map[string]any {
 		if e.flushNextVerify() {
 			progressed = true
 		}
+		if e.flushNextVerifyResponse() {
+			progressed = true
+		}
 		if !progressed {
 			break
 		}
@@ -264,6 +267,9 @@ func (e *Exec) HandleVerifyResponseMessage(payload map[string]any) map[string]an
 			progressed = true
 		}
 		if e.flushNextVerify() {
+			progressed = true
+		}
+		if e.flushNextVerifyResponse() {
 			progressed = true
 		}
 		if !progressed {
