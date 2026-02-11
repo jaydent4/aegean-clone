@@ -53,7 +53,7 @@ func ExecuteRequest(e *exec.Exec, request map[string]any, ndSeed int64, ndTimest
 
 		if injectDivergence {
 			writeKey = writeKey + "_divergent_" + e.Name
-			writeValue = writeValue + "_divergent" + e.Name
+			writeValue = writeValue + "_divergent_" + e.Name
 			log.Printf("%s: injecting artificial divergence on request %v (write_key=%q write_value=%q)", e.Name, requestID, writeKey, writeValue)
 		}
 

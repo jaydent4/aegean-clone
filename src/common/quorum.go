@@ -52,3 +52,6 @@ func (q *QuorumHelper) Add(requestID any, sender string) bool {
 	log.Printf("Extra sender for request %s: %d/%d", key, newCount, q.quorumSize)
 	return false
 }
+
+// TODO: GC, but tricky, because we still need to dedup in case already-quorumed messages arrive
+// If we GC too early, the old messages may trigger another quorum

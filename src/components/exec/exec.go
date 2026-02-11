@@ -65,9 +65,7 @@ type Exec struct {
 	// Current execution view.
 	view int
 	// Quorum + dedupe for verify responses from verifiers.
-	// TODO: Can we simplify these 3?
 	verifyResponseQuorum *common.QuorumHelper
-	verifyResponseMsgs   map[string]map[string]any // response tuple key -> payload
 	verifyResponseBySeq  map[int]map[string]struct{}
 	// Checkpoints for rollback to agreed (n, T).
 	checkpoints map[int]rollbackCheckpoint
@@ -125,7 +123,6 @@ func NewExec(name string, verifiers []string, peers []string, verifierCh chan<- 
 		u:                     1,
 		r:                     0,
 		view:                  1,
-		verifyResponseMsgs:    make(map[string]map[string]any),
 		verifyResponseBySeq:   make(map[int]map[string]struct{}),
 		checkpoints:           make(map[int]rollbackCheckpoint),
 		verifyResponseTimeout: 2 * time.Second,

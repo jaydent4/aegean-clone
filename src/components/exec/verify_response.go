@@ -55,7 +55,6 @@ func (e *Exec) handleVerifyResponse(payload map[string]any) map[string]any {
 	}
 
 	tupleKey := responseTupleKey(view, seqNum, agreedToken, forceSequential)
-	e.verifyResponseMsgs[tupleKey] = payload
 	if _, ok := e.verifyResponseBySeq[seqNum]; !ok {
 		e.verifyResponseBySeq[seqNum] = make(map[string]struct{})
 	}
@@ -145,9 +144,5 @@ func (e *Exec) stopVerifyResponseTimerLocked(seqNum int) {
 }
 
 func (e *Exec) clearVerifyResponseTrackingLocked(seqNum int) {
-	keys := e.verifyResponseBySeq[seqNum]
-	for key := range keys {
-		delete(e.verifyResponseMsgs, key)
-	}
 	delete(e.verifyResponseBySeq, seqNum)
 }
