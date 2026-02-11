@@ -2,6 +2,8 @@ package aegeanworkflow
 
 import (
 	"log"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"aegean/common"
@@ -9,11 +11,30 @@ import (
 )
 
 const fanoutBaseResponseContextKey = "fanout_base_response"
+const divergenceEveryNRequests uint64 = 3
+
+var divergenceTargetNodeNames = map[string]struct{}{
+	"node7": {},
+	"node8": {},
+}
+
+var targetedNodeRequestCounters sync.Map
+
+func shouldInjectArtificialDivergence(execNodeName string) bool {
+	if _, targeted := divergenceTargetNodeNames[execNodeName]; !targeted {
+		return false
+	}
+	counterAny, _ := targetedNodeRequestCounters.LoadOrStore(execNodeName, &atomic.Uint64{})
+	counter := counterAny.(*atomic.Uint64)
+	requestCount := counter.Add(1)
+	return requestCount%divergenceEveryNRequests == 0
+}
 
 func ExecuteRequest(e *exec.Exec, request map[string]any, ndSeed int64, ndTimestamp float64) map[string]any {
 	requestID := request["request_id"]
 	op, _ := request["op"].(string)
 	opPayload, _ := request["op_payload"].(map[string]any)
+	injectDivergence := shouldInjectArtificialDivergence(e.Name)
 
 	// Execute a single request and return the response
 	response := map[string]any{"request_id": requestID}
@@ -28,6 +49,12 @@ func ExecuteRequest(e *exec.Exec, request map[string]any, ndSeed int64, ndTimest
 		// Spin for the given time
 		if spinTime > 0 {
 			time.Sleep(time.Duration(spinTime * float64(time.Second)))
+		}
+
+		if injectDivergence {
+			writeKey = writeKey + "_divergent"
+			writeValue = writeValue + "_divergent"
+			log.Printf("%s: injecting artificial divergence on request %v (write_key=%q write_value=%q)", e.Name, requestID, writeKey, writeValue)
 		}
 
 		// Write to key

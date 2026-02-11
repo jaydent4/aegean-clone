@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	writeKeyMod = 100
-	readKeyMod  = 3
+	writeKeyMod = 10
+	readKeyMod  = 10
 )
 
 func ClientRequestLogic(c *nodes.Client) {
