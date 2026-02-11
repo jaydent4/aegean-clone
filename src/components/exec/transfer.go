@@ -125,9 +125,10 @@ func (e *Exec) requestStateTransfer() bool {
 		if e.nextVerifySeq < e.stableState.SeqNum+1 {
 			e.nextVerifySeq = e.stableState.SeqNum + 1
 		}
+		appliedSeq := e.stableState.SeqNum
 		e.mu.Unlock()
 
-		log.Printf("%s: Successfully applied state transfer from %s, now at stable_seq_num %d", e.Name, sourceExec, e.stableState.SeqNum)
+		log.Printf("%s: Successfully applied state transfer from %s, now at stable_seq_num %d", e.Name, sourceExec, appliedSeq)
 		return true
 	}
 	return false
@@ -135,7 +136,6 @@ func (e *Exec) requestStateTransfer() bool {
 
 func (e *Exec) handleStateTransferRequest(payload map[string]any) map[string]any {
 	requestingExec, _ := payload["requesting_exec"].(string)
-	log.Printf("%s: Received state transfer request from %s, providing stable state at seq_num %d", e.Name, requestingExec, e.stableState.SeqNum)
 	knownRoot, _ := payload["known_state_root"].(string)
 	knownLeafHashes := map[string]string{}
 	if leafAny, ok := payload["known_leaf_hashes"].(map[string]any); ok {
@@ -152,6 +152,7 @@ func (e *Exec) handleStateTransferRequest(payload map[string]any) map[string]any
 	stablePrevHash := e.stableState.PrevHash
 	stableRoot := e.stableState.MerkleRoot
 	e.mu.Unlock()
+	log.Printf("%s: Received state transfer request from %s, providing stable state at seq_num %d", e.Name, requestingExec, stableSeq)
 
 	if knownRoot == stableRoot {
 		return map[string]any{

@@ -9,13 +9,16 @@ import (
 
 func (e *Exec) flushNextVerify() bool {
 	e.mu.Lock()
-	pending, ok := e.pendingResponses[e.nextVerifySeq]
+	seq := e.nextVerifySeq
+	pending, ok := e.pendingResponses[seq]
 	stableSeqNum := e.stableState.SeqNum
+	prevHash := e.stableState.PrevHash
+	view := e.view
 	e.mu.Unlock()
 	if !ok {
 		return false
 	}
-	if e.nextVerifySeq != stableSeqNum+1 {
+	if seq != stableSeqNum+1 {
 		return false
 	}
 	// Compute token with committed prevHash to avoid divergence
@@ -24,19 +27,24 @@ func (e *Exec) flushNextVerify() bool {
 			pending.merkle = NewMerkleTreeFromMap(pending.state)
 			pending.merkleRoot = pending.merkle.Root()
 		}
-		token := e.computeStateHash(pending.merkleRoot, pending.outputs, e.stableState.PrevHash, e.nextVerifySeq)
+		token := e.computeStateHash(pending.merkleRoot, pending.outputs, prevHash, seq)
 		pending.token = token
 		pending.verifySent = true
 		e.mu.Lock()
-		e.pendingResponses[e.nextVerifySeq] = pending
+		// Guard against rollover while token was being computed.
+		if e.nextVerifySeq != seq || e.stableState.SeqNum != stableSeqNum {
+			e.mu.Unlock()
+			return false
+		}
+		e.pendingResponses[seq] = pending
 		e.mu.Unlock()
 
 		verifyMsg := map[string]any{
 			"type":      "verify",
-			"view":      e.view,
-			"seq_num":   e.nextVerifySeq,
+			"view":      view,
+			"seq_num":   seq,
 			"token":     token,
-			"prev_hash": e.stableState.PrevHash,
+			"prev_hash": prevHash,
 			"exec_id":   e.Name,
 		}
 
@@ -51,7 +59,7 @@ func (e *Exec) flushNextVerify() bool {
 		}
 		return true
 	}
-	msgs := e.verifyBuffer.Pop(e.nextVerifySeq)
+	msgs := e.verifyBuffer.Pop(seq)
 	if len(msgs) == 0 {
 		return false
 	}
@@ -63,7 +71,11 @@ func (e *Exec) flushNextVerify() bool {
 		}
 	}
 	if resolved {
-		e.nextVerifySeq++
+		e.mu.Lock()
+		if e.nextVerifySeq == seq {
+			e.nextVerifySeq++
+		}
+		e.mu.Unlock()
 	}
 	return resolved
 }
@@ -107,9 +119,14 @@ func (e *Exec) handleVerifyResponse(payload map[string]any) map[string]any {
 	e.clearVerifyResponseTrackingLocked(seqNum)
 	e.mu.Unlock()
 
-	if view > e.view || forceSequential {
-		log.Printf("%s: quorum rollback response received for seq=%d view=%d token=%s", e.Name, seqNum, view, common.TruncateToken(agreedToken))
+	e.mu.Lock()
+	shouldRollback := view > e.view || forceSequential
+	if shouldRollback && view > e.view {
 		e.view = view
+	}
+	e.mu.Unlock()
+	if shouldRollback {
+		log.Printf("%s: quorum rollback response received for seq=%d view=%d token=%s", e.Name, seqNum, view, common.TruncateToken(agreedToken))
 		e.mu.Lock()
 		delete(e.pendingResponses, seqNum)
 		e.mu.Unlock()
@@ -117,7 +134,9 @@ func (e *Exec) handleVerifyResponse(payload map[string]any) map[string]any {
 			return map[string]any{"status": "processed", "decision": "rollback", "resolved": true}
 		}
 		if e.requestStateTransfer() {
+			e.mu.Lock()
 			e.forceSequential = true
+			e.mu.Unlock()
 			return map[string]any{"status": "processed", "decision": "state_transfer", "resolved": true}
 		}
 		e.rollbackWorkingToStable()

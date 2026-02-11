@@ -8,14 +8,22 @@ import (
 )
 
 func (e *Exec) flushNextBatch() bool {
-	msgs := e.batchBuffer.Pop(e.nextBatchSeq)
+	e.mu.Lock()
+	seq := e.nextBatchSeq
+	e.mu.Unlock()
+
+	msgs := e.batchBuffer.Pop(seq)
 	if len(msgs) == 0 {
 		return false
 	}
 	for _, msg := range msgs {
 		_ = e.handleBatch(msg)
 	}
-	e.nextBatchSeq++
+	e.mu.Lock()
+	if e.nextBatchSeq == seq {
+		e.nextBatchSeq++
+	}
+	e.mu.Unlock()
 	return true
 }
 

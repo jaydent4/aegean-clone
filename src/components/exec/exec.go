@@ -36,8 +36,18 @@ type Exec struct {
 	// Local component channels
 	VerifierCh chan<- map[string]any
 	ShimCh     chan<- map[string]any
-	mu         sync.Mutex
-	stateMu    sync.RWMutex
+	// mu protects protocol/control-plane fields:
+	// stableState, pendingResponses, forceSequential, view, checkpoints,
+	// verify-response quorum/timers/maps, nextBatchSeq, nextVerifySeq
+	mu sync.Mutex
+	// processMu serializes flush pipelines
+	// (HandleBatchMessage/HandleVerifyResponseMessage) so sequence pointers
+	// advance coherently
+	// Never hold processMu while waiting on remote network I/O
+	processMu sync.Mutex
+	// stateMu protects workingState and batchCtx while executing requests
+	// Preferred lock order when both are needed: mu -> stateMu
+	stateMu sync.RWMutex
 	// State management for rollback
 	stableState  State
 	workingState State
@@ -72,7 +82,6 @@ type Exec struct {
 }
 
 // TODO: request pipelining, parallel pipelining
-// TODO: implement locking
 func NewExec(name string, verifiers []string, peers []string, verifierCh chan<- map[string]any, shimCh chan<- map[string]any, executeRequest ExecuteRequestFunc) *Exec {
 	if verifierCh == nil || shimCh == nil {
 		log.Fatalf("exec component requires non-nil channels")
@@ -222,6 +231,8 @@ func (e *Exec) HandleBatchMessage(payload map[string]any) map[string]any {
 	log.Printf("Handler called on %s with payload: %v", e.Name, payload)
 	seqNum := common.GetInt(payload, "seq_num")
 	e.batchBuffer.Add(seqNum, payload)
+	e.processMu.Lock()
+	defer e.processMu.Unlock()
 	for {
 		progressed := false
 		if e.flushNextBatch() {
@@ -241,6 +252,8 @@ func (e *Exec) HandleVerifyResponseMessage(payload map[string]any) map[string]an
 	log.Printf("Handler called on %s with payload: %v", e.Name, payload)
 	seqNum := common.GetInt(payload, "seq_num")
 	e.verifyBuffer.Add(seqNum, payload)
+	e.processMu.Lock()
+	defer e.processMu.Unlock()
 	for {
 		if !e.flushNextVerify() {
 			break
