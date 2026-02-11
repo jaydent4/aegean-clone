@@ -3,25 +3,21 @@ package exec
 import (
 	"fmt"
 	"log"
+	"sort"
 	"time"
 
 	"aegean/common"
 )
 
 func (e *Exec) requestStateTransferWithRetry(minStableSeq int, maxAttempts int, initialBackoff time.Duration) bool {
-	if maxAttempts < 1 {
-		maxAttempts = 1
-	}
+	_ = maxAttempts // Retries are intentionally unbounded
 	backoff := initialBackoff
 	if backoff <= 0 {
 		backoff = 10 * time.Millisecond
 	}
-	for attempt := 0; attempt < maxAttempts; attempt++ {
+	for attempt := 0; ; attempt++ {
 		if e.requestStateTransfer(minStableSeq, attempt) {
 			return true
-		}
-		if attempt == maxAttempts-1 {
-			break
 		}
 		time.Sleep(backoff)
 		if backoff < 100*time.Millisecond {
@@ -31,7 +27,6 @@ func (e *Exec) requestStateTransferWithRetry(minStableSeq int, maxAttempts int, 
 			}
 		}
 	}
-	return false
 }
 
 func (e *Exec) requestStateTransfer(minStableSeq int, _ int) bool {
@@ -140,18 +135,22 @@ func (e *Exec) requestStateTransfer(minStableSeq int, _ int) bool {
 		e.storeCheckpoint(e.stableState.SeqNum, e.stableState.PrevHash, mergedMerkle, mergedMerkle.Root())
 		e.forceSequential = false
 		for seq := range e.pendingResponses {
-			if seq <= e.stableState.SeqNum {
-				delete(e.pendingResponses, seq)
+			delete(e.pendingResponses, seq)
+		}
+		e.batchBuffer.Clear()
+		e.verifyBuffer.Clear()
+		replaySeqs := make([]int, 0)
+		for seq := range e.batchPayloads {
+			if seq > e.stableState.SeqNum {
+				replaySeqs = append(replaySeqs, seq)
 			}
 		}
-		e.batchBuffer.Drop(e.stableState.SeqNum)
-		e.verifyBuffer.Drop(e.stableState.SeqNum)
-		if e.nextBatchSeq < e.stableState.SeqNum+1 {
-			e.nextBatchSeq = e.stableState.SeqNum + 1
+		sort.Ints(replaySeqs)
+		for _, replaySeq := range replaySeqs {
+			e.batchBuffer.Add(replaySeq, e.batchPayloads[replaySeq])
 		}
-		if e.nextVerifySeq < e.stableState.SeqNum+1 {
-			e.nextVerifySeq = e.stableState.SeqNum + 1
-		}
+		e.nextBatchSeq = e.stableState.SeqNum + 1
+		e.nextVerifySeq = e.stableState.SeqNum + 1
 		appliedSeq := e.stableState.SeqNum
 		e.mu.Unlock()
 

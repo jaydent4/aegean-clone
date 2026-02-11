@@ -351,7 +351,22 @@ func TestExecBuffersOutOfOrderBatches(t *testing.T) {
 
 // Verify responses arriving before their batches are buffered and flushed later
 func TestExecBuffersVerifyBeforeBatch(t *testing.T) {
-	exec, _, _ := newTestExec("exec1", []string{"exec1"}, nil)
+	ts := startTestServer(t, func(req map[string]any) map[string]any {
+		if req["type"] == "state_transfer_request" {
+			return map[string]any{
+				"status":         "ok",
+				"mode":           "full",
+				"state":          map[string]any{"stable": "yes"},
+				"stable_seq_num": 3,
+				"prev_hash":      "token-3",
+				"state_root":     NewMerkleTreeFromMap(map[string]string{"stable": "yes"}).Root(),
+			}
+		}
+		return map[string]any{"status": "ok"}
+	})
+	defer ts.close()
+
+	exec, _, _ := newTestExec("exec1", []string{"exec1"}, []string{"127.0.0.1"})
 
 	verifyResp := map[string]any{
 		"type":             "verify_response",
@@ -375,16 +390,25 @@ func TestExecBuffersVerifyBeforeBatch(t *testing.T) {
 	}
 	exec.HandleBatchMessage(batch1)
 
+	expectMessage(t, ts.received, "state_transfer_request")
+
 	if _, ok := exec.pendingResponses[1]; ok {
 		t.Fatalf("expected pending response cleared after buffered verify flush")
 	}
 }
 
-// Token mismatch falls back to rollback when state transfer fails
+// Token mismatch triggers state transfer and applies the transferred state.
 func TestExecVerifyMismatchFallbackRollback(t *testing.T) {
 	ts := startTestServer(t, func(req map[string]any) map[string]any {
 		if req["type"] == "state_transfer_request" {
-			return map[string]any{"status": "error"}
+			return map[string]any{
+				"status":         "ok",
+				"mode":           "full",
+				"state":          map[string]any{"stable": "yes"},
+				"stable_seq_num": 5,
+				"prev_hash":      "token-5",
+				"state_root":     NewMerkleTreeFromMap(map[string]string{"stable": "yes"}).Root(),
+			}
 		}
 		return map[string]any{"status": "ok"}
 	})
@@ -415,19 +439,20 @@ func TestExecVerifyMismatchFallbackRollback(t *testing.T) {
 
 	expectMessage(t, ts.received, "state_transfer_request")
 
-	if exec.workingState.KVStore["stable"] != "yes" || len(exec.workingState.KVStore) != 1 {
-		t.Fatalf("expected rollback to stable state, got %v", exec.workingState.KVStore)
+	if exec.stableState.SeqNum != 5 {
+		t.Fatalf("expected stable state to advance from transfer, got seq %d", exec.stableState.SeqNum)
 	}
-	if !exec.forceSequential {
-		t.Fatalf("expected forceSequential true after rollback")
+	if exec.workingState.KVStore["stable"] != "yes" || len(exec.workingState.KVStore) != 1 {
+		t.Fatalf("expected transferred working state, got %v", exec.workingState.KVStore)
 	}
 }
 
 // Rollback decision reverts to stable state and forces sequential execution
 func TestExecRollbackDecisionForcesSequential(t *testing.T) {
 	exec, _, _ := newTestExec("exec1", nil, nil)
-	exec.stableState.KVStore = map[string]string{"stable": "yes"}
-	exec.workingState.KVStore = map[string]string{"dirty": "no"}
+	checkpointKV := map[string]string{"stable": "yes"}
+	checkpointMerkle := NewMerkleTreeFromMap(checkpointKV)
+	exec.storeCheckpoint(4, "t1", checkpointMerkle, checkpointMerkle.Root())
 	exec.pendingResponses[4] = pendingResponse{
 		outputs: []map[string]any{{"request_id": "r1", "status": "ok"}},
 		state:   map[string]string{"dirty": "no"},
@@ -443,8 +468,8 @@ func TestExecRollbackDecisionForcesSequential(t *testing.T) {
 		"verifier_id":      "ver1",
 	})
 
-	if exec.workingState.KVStore["stable"] != "yes" || len(exec.workingState.KVStore) != 1 {
-		t.Fatalf("expected rollback to stable state, got %v", exec.workingState.KVStore)
+	if exec.stableState.SeqNum != 4 {
+		t.Fatalf("expected rollback to checkpoint seq 4, got %d", exec.stableState.SeqNum)
 	}
 	if !exec.forceSequential {
 		t.Fatalf("expected forceSequential true after rollback")
