@@ -54,6 +54,7 @@ def main():
 
     launch_nodes(node_names)
     logger.info("Waiting for nodes to run")
+    # Note that the first run may take a long time for Go to compile
     time.sleep(5.0)
 
     stop_docker_nodes(node_names)

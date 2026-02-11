@@ -1,5 +1,5 @@
 # Dockerfile for Aegean nodes
-FROM ubuntu:22.04
+FROM golang:1.23
 
 # Fix bad proxy / caching issues for apt
 RUN mkdir -p /etc/apt/apt.conf.d && \
@@ -10,11 +10,12 @@ RUN mkdir -p /etc/apt/apt.conf.d && \
     > /etc/apt/apt.conf.d/99fixbadproxy
 
 # Install system dependencies
-# TODO: specify Go version: 1.23
 RUN apt-get update && apt-get install -y \
-    golang \
     openssh-server \
     && rm -rf /var/lib/apt/lists/*
+
+# Ensure `go` resolves even in shells with a minimal PATH
+RUN ln -sf /usr/local/go/bin/go /usr/bin/go
 
 # Configure SSH for passwordless root login
 RUN mkdir -p /run/sshd \
