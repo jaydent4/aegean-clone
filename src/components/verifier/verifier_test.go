@@ -189,3 +189,59 @@ func TestVerifierTimeoutTriggersViewChangeResponse(t *testing.T) {
 		t.Fatalf("expected increased view after timeout, got %d", newView)
 	}
 }
+
+func TestVerifierFastNoAgreementWhenAllExecVotesDiffer(t *testing.T) {
+	execCh := make(chan map[string]any, 16)
+	v := NewVerifier("127.0.0.1", []string{"127.0.0.1", "127.0.0.1"}, []string{"127.0.0.1"}, execCh)
+	v.viewChangeTimeout = 5 * time.Second // Ensure test hits fast-path, not timeout.
+
+	_ = v.HandleVerifyMessage(map[string]any{
+		"type":      "verify",
+		"view":      1,
+		"seq_num":   1,
+		"token":     "tokA",
+		"prev_hash": "",
+		"exec_id":   "e1",
+	})
+	_ = v.HandleVerifyMessage(map[string]any{
+		"type":      "verify",
+		"view":      1,
+		"seq_num":   1,
+		"token":     "tokB",
+		"prev_hash": "",
+		"exec_id":   "e2",
+	})
+	resp := v.HandleVerifyMessage(map[string]any{
+		"type":      "verify",
+		"view":      1,
+		"seq_num":   1,
+		"token":     "tokC",
+		"prev_hash": "",
+		"exec_id":   "e3",
+	})
+	if resp["status"] != "no_agreement_fast_path" {
+		t.Fatalf("expected no_agreement_fast_path, got %v", resp["status"])
+	}
+
+	// Simulate second verifier report so new-view certificate can be formed.
+	v.HandleViewChangeMessage(map[string]any{
+		"type":         "view_change",
+		"target_view":  2,
+		"verifier_id":  "v2",
+		"prepared_seq": 0,
+		"token":        "",
+	})
+
+	msg := expectMessage(t, execCh, func(m map[string]any) bool {
+		msgType, _ := m["type"].(string)
+		if msgType != "verify_response" {
+			return false
+		}
+		force, _ := m["force_sequential"].(bool)
+		return force
+	})
+	newView := common.GetInt(msg, "view")
+	if newView <= 1 {
+		t.Fatalf("expected increased view from fast no-agreement path, got %d", newView)
+	}
+}

@@ -99,6 +99,34 @@ func (s *execScheduler) executeParallelBatches(e *Exec, parallelBatches [][]map[
 	return s.collectParallelOutputs(batches, totalRequests)
 }
 
+func (s *execScheduler) executeSequentialBatches(e *Exec, parallelBatches [][]map[string]any, ndSeed int64, ndTimestamp float64) []map[string]any {
+	batches, allScheduled := s.initParallelBatchRuntimes(parallelBatches)
+	if len(allScheduled) == 0 {
+		return nil
+	}
+
+	s.registerScheduledRequests(allScheduled)
+	defer s.unregisterScheduledRequests(e, allScheduled)
+
+	outputs := make([]map[string]any, 0, len(allScheduled))
+	for _, batch := range batches {
+		for _, req := range batch.requests {
+			for {
+				output := e.ExecuteRequest(e, req.payload, ndSeed, ndTimestamp)
+				if common.GetString(output, "status") == "blocked_for_nested_response" {
+					<-s.nestedReadyCh
+					continue
+				}
+				req.state = requestFinished
+				req.output = output
+				outputs = append(outputs, output)
+				break
+			}
+		}
+	}
+	return outputs
+}
+
 func (s *execScheduler) initParallelBatchRuntimes(parallelBatches [][]map[string]any) ([]*parallelBatchRuntime, []*scheduledRequest) {
 	if len(parallelBatches) == 0 {
 		return nil, nil

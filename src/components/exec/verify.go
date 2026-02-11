@@ -102,8 +102,49 @@ func (e *Exec) handleVerifyResponse(payload map[string]any) map[string]any {
 
 	e.mu.Lock()
 	if seqNum <= e.stableState.SeqNum {
+		shouldRollback := view > e.view || forceSequential
+		if !shouldRollback {
+			e.mu.Unlock()
+			return map[string]any{"status": "already_committed", "seq_num": seqNum}
+		}
+
+		tupleKey := responseTupleKey(view, seqNum, agreedToken, forceSequential)
+		e.verifyResponseMsgs[tupleKey] = payload
+		if _, ok := e.verifyResponseBySeq[seqNum]; !ok {
+			e.verifyResponseBySeq[seqNum] = make(map[string]struct{})
+		}
+		e.verifyResponseBySeq[seqNum][tupleKey] = struct{}{}
+		reached := e.verifyResponseQuorum.Add(tupleKey, verifierID)
+		if !reached {
+			e.mu.Unlock()
+			return map[string]any{"status": "waiting_quorum", "resolved": false}
+		}
+
+		e.clearVerifyResponseTrackingLocked(seqNum)
+		if view > e.view {
+			e.view = view
+		}
 		e.mu.Unlock()
-		return map[string]any{"status": "already_committed", "seq_num": seqNum}
+
+		log.Printf("%s: applying rollback response at stable seq=%d view=%d token=%s", e.Name, seqNum, view, common.TruncateToken(agreedToken))
+		if e.rollbackTo(seqNum, agreedToken) {
+			e.mu.Lock()
+			delete(e.recoveringTransfers, seqNum)
+			e.mu.Unlock()
+			return map[string]any{"status": "processed", "decision": "rollback", "resolved": true}
+		}
+		e.mu.Lock()
+		e.recoveringTransfers[seqNum] = struct{}{}
+		e.mu.Unlock()
+		if e.requestStateTransferWithRetry(seqNum, 8, 10*time.Millisecond) {
+			e.mu.Lock()
+			e.forceSequential = true
+			delete(e.recoveringTransfers, seqNum)
+			e.mu.Unlock()
+			return map[string]any{"status": "processed", "decision": "state_transfer", "resolved": true}
+		}
+		e.rollbackWorkingToStable()
+		return map[string]any{"status": "processed", "decision": "rollback_fallback_retrying", "resolved": false}
 	}
 	pending, ok := e.pendingResponses[seqNum]
 	if !ok {
@@ -206,6 +247,11 @@ func (e *Exec) finalizeCommit(seqNum int, pending pendingResponse, agreedToken s
 		Verified:   true,
 	}
 	e.storeCheckpoint(seqNum, agreedToken, pending.merkle, pending.merkleRoot)
+	for batchSeq := range e.batchPayloads {
+		if batchSeq <= seqNum {
+			delete(e.batchPayloads, batchSeq)
+		}
+	}
 	e.forceSequential = false
 	e.mu.Unlock()
 

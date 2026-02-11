@@ -454,6 +454,169 @@ func TestExecRollbackDecisionForcesSequential(t *testing.T) {
 	}
 }
 
+// View-change rollback at already stable seq should still force sequential and clear higher pending work.
+func TestExecRollbackAtStableSeqAppliesForceSequential(t *testing.T) {
+	exec, _, _ := newTestExec("exec1", nil, nil)
+	stableKV := map[string]string{"stable": "yes"}
+	stableMerkle := NewMerkleTreeFromMap(stableKV)
+	exec.stableState = State{
+		KVStore:    common.CopyStringMap(stableKV),
+		Merkle:     stableMerkle.Clone(),
+		MerkleRoot: stableMerkle.Root(),
+		SeqNum:     2,
+		PrevHash:   "stable-token",
+		Verified:   true,
+	}
+	exec.workingState = State{
+		KVStore:    common.CopyStringMap(stableKV),
+		Merkle:     stableMerkle.Clone(),
+		MerkleRoot: stableMerkle.Root(),
+		SeqNum:     2,
+		PrevHash:   "stable-token",
+		Verified:   false,
+	}
+	exec.storeCheckpoint(2, "stable-token", stableMerkle, stableMerkle.Root())
+	exec.pendingResponses[3] = pendingResponse{
+		outputs: []map[string]any{{"request_id": "r3", "status": "ok"}},
+		state:   map[string]string{"dirty": "no"},
+		token:   "t3",
+	}
+
+	resp := exec.handleVerifyResponse(map[string]any{
+		"type":             "verify_response",
+		"view":             2,
+		"seq_num":          2,
+		"token":            "stable-token",
+		"force_sequential": true,
+		"verifier_id":      "ver1",
+	})
+
+	if resp["decision"] != "rollback" {
+		t.Fatalf("expected rollback decision, got %v", resp["decision"])
+	}
+	if !exec.forceSequential {
+		t.Fatalf("expected forceSequential true after rollback at stable seq")
+	}
+	if exec.view != 2 {
+		t.Fatalf("expected view to advance to 2, got %d", exec.view)
+	}
+	if _, ok := exec.pendingResponses[3]; ok {
+		t.Fatalf("expected higher pending work to be cleared after rollback")
+	}
+}
+
+func TestExecHandleVerifyResponseMessageProcessesStableSeqRollbackImmediately(t *testing.T) {
+	exec, _, _ := newTestExec("exec1", nil, nil)
+	stableKV := map[string]string{"stable": "yes"}
+	stableMerkle := NewMerkleTreeFromMap(stableKV)
+	exec.stableState = State{
+		KVStore:    common.CopyStringMap(stableKV),
+		Merkle:     stableMerkle.Clone(),
+		MerkleRoot: stableMerkle.Root(),
+		SeqNum:     2,
+		PrevHash:   "stable-token",
+		Verified:   true,
+	}
+	exec.workingState = State{
+		KVStore:    common.CopyStringMap(stableKV),
+		Merkle:     stableMerkle.Clone(),
+		MerkleRoot: stableMerkle.Root(),
+		SeqNum:     2,
+		PrevHash:   "stable-token",
+		Verified:   false,
+	}
+	exec.storeCheckpoint(2, "stable-token", stableMerkle, stableMerkle.Root())
+	exec.nextVerifySeq = 3 // Simulate outstanding seq=3 path.
+	exec.pendingResponses[3] = pendingResponse{
+		outputs: []map[string]any{{"request_id": "r3", "status": "ok"}},
+		state:   map[string]string{"dirty": "no"},
+		token:   "t3",
+	}
+
+	resp := exec.HandleVerifyResponseMessage(map[string]any{
+		"type":             "verify_response",
+		"view":             2,
+		"seq_num":          2,
+		"token":            "stable-token",
+		"force_sequential": true,
+		"verifier_id":      "ver1",
+	})
+
+	if resp["decision"] != "rollback" {
+		t.Fatalf("expected rollback decision, got %v", resp["decision"])
+	}
+	if !exec.forceSequential {
+		t.Fatalf("expected forceSequential true after immediate rollback handling")
+	}
+	if exec.view != 2 {
+		t.Fatalf("expected view to advance to 2, got %d", exec.view)
+	}
+	if _, ok := exec.pendingResponses[3]; ok {
+		t.Fatalf("expected seq=3 pending response to be cleared by rollback")
+	}
+}
+
+func TestExecRollbackReplaysUncommittedBatch(t *testing.T) {
+	verifierCh := make(chan map[string]any, 8)
+	shimCh := make(chan map[string]any, 8)
+	runCount := 0
+	exec := NewExec("exec1", []string{"exec1"}, nil, verifierCh, shimCh,
+		func(_ *Exec, request map[string]any, _ int64, _ float64) map[string]any {
+			runCount++
+			return map[string]any{"request_id": request["request_id"], "status": "ok"}
+		},
+	)
+	stableKV := map[string]string{"stable": "yes"}
+	stableMerkle := NewMerkleTreeFromMap(stableKV)
+	exec.stableState = State{
+		KVStore:    common.CopyStringMap(stableKV),
+		Merkle:     stableMerkle.Clone(),
+		MerkleRoot: stableMerkle.Root(),
+		SeqNum:     2,
+		PrevHash:   "stable-token",
+		Verified:   true,
+	}
+	exec.workingState = State{
+		KVStore:    common.CopyStringMap(stableKV),
+		Merkle:     stableMerkle.Clone(),
+		MerkleRoot: stableMerkle.Root(),
+		SeqNum:     2,
+		PrevHash:   "stable-token",
+		Verified:   false,
+	}
+	exec.storeCheckpoint(2, "stable-token", stableMerkle, stableMerkle.Root())
+	exec.nextBatchSeq = 3
+	exec.nextVerifySeq = 3
+	exec.handleBatch(map[string]any{
+		"type":    "batch",
+		"seq_num": 3,
+		"parallel_batches": [][]map[string]any{
+			{map[string]any{"request_id": "r3", "op": "nop"}},
+		},
+	})
+	if runCount != 1 {
+		t.Fatalf("expected initial execution count 1, got %d", runCount)
+	}
+
+	resp := exec.HandleVerifyResponseMessage(map[string]any{
+		"type":             "verify_response",
+		"view":             2,
+		"seq_num":          2,
+		"token":            "stable-token",
+		"force_sequential": true,
+		"verifier_id":      "ver1",
+	})
+	if resp["decision"] != "rollback" {
+		t.Fatalf("expected rollback decision, got %v", resp["decision"])
+	}
+	if runCount != 2 {
+		t.Fatalf("expected uncommitted batch to be replayed once after rollback, got execution count %d", runCount)
+	}
+	if _, ok := exec.pendingResponses[3]; !ok {
+		t.Fatalf("expected replayed seq=3 to be pending again")
+	}
+}
+
 // Hashing is deterministic across different map insertion orders
 func TestComputeStateHashDeterministicOrdering(t *testing.T) {
 	exec, _, _ := newTestExec("exec1", nil, nil)
@@ -756,6 +919,65 @@ func TestExecParallelBatchSchedulingDeterministic(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("expected deterministic trace %v, got %v", want, got)
 		}
+	}
+}
+
+func TestExecForceSequentialDisablesParallelYield(t *testing.T) {
+	verifierCh := make(chan map[string]any, 8)
+	shimCh := make(chan map[string]any, 8)
+	var exec *Exec
+	exec = NewExec("exec1", []string{"exec1"}, nil, verifierCh, shimCh,
+		func(_ *Exec, request map[string]any, _ int64, _ float64) map[string]any {
+			op, _ := request["op"].(string)
+			requestID := request["request_id"]
+			switch op {
+			case "block":
+				if nested, ok := exec.ConsumeNestedResponse(requestID); ok && nested != nil {
+					return map[string]any{"request_id": requestID, "status": "ok"}
+				}
+				return map[string]any{"request_id": requestID, "status": "blocked_for_nested_response"}
+			case "mark":
+				exec.WriteKV("next_batch_progress", "yes")
+				return map[string]any{"request_id": requestID, "status": "ok"}
+			default:
+				return map[string]any{"request_id": requestID, "status": "error"}
+			}
+		},
+	)
+	exec.forceSequential = true
+
+	done := make(chan map[string]any, 1)
+	go func() {
+		done <- exec.handleBatch(map[string]any{
+			"type":    "batch",
+			"seq_num": 1,
+			"parallel_batches": [][]map[string]any{
+				{map[string]any{"request_id": "r1", "op": "block"}},
+				{map[string]any{"request_id": "r2", "op": "mark"}},
+			},
+		})
+	}()
+
+	time.Sleep(120 * time.Millisecond)
+	if got := exec.ReadKV("next_batch_progress"); got == "yes" {
+		t.Fatalf("expected sequential mode to avoid yielding to later parallel batches")
+	}
+
+	if !exec.BufferNestedResponse(map[string]any{"request_id": "r1", "status": "ready"}) {
+		t.Fatalf("expected nested response to be accepted for in-flight request")
+	}
+
+	select {
+	case resp := <-done:
+		if resp["status"] != "executed" {
+			t.Fatalf("expected status executed, got %v", resp["status"])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for batch completion")
+	}
+
+	if got := exec.ReadKV("next_batch_progress"); got != "yes" {
+		t.Fatalf("expected later batch to run after blocked request resumed")
 	}
 }
 

@@ -63,6 +63,10 @@ func (e *Exec) executeParallelBatches(parallelBatches [][]map[string]any, ndSeed
 	return e.scheduler.executeParallelBatches(e, parallelBatches, ndSeed, ndTimestamp)
 }
 
+func (e *Exec) executeSequentialBatches(parallelBatches [][]map[string]any, ndSeed int64, ndTimestamp float64) []map[string]any {
+	return e.scheduler.executeSequentialBatches(e, parallelBatches, ndSeed, ndTimestamp)
+}
+
 func (s *execScheduler) registerScheduledRequests(requests []*scheduledRequest) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

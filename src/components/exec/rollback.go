@@ -1,6 +1,10 @@
 package exec
 
-import "aegean/common"
+import (
+	"sort"
+
+	"aegean/common"
+)
 
 func (e *Exec) rollbackTo(seqNum int, token string) bool {
 	e.mu.Lock()
@@ -10,6 +14,14 @@ func (e *Exec) rollbackTo(seqNum int, token string) bool {
 		return false
 	}
 
+	replaySeqs := make([]int, 0)
+	for batchSeq := range e.batchPayloads {
+		if batchSeq > seqNum {
+			replaySeqs = append(replaySeqs, batchSeq)
+		}
+	}
+	sort.Ints(replaySeqs)
+
 	// Discard pending work above rollback point
 	for pendingSeq := range e.pendingResponses {
 		if pendingSeq > seqNum {
@@ -18,6 +30,9 @@ func (e *Exec) rollbackTo(seqNum int, token string) bool {
 	}
 	e.batchBuffer.Clear()
 	e.verifyBuffer.Clear()
+	for _, replaySeq := range replaySeqs {
+		e.batchBuffer.Add(replaySeq, e.batchPayloads[replaySeq])
+	}
 	e.nextBatchSeq = seqNum + 1
 	e.nextVerifySeq = seqNum + 1
 	checkpointMerkle := checkpoint.Merkle.Clone()

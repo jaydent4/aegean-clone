@@ -216,3 +216,26 @@ func parseView(payload map[string]any) (int, bool) {
 	}
 	return view, true
 }
+
+func (v *Verifier) isKnownExec(execID string) bool {
+	for _, exec := range v.Execs {
+		if exec == execID {
+			return true
+		}
+	}
+	return false
+}
+
+func verifyVoteStats(votes map[string]map[string]struct{}) (int, int) {
+	maxVotes := 0
+	senders := make(map[string]struct{})
+	for _, tokenVotes := range votes {
+		if len(tokenVotes) > maxVotes {
+			maxVotes = len(tokenVotes)
+		}
+		for sender := range tokenVotes {
+			senders[sender] = struct{}{}
+		}
+	}
+	return maxVotes, len(senders)
+}

@@ -45,8 +45,16 @@ func (e *Exec) handleBatch(payload map[string]any) map[string]any {
 
 	// Defer insertion of new keys to end-of-batch deterministic phase.
 	e.beginBatchMerkleContext()
-	// Execute all parallelBatches and collect outputs
-	outputs := e.executeParallelBatches(parallelBatches, ndSeed, ndTimestamp)
+	// Execute all parallelBatches and collect outputs.
+	e.mu.Lock()
+	forceSequential := e.forceSequential
+	e.mu.Unlock()
+	var outputs []map[string]any
+	if forceSequential {
+		outputs = e.executeSequentialBatches(parallelBatches, ndSeed, ndTimestamp)
+	} else {
+		outputs = e.executeParallelBatches(parallelBatches, ndSeed, ndTimestamp)
+	}
 	e.finalizeBatchMerkleContext()
 
 	e.stateMu.Lock()
@@ -57,6 +65,7 @@ func (e *Exec) handleBatch(payload map[string]any) map[string]any {
 	e.stateMu.Unlock()
 
 	e.mu.Lock()
+	e.batchPayloads[seqNum] = payload
 	e.pendingResponses[seqNum] = pendingResponse{
 		outputs:    outputs,
 		state:      stateSnapshot,

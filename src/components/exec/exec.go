@@ -53,6 +53,8 @@ type Exec struct {
 	workingState State
 	// Pending responses (held until commit)
 	pendingResponses map[int]pendingResponse
+	// Batch payloads indexed by sequence number; used to replay uncommitted work after rollback.
+	batchPayloads map[int]map[string]any
 	// Sequential execution flag (set after rollback)
 	forceSequential bool
 	// Hard-coded fault parameters for now.
@@ -120,6 +122,7 @@ func NewExec(name string, verifiers []string, peers []string, verifierCh chan<- 
 		stableState:           stable,
 		workingState:          working,
 		pendingResponses:      make(map[int]pendingResponse),
+		batchPayloads:         make(map[int]map[string]any),
 		u:                     1,
 		r:                     0,
 		view:                  1,
@@ -255,11 +258,44 @@ func (e *Exec) HandleBatchMessage(payload map[string]any) map[string]any {
 func (e *Exec) HandleVerifyResponseMessage(payload map[string]any) map[string]any {
 	log.Printf("Handler called on %s with payload: %v", e.Name, payload)
 	seqNum := common.GetInt(payload, "seq_num")
-	e.verifyBuffer.Add(seqNum, payload)
 	e.processMu.Lock()
 	defer e.processMu.Unlock()
+
+	view := common.GetInt(payload, "view")
+	forceSequential, forceOK := payload["force_sequential"].(bool)
+	e.mu.Lock()
+	stableSeq := e.stableState.SeqNum
+	currentView := e.view
+	e.mu.Unlock()
+	// View-change/rollback control responses for already-stable sequence numbers
+	// must be handled immediately instead of waiting behind nextVerifySeq.
+	if payload["view"] != nil && forceOK && seqNum <= stableSeq && (forceSequential || view > currentView) {
+		resp := e.handleVerifyResponse(payload)
+		for {
+			progressed := false
+			if e.flushNextBatch() {
+				progressed = true
+			}
+			if e.flushNextVerify() {
+				progressed = true
+			}
+			if !progressed {
+				break
+			}
+		}
+		return resp
+	}
+
+	e.verifyBuffer.Add(seqNum, payload)
 	for {
-		if !e.flushNextVerify() {
+		progressed := false
+		if e.flushNextBatch() {
+			progressed = true
+		}
+		if e.flushNextVerify() {
+			progressed = true
+		}
+		if !progressed {
 			break
 		}
 	}
