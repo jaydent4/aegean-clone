@@ -2,15 +2,15 @@
   "services": {
     "client": {
       "type": "client",
-      "next": ["node4", "node5", "node6"],
+      "next": ["node2", "node3", "node4"],
       "client_workflow": "default"
     },
     "middle": {
       "type": "server",
-      "clients": ["node1", "node2", "node3"],
-      "nodes": ["node4", "node5", "node6"],
+      "clients": ["node1"],
+      "nodes": ["node2", "node3", "node4"],
       "exec_workflow": "middle",
-      "shimQuorumSize": 2,
+      "shimQuorumSize": 1,
       "verifyResponseQuorumSize": 1,
       "execVerifyQuorumSize": 2,
       "phaseQuorumSize": 2,
@@ -18,8 +18,8 @@
     },
     "backend": {
       "type": "server",
-      "clients": ["node4", "node5", "node6"],
-      "nodes": ["node7", "node8", "node9"],
+      "clients": ["node2", "node3", "node4"],
+      "nodes": ["node5", "node6", "node7"],
       "exec_workflow": "backend",
       "shimQuorumSize": 2,
       "verifyResponseQuorumSize": 1,
@@ -33,32 +33,26 @@
       "service": "client"
     },
     "node2": {
-      "service": "client"
+      "service": "middle",
+      "is_primary_batcher": true
     },
     "node3": {
-      "service": "client"
+      "service": "middle",
+      "is_primary_batcher": false
     },
     "node4": {
       "service": "middle",
-      "is_primary_batcher": true
-    },
-    "node5": {
-      "service": "middle",
       "is_primary_batcher": false
     },
+    "node5": {
+      "service": "backend",
+      "is_primary_batcher": true
+    },
     "node6": {
-      "service": "middle",
+      "service": "backend",
       "is_primary_batcher": false
     },
     "node7": {
-      "service": "backend",
-      "is_primary_batcher": true
-    },
-    "node8": {
-      "service": "backend",
-      "is_primary_batcher": false
-    },
-    "node9": {
       "service": "backend",
       "is_primary_batcher": false
     }
