@@ -64,24 +64,24 @@ func executeFanoutBase(e *exec.Exec, request map[string]any, ndSeed int64, ndTim
 	}
 }
 
-func ExecRequestMiddle(e *exec.Exec, request map[string]any, ndSeed int64, ndTimestamp float64) map[string]any {
+func ExecuteRequestMiddle(e *exec.Exec, request map[string]any, ndSeed int64, ndTimestamp float64) map[string]any {
 	return executeFanoutBase(e, request, ndSeed, ndTimestamp, map[string]struct{}{}, 0)
 }
 
-func ExecRequestMiddleDivergeOneNode(e *exec.Exec, request map[string]any, ndSeed int64, ndTimestamp float64) map[string]any {
+func ExecuteRequestMiddleDivergeOneNode(e *exec.Exec, request map[string]any, ndSeed int64, ndTimestamp float64) map[string]any {
 	return executeFanoutBase(e, request, ndSeed, ndTimestamp, map[string]struct{}{
 		"node2": {},
 	}, 4)
 }
 
-func ExecRequestMiddleDivergeTwoNode(e *exec.Exec, request map[string]any, ndSeed int64, ndTimestamp float64) map[string]any {
+func ExecuteRequestMiddleDivergeTwoNode(e *exec.Exec, request map[string]any, ndSeed int64, ndTimestamp float64) map[string]any {
 	return executeFanoutBase(e, request, ndSeed, ndTimestamp, map[string]struct{}{
 		"node2": {},
 		"node3": {},
 	}, 4)
 }
 
-func ExecRequestMiddleDivergeThreeNode(e *exec.Exec, request map[string]any, ndSeed int64, ndTimestamp float64) map[string]any {
+func ExecuteRequestMiddleDivergeThreeNode(e *exec.Exec, request map[string]any, ndSeed int64, ndTimestamp float64) map[string]any {
 	return executeFanoutBase(e, request, ndSeed, ndTimestamp, map[string]struct{}{
 		"node2": {},
 		"node3": {},

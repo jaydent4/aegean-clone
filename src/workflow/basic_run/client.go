@@ -14,11 +14,11 @@ const (
 	readKeyMod  = 10
 )
 
-func ClientRequestLogic(c *nodes.Client) {
+func ClientRequestLogicPipelined(c *nodes.Client) {
 	runClientRequestLogic(c, false)
 }
 
-func ClientRequestLogicWaitForResponse(c *nodes.Client) {
+func ClientRequestLogic(c *nodes.Client) {
 	runClientRequestLogic(c, true)
 }
 

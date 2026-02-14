@@ -3,13 +3,13 @@
     "client": {
       "type": "client",
       "next": ["node2", "node3", "node4"],
-      "client_workflow": "default"
+      "client_workflow": "basic_run_client"
     },
     "middle": {
       "type": "server",
       "clients": ["node1"],
       "nodes": ["node2", "node3", "node4"],
-      "exec_workflow": "middle",
+      "exec_workflow": "basic_run_middle",
       "shimQuorumSize": 1,
       "verifyResponseQuorumSize": 1,
       "execVerifyQuorumSize": 2,
@@ -20,7 +20,7 @@
       "type": "server",
       "clients": ["node2", "node3", "node4"],
       "nodes": ["node5", "node6", "node7"],
-      "exec_workflow": "backend",
+      "exec_workflow": "basic_run_backend",
       "shimQuorumSize": 2,
       "verifyResponseQuorumSize": 1,
       "execVerifyQuorumSize": 2,

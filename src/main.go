@@ -6,7 +6,7 @@ import (
 	"os"
 
 	"aegean/nodes"
-	workflow "aegean/workflow/aegean"
+	workflow "aegean/workflow"
 )
 
 func main() {

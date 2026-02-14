@@ -177,12 +177,18 @@ def main():
 
         latencies = result["latencies"]
         if latencies:
+            min_latency = min(latencies)
             p25 = percentile(latencies, 25)
             p50 = percentile(latencies, 50)
             p75 = percentile(latencies, 75)
             p99 = percentile(latencies, 99)
+            p99_9 = percentile(latencies, 99.9)
+            max_latency = max(latencies)
             print("Latency (seconds, request -> first response):")
-            print(f"p25={p25:.6f} p50={p50:.6f} p75={p75:.6f} p99={p99:.6f}")
+            print(
+                f"min={min_latency:.6f} p25={p25:.6f} p50={p50:.6f} "
+                f"p75={p75:.6f} p99={p99:.6f} p99.9={p99_9:.6f} max={max_latency:.6f}"
+            )
         else:
             print("Latency: n/a")
 
