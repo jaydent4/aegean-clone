@@ -37,6 +37,17 @@
       "execVerifyQuorumSize": 2,
       "phaseQuorumSize": 2,
       "expectedExecVotes": 3
+    },
+    "backend_3": {
+      "type": "server",
+      "clients": ["node2", "node3", "node4"],
+      "nodes": ["node11", "node12", "node13"],
+      "exec_workflow": "req_race_backend_3",
+      "shimQuorumSize": 2,
+      "verifyResponseQuorumSize": 1,
+      "execVerifyQuorumSize": 2,
+      "phaseQuorumSize": 2,
+      "expectedExecVotes": 3
     }
   },
   "nodes": {
@@ -77,6 +88,18 @@
     },
     "node10": {
       "service": "backend_2",
+      "is_primary_batcher": false
+    },
+    "node11": {
+      "service": "backend_3",
+      "is_primary_batcher": true
+    },
+    "node12": {
+      "service": "backend_3",
+      "is_primary_batcher": false
+    },
+    "node13": {
+      "service": "backend_3",
       "is_primary_batcher": false
     }
   }

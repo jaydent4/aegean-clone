@@ -6,6 +6,8 @@ import (
 	"aegean/components/mixer"
 	"aegean/components/shim"
 	"aegean/components/verifier"
+	"math/rand/v2"
+	"time"
 )
 
 // Server combines shim, mixer, exec, and verifier into one node
@@ -129,6 +131,7 @@ func (s *Server) HandleMessage(payload map[string]any) map[string]any {
 		return s.Shim.HandleRequestMessage(payload)
 	}
 
+	time.Sleep(time.Duration(rand.Float64() * 0.01 * float64(time.Second)))
 	switch msgType {
 	case "response":
 		return s.Shim.HandleIncomingResponse(payload)

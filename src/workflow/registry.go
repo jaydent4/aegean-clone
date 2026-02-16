@@ -25,4 +25,5 @@ var ExecWorkflows = map[string]exec.ExecuteRequestFunc{
 	"req_race_middle":          reqraceworkflow.ExecuteRequestMiddle,
 	"req_race_backend_1":       reqraceworkflow.ExecuteRequestBackend1,
 	"req_race_backend_2":       reqraceworkflow.ExecuteRequestBackend2,
+	"req_race_backend_3":       reqraceworkflow.ExecuteRequestBackend3,
 }

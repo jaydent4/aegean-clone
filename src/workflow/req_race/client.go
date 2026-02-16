@@ -13,7 +13,7 @@ func ClientRequestLogic(c *nodes.Client) {
 	// Wait for other nodes to start.
 	time.Sleep(2 * time.Second)
 
-	for requestID := 1; requestID <= 100; requestID++ {
+	for requestID := 1; requestID <= 1000; requestID++ {
 		request := map[string]any{
 			"request_id": requestID,
 			"timestamp":  float64(time.Now().UnixNano()) / 1e9,

@@ -1,9 +1,6 @@
 package reqraceworkflow
 
 import (
-	"math/rand"
-	"time"
-
 	"aegean/components/exec"
 )
 
@@ -12,8 +9,6 @@ func ExecuteRequestBackend2(e *exec.Exec, request map[string]any, ndSeed int64, 
 	_ = e
 	_ = ndSeed
 	_ = ndTimestamp
-
-	time.Sleep(time.Duration(rand.Float64() * 0.1 * float64(time.Second)))
 
 	return map[string]any{
 		"request_id": request["request_id"],
