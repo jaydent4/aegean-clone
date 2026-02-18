@@ -15,6 +15,8 @@ const (
 	totalRequests = 1000
 )
 
+var readyNodes = []string{"node2", "node3", "node4", "node5", "node6", "node7"}
+
 func ClientRequestLogicPipelined(c *nodes.Client) {
 	runClientRequestLogic(c, false)
 }
@@ -24,8 +26,7 @@ func ClientRequestLogic(c *nodes.Client) {
 }
 
 func runClientRequestLogic(c *nodes.Client, waitForResponse bool) {
-	// Wait for other nodes to be turned on. TODO: improvable
-	time.Sleep(2 * time.Second)
+	c.WaitForNodesReady(readyNodes)
 
 	logger := nodes.GetClientLogger()
 

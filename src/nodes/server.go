@@ -72,6 +72,7 @@ func NewServer(name, host string, port int, clients []string, nodes []string, is
 	server.Verifier = verifier.NewVerifier(name, nodes, nodes, verifierToExec, execVerifyQuorumSize, phaseQuorumSize, expectedExecVotes)
 
 	server.Node.HandleMessage = server.HandleMessage
+	server.Node.HandleReady = server.HandleReady
 	return server
 }
 
@@ -181,5 +182,11 @@ func (s *Server) HandleMessage(payload map[string]any) map[string]any {
 		return s.Exec.HandleStateTransferRequestMessage(payload)
 	default:
 		return map[string]any{"status": "error", "error": "unknown message type"}
+	}
+}
+
+func (s *Server) HandleReady(payload map[string]any) map[string]any {
+	return map[string]any{
+		"ready": true,
 	}
 }

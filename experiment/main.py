@@ -77,6 +77,56 @@ def stop_docker_nodes(node_names):
         subprocess.run(["ssh", name, "pkill -9 -f 'go'"])
 
 
+def get_node_ready(node_name):
+    result = subprocess.run(
+        [
+            "ssh",
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-o",
+            "UserKnownHostsFile=/dev/null",
+            "-o",
+            "LogLevel=ERROR",
+            node_name,
+            "curl",
+            "-sS",
+            "-X",
+            "POST",
+            "http://127.0.0.1:8000/ready",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or f"ssh/curl failed for {node_name}")
+
+    payload = json.loads(result.stdout or "{}")
+    return bool(payload.get("ready", False))
+
+
+def wait_for_nodes_ready(node_names, timeout=30.0, poll_interval=1.0):
+    if not node_names:
+        return True
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        all_ready = True
+        for name in node_names:
+            try:
+                if not get_node_ready(name):
+                    all_ready = False
+            except Exception as exc:  # noqa: BLE001
+                logger.info("Node %s not ready yet: %s", name, exc)
+                all_ready = False
+
+        if all_ready:
+            return True
+        time.sleep(poll_interval)
+
+    return False
+
+
 def get_client_progress(client_name):
     result = subprocess.run(
         [
@@ -107,54 +157,27 @@ def get_client_progress(client_name):
     return progress, finished
 
 
-def wait_for_clients_progress(client_names, poll_interval=1.0, stall_timeout=30.0, startup_timeout=90.0):
+def wait_for_clients_progress(client_names, poll_interval=1.0, stall_timeout=30.0):
     if not client_names:
         return True
 
     last_progress_total = None
     last_progress_change = time.monotonic()
-    start_time = time.monotonic()
-    seen_client = {name: False for name in client_names}
 
     while True:
         snapshots = {}
         for name in client_names:
             try:
                 snapshots[name] = get_client_progress(name)
-                seen_client[name] = True
             except Exception as exc:  # noqa: BLE001
-                elapsed = time.monotonic() - start_time
-                if elapsed > startup_timeout:
-                    logger.warning("Failed to read progress from %s: %s", name, exc)
-                else:
-                    logger.info(
-                        "Client %s not reachable yet (startup %.1fs/%.1fs): %s",
-                        name,
-                        elapsed,
-                        startup_timeout,
-                        exc,
-                    )
+                logger.warning("Failed to read progress from %s: %s", name, exc)
                 snapshots[name] = (0.0, False)
 
         progress_total = sum(progress for progress, _ in snapshots.values())
         all_finished = all(finished for _, finished in snapshots.values())
-        all_seen = all(seen_client.values())
 
         if all_finished:
             return True
-
-        # Do not treat startup connection failures as progress stalls.
-        if not all_seen:
-            if time.monotonic() - start_time > startup_timeout:
-                missing = [name for name, seen in seen_client.items() if not seen]
-                logger.warning(
-                    "Startup timeout after %.1fs; never received /progress from %s",
-                    startup_timeout,
-                    ", ".join(missing),
-                )
-                return False
-            time.sleep(poll_interval)
-            continue
 
         if last_progress_total is None or progress_total != last_progress_total:
             last_progress_total = progress_total
@@ -180,12 +203,16 @@ def main():
     stop_docker_nodes(node_names)
 
     launch_nodes(node_names, args.config_path)
+    logger.info("Waiting for all nodes to become ready")
+    all_nodes_ready = wait_for_nodes_ready(node_names, timeout=30.0, poll_interval=1.0)
+    if not all_nodes_ready:
+        logger.warning("Node readiness timeout after 30s; proceeding anyway")
+
     logger.info("Waiting for client completion")
     completed = wait_for_clients_progress(
         client_names,
         poll_interval=1.0,
         stall_timeout=30.0,
-        startup_timeout=90.0,
     )
     if not completed:
         logger.warning("Proceeding after progress timeout")

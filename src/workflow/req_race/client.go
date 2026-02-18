@@ -10,10 +10,16 @@ import (
 
 const totalRequests = 1000
 
+var readyNodes = []string{
+	"node2", "node3", "node4",
+	"node5", "node6", "node7",
+	"node8", "node9", "node10",
+	"node11", "node12", "node13",
+}
+
 // ClientRequestLogicPlaceholder sends requests sequentially
 func ClientRequestLogic(c *nodes.Client) {
-	// Wait for other nodes to start.
-	time.Sleep(2 * time.Second)
+	c.WaitForNodesReady(readyNodes)
 
 	progressIncrement := 1.0 / float64(totalRequests)
 	for requestID := 1; requestID <= totalRequests; requestID++ {

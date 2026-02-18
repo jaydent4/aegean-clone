@@ -11,6 +11,11 @@ import (
 
 // SendMessage sends a HTTP POST request to the specified host and port with retry logic
 func SendMessage(host string, port int, payload any, opts ...any) (map[string]any, error) {
+	return SendMessageToPath(host, port, "/", payload, opts...)
+}
+
+// SendMessageToPath sends an HTTP POST request to the specified host, port, and path with retry logic.
+func SendMessageToPath(host string, port int, path string, payload any, opts ...any) (map[string]any, error) {
 	retries := 3
 	timeout := 5 * time.Second
 	if len(opts) >= 1 {
@@ -20,7 +25,13 @@ func SendMessage(host string, port int, payload any, opts ...any) (map[string]an
 		timeout = opts[1].(time.Duration)
 	}
 
-	url := fmt.Sprintf("http://%s:%d/", host, port)
+	if path == "" {
+		path = "/"
+	}
+	if path[0] != '/' {
+		path = "/" + path
+	}
+	url := fmt.Sprintf("http://%s:%d%s", host, port, path)
 	var lastErr error
 
 	client := &http.Client{Timeout: timeout}

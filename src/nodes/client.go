@@ -1,9 +1,11 @@
 package nodes
 
 import (
+	"aegean/common"
 	"fmt"
 	"log"
 	"sync"
+	"time"
 )
 
 type Client struct {
@@ -32,6 +34,7 @@ func NewClient(name, host string, port int, next []string, requestLogic func(c *
 	client.cond = sync.NewCond(&client.mu)
 	client.Node.HandleMessage = client.HandleMessage
 	client.Node.HandleProgress = client.HandleProgress
+	client.Node.HandleReady = client.HandleReady
 	return client
 }
 
@@ -94,6 +97,30 @@ func (c *Client) WaitForRequestCompletion(requestID any) {
 	}
 }
 
+func (c *Client) WaitForNodesReady(nodeNames []string) {
+	for {
+		allReady := true
+		for _, nodeName := range nodeNames {
+			response, err := common.SendMessageToPath(nodeName, 8000, "/ready", map[string]any{})
+			if err != nil {
+				allReady = false
+				break
+			}
+			ready, _ := response["ready"].(bool)
+			if !ready {
+				allReady = false
+				break
+			}
+		}
+
+		if allReady {
+			return
+		}
+
+		time.Sleep(1 * time.Second)
+	}
+}
+
 func (c *Client) IncrementProgress(delta float64) {
 	c.mu.Lock()
 	c.progress += delta
@@ -109,5 +136,11 @@ func (c *Client) HandleProgress(payload map[string]any) map[string]any {
 	return map[string]any{
 		"progress": progress,
 		"finished": finished,
+	}
+}
+
+func (c *Client) HandleReady(payload map[string]any) map[string]any {
+	return map[string]any{
+		"ready": true,
 	}
 }

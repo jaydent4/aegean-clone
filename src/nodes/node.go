@@ -19,6 +19,8 @@ type Node struct {
 	HandleMessage common.MessageHandler
 	// HandleProgress is mounted on /progress and mirrors HandleMessage semantics.
 	HandleProgress common.MessageHandler
+	// HandleReady is mounted on /ready and mirrors HandleMessage semantics.
+	HandleReady common.MessageHandler
 }
 
 func NewNode(name, host string, port int) *Node {
@@ -47,6 +49,9 @@ func (n *Node) Start() {
 	mux.Handle("/", common.MakeHandler(n.HandleMessage))
 	if n.HandleProgress != nil {
 		mux.Handle("/progress", common.MakeHandler(n.HandleProgress))
+	}
+	if n.HandleReady != nil {
+		mux.Handle("/ready", common.MakeHandler(n.HandleReady))
 	}
 
 	n.server = &http.Server{Addr: addr, Handler: mux}
