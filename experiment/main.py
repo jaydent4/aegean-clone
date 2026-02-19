@@ -7,6 +7,8 @@ import subprocess
 import time
 from datetime import datetime
 
+from tqdm import tqdm
+
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -163,34 +165,42 @@ def wait_for_clients_progress(client_names, poll_interval=1.0, stall_timeout=30.
 
     last_progress_total = None
     last_progress_change = time.monotonic()
+    total_clients = float(len(client_names))
+    progress_bar = tqdm(total=total_clients, desc="Clients")
 
-    while True:
-        snapshots = {}
-        for name in client_names:
-            try:
-                snapshots[name] = get_client_progress(name)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("Failed to read progress from %s: %s", name, exc)
-                snapshots[name] = (0.0, False)
+    try:
+        while True:
+            snapshots = {}
+            for name in client_names:
+                try:
+                    snapshots[name] = get_client_progress(name)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Failed to read progress from %s: %s", name, exc)
+                    snapshots[name] = (0.0, False)
 
-        progress_total = sum(progress for progress, _ in snapshots.values())
-        all_finished = all(finished for _, finished in snapshots.values())
+            progress_total = sum(progress for progress, _ in snapshots.values())
+            progress_total = min(max(progress_total, 0.0), total_clients)
+            progress_bar.update(progress_total - progress_bar.n)
+            all_finished = all(finished for _, finished in snapshots.values())
 
-        if all_finished:
-            return True
+            if all_finished:
+                progress_bar.update(total_clients - progress_bar.n)
+                return True
 
-        if last_progress_total is None or progress_total != last_progress_total:
-            last_progress_total = progress_total
-            last_progress_change = time.monotonic()
-        elif time.monotonic() - last_progress_change > stall_timeout:
-            logger.warning(
-                "Progress stalled for over %.1fs (total_progress=%.3f)",
-                stall_timeout,
-                progress_total,
-            )
-            return False
+            if last_progress_total is None or progress_total != last_progress_total:
+                last_progress_total = progress_total
+                last_progress_change = time.monotonic()
+            elif time.monotonic() - last_progress_change > stall_timeout:
+                logger.warning(
+                    "Progress stalled for over %.1fs (total_progress=%.3f)",
+                    stall_timeout,
+                    progress_total,
+                )
+                return False
 
-        time.sleep(poll_interval)
+            time.sleep(poll_interval)
+    finally:
+        progress_bar.close()
 
 
 def main():
