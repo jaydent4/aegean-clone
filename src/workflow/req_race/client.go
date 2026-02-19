@@ -19,8 +19,8 @@ var readyNodes = []string{
 // ClientRequestLogicPlaceholder sends requests sequentially
 func ClientRequestLogic(c *nodes.Client) {
 	c.WaitForNodesReady(readyNodes)
+	c.TotalProgress = totalRequests
 
-	progressIncrement := 1.0 / float64(totalRequests)
 	for requestID := 1; requestID <= totalRequests; requestID++ {
 		request := map[string]any{
 			"request_id": requestID,
@@ -36,6 +36,5 @@ func ClientRequestLogic(c *nodes.Client) {
 		}
 
 		c.WaitForRequestCompletion(requestID)
-		c.IncrementProgress(progressIncrement)
 	}
 }

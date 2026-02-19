@@ -26,8 +26,8 @@ func ClientRequestLogic(c *nodes.Client) {
 
 func runClientRequestLogic(c *nodes.Client, waitForResponse bool) {
 	c.WaitForNodesReady(readyNodes)
+	c.TotalProgress = float32(totalRequests * len(c.Next))
 
-	progressIncrement := 1.0 / float64(totalRequests)
 	for requestID := 1; requestID <= totalRequests; requestID++ {
 		timestamp := float64(time.Now().UnixNano()) / 1e9
 
@@ -79,7 +79,6 @@ func runClientRequestLogic(c *nodes.Client, waitForResponse bool) {
 
 		if waitForResponse && sent {
 			c.WaitForRequestCompletion(requestID)
-			c.IncrementProgress(progressIncrement)
 		}
 	}
 }
@@ -90,9 +89,6 @@ func expectedReadValue(requestID int) string {
 		if candidate%writeKeyMod == readKey {
 			return "value_" + strconv.Itoa(candidate)
 		}
-	}
-	if readKey == 1 {
-		return "111"
 	}
 	return ""
 }
