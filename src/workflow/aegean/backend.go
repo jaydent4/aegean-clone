@@ -11,6 +11,7 @@ import (
 
 var divNodeCounters sync.Map
 
+// Improvable: sometimes may cause unintended unliveness
 func shouldDiverge(nodeName string, targetNodes map[string]struct{}, everyN uint64) bool {
 	// nil targetNodes means all nodes are targeted
 	if targetNodes != nil {
@@ -83,7 +84,7 @@ func ExecuteRequestBackendDivergeTwoNode(e *exec.Exec, request map[string]any, n
 	return executeRequestBase(e, request, ndSeed, ndTimestamp, map[string]struct{}{
 		"node5": {},
 		"node6": {},
-	}, 5)
+	}, 20)
 }
 
 func ExecuteRequestBackendDivergeThreeNode(e *exec.Exec, request map[string]any, ndSeed int64, ndTimestamp float64) map[string]any {
@@ -91,5 +92,5 @@ func ExecuteRequestBackendDivergeThreeNode(e *exec.Exec, request map[string]any,
 		"node5": {},
 		"node6": {},
 		"node7": {},
-	}, 5)
+	}, 20)
 }
