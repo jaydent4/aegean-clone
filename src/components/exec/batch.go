@@ -1,10 +1,23 @@
 package exec
 
 import (
+	"log"
 	"time"
 
 	"aegean/common"
 )
+
+func batchRequestIDs(parallelBatches [][]map[string]any) []string {
+	ids := make([]string, 0)
+	fallback := 0
+	for _, batch := range parallelBatches {
+		for _, request := range batch {
+			ids = append(ids, requestIDForSchedule(request, fallback))
+			fallback++
+		}
+	}
+	return ids
+}
 
 func (e *Exec) flushNextBatch() bool {
 	e.mu.Lock()
@@ -39,6 +52,7 @@ func (e *Exec) handleBatch(payload map[string]any) map[string]any {
 	if !ok {
 		return map[string]any{"status": "error", "error": "invalid parallel_batches"}
 	}
+	log.Printf("%s: received batch seq_num=%d request_ids=%v", e.Name, seqNum, batchRequestIDs(parallelBatches))
 
 	// Defer insertion of new keys to end-of-batch deterministic phase.
 	e.beginBatchMerkleContext()

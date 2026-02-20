@@ -8,6 +8,13 @@ import (
 	"sort"
 )
 
+func shortHash(hash string) string {
+	if len(hash) <= 6 {
+		return hash
+	}
+	return hash[len(hash)-6:]
+}
+
 func (e *Exec) computeStateHash(stateRoot string, outputs []map[string]any, prevHash string, seqNum int) string {
 	data := map[string]any{
 		"seq_num":    seqNum,

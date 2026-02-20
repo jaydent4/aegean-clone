@@ -42,19 +42,27 @@ func (e *Exec) flushNextVerify() bool {
 			"exec_id":   e.Name,
 		}
 		log.Printf(
-			"%s: assembled verify hash seq_num=%d view_num=%d stable_seq_num=%d prev_hash=%s state_root=%s final_hash=%s output_count=%d outputs=%v state=%v verifiers=%v",
+			"%s: assembled verify hash seq_num=%d view_num=%d stable_seq_num=%d prev_hash=%s state_root=%s final_hash=%s output_count=%d outputs=%v verifiers=%v",
 			e.Name,
 			seq,
 			view,
 			stableSeqNum,
-			prevHash,
-			pending.merkleRoot,
-			token,
+			shortHash(prevHash),
+			shortHash(pending.merkleRoot),
+			shortHash(token),
 			len(pending.outputs),
 			pending.outputs,
-			pending.state,
 			e.Verifiers,
 		)
+		if logExecStateDetails {
+			log.Printf(
+				"%s: assembled verify hash state seq_num=%d view_num=%d state=%v",
+				e.Name,
+				seq,
+				view,
+				pending.state,
+			)
+		}
 
 		for _, verifier := range e.Verifiers {
 			if verifier == e.Name && e.VerifierCh != nil {
@@ -75,15 +83,6 @@ func (e *Exec) finalizeCommit(seqNum int, pending pendingExecResult, agreedToken
 	}
 	e.mu.Lock()
 	delete(e.pendingExecResults, seqNum)
-	e.mu.Unlock()
-
-	e.stateMu.Lock()
-	e.workingState.KVStore = common.CopyStringMap(pending.state)
-	e.workingState.Merkle = pending.merkle.Clone()
-	e.workingState.MerkleRoot = pending.merkleRoot
-	e.stateMu.Unlock()
-
-	e.mu.Lock()
 	e.stableState = State{
 		KVStore:    common.CopyStringMap(pending.state),
 		Merkle:     pending.merkle.Clone(),
@@ -99,7 +98,18 @@ func (e *Exec) finalizeCommit(seqNum int, pending pendingExecResult, agreedToken
 		}
 	}
 	e.forceSequential = false
+	// Important: do not always reset workingState to the just-committed snapshot.
+	// If seq>seqNum already executed speculatively, resetting to committed state
+	// would discard those speculative writes and make later verify tokens diverge
+	// from peers (leading to unnecessary state transfer/rollback cycles).
+	workingKV, workingMerkle, workingRoot := e.selectWorkingStateAfterCommitLocked(pending)
 	e.mu.Unlock()
+
+	e.stateMu.Lock()
+	e.workingState.KVStore = workingKV
+	e.workingState.Merkle = workingMerkle
+	e.workingState.MerkleRoot = workingRoot
+	e.stateMu.Unlock()
 
 	for _, output := range pending.outputs {
 		requestID := output["request_id"]
@@ -112,4 +122,28 @@ func (e *Exec) finalizeCommit(seqNum int, pending pendingExecResult, agreedToken
 			e.ShimCh <- responseMsg
 		}
 	}
+}
+
+// Rebase workingState to the highest pending speculative snapshot
+// This is necessary because the workingState of seq=n+1 may not capture the results from seq=n
+func (e *Exec) selectWorkingStateAfterCommitLocked(committed pendingExecResult) (map[string]string, *MerkleTree, string) {
+	maxSeq := -1
+	var tip pendingExecResult
+	for seq, candidate := range e.pendingExecResults {
+		if seq > maxSeq {
+			maxSeq = seq
+			tip = candidate
+		}
+	}
+
+	if maxSeq >= 0 {
+		if tip.merkle == nil {
+			tip.merkle = NewMerkleTreeFromMap(tip.state)
+			tip.merkleRoot = tip.merkle.Root()
+			e.pendingExecResults[maxSeq] = tip
+		}
+		return common.CopyStringMap(tip.state), tip.merkle.Clone(), tip.merkleRoot
+	}
+
+	return common.CopyStringMap(committed.state), committed.merkle.Clone(), committed.merkleRoot
 }

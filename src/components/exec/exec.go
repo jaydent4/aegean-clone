@@ -10,6 +10,10 @@ import (
 	"aegean/common"
 )
 
+// logExecStateDetails gates verbose state-dump logs in exec verification paths
+// Keep false in normal runs to avoid very large logs
+const logExecStateDetails = false
+
 type pendingExecResult struct {
 	outputs    []map[string]any
 	state      map[string]string

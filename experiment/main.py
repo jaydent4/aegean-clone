@@ -221,7 +221,7 @@ def main():
     completed = wait_for_clients_progress(
         client_names,
         poll_interval=1.0,
-        stall_timeout=30.0,
+        stall_timeout=5.0,
     )
     if not completed:
         logger.warning("Proceeding after progress timeout")

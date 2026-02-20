@@ -89,10 +89,22 @@ func (e *Exec) handleVerifyResponse(payload map[string]any) map[string]any {
 			stableSeqNum,
 			verifierID,
 			forceSequential,
-			agreedToken,
+			shortHash(agreedToken),
 			hasPending,
-			pending.token,
+			shortHash(pending.token),
 		)
+		if logExecStateDetails {
+			decisionState := e.stableStateSnapshotForLog()
+			if hasPending {
+				decisionState = common.CopyStringMap(pending.state)
+			}
+			log.Printf(
+				"%s: verifier decision state seq_num=%d decision=rollback state=%v",
+				e.Name,
+				seqNum,
+				decisionState,
+			)
+		}
 		if e.rollbackTo(seqNum, agreedToken) {
 			return map[string]any{"status": "processed", "decision": "rollback", "resolved": true}
 		}
@@ -103,8 +115,16 @@ func (e *Exec) handleVerifyResponse(payload map[string]any) map[string]any {
 			seqNum,
 			view,
 			verifierID,
-			agreedToken,
+			shortHash(agreedToken),
 		)
+		if logExecStateDetails {
+			log.Printf(
+				"%s: verifier decision state seq_num=%d decision=state_transfer reason=rollback_failed state=%v",
+				e.Name,
+				seqNum,
+				e.stableStateSnapshotForLog(),
+			)
+		}
 		e.requestStateTransferWithRetry(seqNum, 0, 10*time.Millisecond)
 		e.mu.Lock()
 		e.forceSequential = true
@@ -126,9 +146,17 @@ func (e *Exec) handleVerifyResponse(payload map[string]any) map[string]any {
 			view,
 			stableSeqNum,
 			verifierID,
-			pending.token,
-			agreedToken,
+			shortHash(pending.token),
+			shortHash(agreedToken),
 		)
+		if logExecStateDetails {
+			log.Printf(
+				"%s: verifier decision state seq_num=%d decision=state_transfer reason=token_mismatch state=%v",
+				e.Name,
+				seqNum,
+				common.CopyStringMap(pending.state),
+			)
+		}
 		e.mu.Lock()
 		delete(e.pendingExecResults, seqNum)
 		e.mu.Unlock()
@@ -146,9 +174,17 @@ func (e *Exec) handleVerifyResponse(payload map[string]any) map[string]any {
 		stableSeqNum,
 		verifierID,
 		forceSequential,
-		agreedToken,
+		shortHash(agreedToken),
 		len(pending.outputs),
 	)
+	if logExecStateDetails {
+		log.Printf(
+			"%s: verifier decision state seq_num=%d decision=commit state=%v",
+			e.Name,
+			seqNum,
+			common.CopyStringMap(pending.state),
+		)
+	}
 	e.finalizeCommit(seqNum, pending, agreedToken)
 	e.mu.Lock()
 	if e.nextVerifySeq == seqNum {
@@ -186,4 +222,10 @@ func (e *Exec) stopVerifyResponseTimerLocked(seqNum int) {
 
 func (e *Exec) clearVerifyResponseTrackingLocked(seqNum int) {
 	delete(e.verifyResponseBySeq, seqNum)
+}
+
+func (e *Exec) stableStateSnapshotForLog() map[string]string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return common.CopyStringMap(e.stableState.KVStore)
 }

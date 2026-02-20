@@ -367,6 +367,95 @@ func TestExecBuffersOutOfOrderBatches(t *testing.T) {
 
 }
 
+// Committing an earlier sequence should not rewind working state when higher
+// speculative sequences are already pending; otherwise later batches execute on stale base.
+func TestExecCommitPreservesSpeculativeWorkingTip(t *testing.T) {
+	exec, _, _ := newTestExec("exec1", []string{"exec1"}, nil)
+
+	batch1 := map[string]any{
+		"type":    "batch",
+		"seq_num": 1,
+		"parallel_batches": makeParallelBatches(
+			makeSpinRequest("1", "1", "value_1", "1"),
+		),
+	}
+	batch2 := map[string]any{
+		"type":    "batch",
+		"seq_num": 2,
+		"parallel_batches": makeParallelBatches(
+			makeSpinRequest("2", "2", "value_2", "2"),
+			makeSpinRequest("3", "3", "value_3", "3"),
+			makeSpinRequest("4", "4", "value_4", "4"),
+			makeSpinRequest("5", "5", "value_5", "5"),
+			makeSpinRequest("6", "6", "value_6", "6"),
+			makeSpinRequest("7", "7", "value_7", "7"),
+			makeSpinRequest("8", "8", "value_8", "8"),
+			makeSpinRequest("9", "9", "value_9", "9"),
+			makeSpinRequest("10", "10", "value_10", "10"),
+			makeSpinRequest("11", "11", "value_11", "11"),
+		),
+	}
+	batch3 := map[string]any{
+		"type":    "batch",
+		"seq_num": 3,
+		"parallel_batches": makeParallelBatches(
+			makeSpinRequest("12", "12", "value_12", "12"),
+			makeSpinRequest("13", "13", "value_13", "13"),
+			makeSpinRequest("14", "14", "value_14", "14"),
+			makeSpinRequest("15", "15", "value_15", "15"),
+			makeSpinRequest("16", "16", "value_16", "16"),
+			makeSpinRequest("17", "17", "value_17", "17"),
+			makeSpinRequest("18", "18", "value_18", "18"),
+			makeSpinRequest("19", "19", "value_19", "19"),
+			makeSpinRequest("20", "20", "value_20", "20"),
+			makeSpinRequest("21", "21", "value_21", "21"),
+		),
+	}
+	batch4 := map[string]any{
+		"type":    "batch",
+		"seq_num": 4,
+		"parallel_batches": makeParallelBatches(
+			makeSpinRequest("22", "22", "value_22", "22"),
+			makeSpinRequest("23", "23", "value_23", "23"),
+			makeSpinRequest("24", "24", "value_24", "24"),
+			makeSpinRequest("25", "25", "value_25", "25"),
+			makeSpinRequest("26", "26", "value_26", "26"),
+			makeSpinRequest("27", "27", "value_27", "27"),
+			makeSpinRequest("28", "28", "value_28", "28"),
+			makeSpinRequest("29", "29", "value_29", "29"),
+			makeSpinRequest("30", "30", "value_30", "30"),
+			makeSpinRequest("31", "31", "value_31", "31"),
+		),
+	}
+
+	exec.handleBatch(batch1)
+	exec.handleBatch(batch2)
+	exec.handleBatch(batch3)
+
+	p1 := exec.pendingExecResults[1]
+	p1.token = "token-1"
+	exec.pendingExecResults[1] = p1
+	exec.handleVerifyResponse(map[string]any{
+		"type":             "verify_response",
+		"view":             1,
+		"seq_num":          1,
+		"token":            "token-1",
+		"force_sequential": false,
+		"verifier_id":      "ver1",
+	})
+
+	exec.handleBatch(batch4)
+	p4, ok := exec.pendingExecResults[4]
+	if !ok {
+		t.Fatalf("expected pending response for seq 4")
+	}
+	for _, key := range []string{"2", "11", "12", "21", "22", "31"} {
+		if got := p4.state[key]; got == "" {
+			t.Fatalf("expected seq 4 pending state to retain key %s after seq1 commit; state=%v", key, p4.state)
+		}
+	}
+}
+
 // While state transfer is in-flight (processMu held), incoming batches should not be
 // enqueued early and then lost by transfer-time buffer clearing.
 func TestExecHandleBatchDoesNotLoseBatchWhenProcessMuHeld(t *testing.T) {
