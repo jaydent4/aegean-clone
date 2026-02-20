@@ -9,8 +9,11 @@ const fanoutBaseResponseContextKey = "fanout_base_response"
 
 func executeFanoutBase(e *exec.Exec, request map[string]any, ndSeed int64, ndTimestamp float64, targetNodes map[string]struct{}, everyN uint64) map[string]any {
 	requestID := request["request_id"]
-	// First stage: do local work and fan out nested requests asynchronously.
-	if _, started := e.GetRequestContextValue(requestID, fanoutBaseResponseContextKey); !started {
+	nestedResponses, hasNested := e.GetNestedResponses(requestID)
+	_, started := e.GetRequestContextValue(requestID, fanoutBaseResponseContextKey)
+
+	// Stage 1: no local continuation context and no cached nested response.
+	if !started && (!hasNested || len(nestedResponses) == 0) {
 		response := executeRequestBase(e, request, ndSeed, ndTimestamp, targetNodes, everyN)
 		if !e.SetRequestContextValue(requestID, fanoutBaseResponseContextKey, response) {
 			return map[string]any{
@@ -43,14 +46,14 @@ func executeFanoutBase(e *exec.Exec, request map[string]any, ndSeed int64, ndTim
 		}
 	}
 
-	// Continuation stage: consume next nested response from scheduler-owned queue.
-	nested, ok := e.ConsumeNestedResponse(requestID)
-	if !ok || nested == nil {
+	// Stage 2: either continuation context exists or a nested response is cached.
+	if !hasNested || len(nestedResponses) == 0 {
 		return map[string]any{
 			"status":     "blocked_for_nested_response",
 			"request_id": requestID,
 		}
 	}
+	nested := nestedResponses[0]
 	if fanoutDone, output := processNestedFanoutResponse(e, requestID, nested); fanoutDone {
 		e.ClearRequestContext(requestID)
 		return output

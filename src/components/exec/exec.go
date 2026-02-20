@@ -219,12 +219,12 @@ func (e *Exec) BufferNestedResponse(payload map[string]any) bool {
 	return e.scheduler.enqueueNestedResponse(requestID, payload)
 }
 
-func (e *Exec) ConsumeNestedResponse(requestID any) (map[string]any, bool) {
+func (e *Exec) GetNestedResponses(requestID any) ([]map[string]any, bool) {
 	canonicalID, ok := canonicalRequestID(requestID)
 	if !ok {
 		return nil, false
 	}
-	return e.scheduler.popNestedResponse(canonicalID)
+	return e.scheduler.getNestedResponses(canonicalID)
 }
 
 func (e *Exec) HandleBatchMessage(payload map[string]any) map[string]any {

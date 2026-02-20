@@ -44,20 +44,38 @@ func (s *execScheduler) hasNestedResponse(requestID string) bool {
 	return len(s.nestedResponses[requestID]) > 0
 }
 
-func (s *execScheduler) popNestedResponse(requestID string) (map[string]any, bool) {
+func (s *execScheduler) getNestedResponses(requestID string) ([]map[string]any, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	queue := s.nestedResponses[requestID]
 	if len(queue) == 0 {
 		return nil, false
 	}
-	nested := queue[0]
-	if len(queue) == 1 {
-		delete(s.nestedResponses, requestID)
-	} else {
-		s.nestedResponses[requestID] = queue[1:]
+	// Return a shallow copy so callers cannot mutate scheduler-owned slices.
+	out := make([]map[string]any, 0, len(queue))
+	for _, item := range queue {
+		out = append(out, cloneMapAny(item))
 	}
-	return nested, true
+	return out, true
+}
+
+func (s *execScheduler) clearNestedResponses(requestIDs []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, requestID := range requestIDs {
+		delete(s.nestedResponses, requestID)
+	}
+}
+
+func cloneMapAny(src map[string]any) map[string]any {
+	if src == nil {
+		return nil
+	}
+	out := make(map[string]any, len(src))
+	for key, value := range src {
+		out[key] = value
+	}
+	return out
 }
 
 func (e *Exec) executeParallelBatches(parallelBatches [][]map[string]any, ndSeed int64, ndTimestamp float64) []map[string]any {
@@ -81,7 +99,6 @@ func (s *execScheduler) unregisterScheduledRequests(e *Exec, requests []*schedul
 	defer s.mu.Unlock()
 	for _, req := range requests {
 		delete(s.inflightRequests, req.id)
-		delete(s.nestedResponses, req.id)
 		s.contextStore.clearByID(req.id)
 	}
 }

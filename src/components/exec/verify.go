@@ -122,6 +122,22 @@ func (e *Exec) finalizeCommit(seqNum int, pending pendingExecResult, agreedToken
 			e.ShimCh <- responseMsg
 		}
 	}
+	e.gcCommittedNestedResponses(pending.outputs)
+}
+
+func (e *Exec) gcCommittedNestedResponses(outputs []map[string]any) {
+	requestIDs := make([]string, 0, len(outputs))
+	for _, output := range outputs {
+		requestID, ok := canonicalRequestID(output["request_id"])
+		if !ok {
+			continue
+		}
+		requestIDs = append(requestIDs, requestID)
+	}
+	if len(requestIDs) == 0 {
+		return
+	}
+	e.scheduler.clearNestedResponses(requestIDs)
 }
 
 // Rebase workingState to the highest pending speculative snapshot

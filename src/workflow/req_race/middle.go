@@ -17,7 +17,11 @@ func ExecuteRequestMiddle(e *exec.Exec, request map[string]any, ndSeed int64, nd
 	_ = ndTimestamp
 
 	requestID := request["request_id"]
-	if _, started := e.GetRequestContextValue(requestID, middleFanoutStartedContextKey); !started {
+	nestedResponses, hasNested := e.GetNestedResponses(requestID)
+	_, started := e.GetRequestContextValue(requestID, middleFanoutStartedContextKey)
+
+	// Stage 1: no local continuation context and no cached nested response.
+	if !started && (!hasNested || len(nestedResponses) == 0) {
 		if !e.SetRequestContextValue(requestID, middleFanoutStartedContextKey, true) {
 			return map[string]any{
 				"request_id": requestID,
@@ -55,13 +59,14 @@ func ExecuteRequestMiddle(e *exec.Exec, request map[string]any, ndSeed int64, nd
 		}
 	}
 
-	nested, ok := e.ConsumeNestedResponse(requestID)
-	if !ok || nested == nil {
+	// Stage 2: either continuation context exists or a nested response is cached.
+	if !hasNested || len(nestedResponses) == 0 {
 		return map[string]any{
 			"request_id": requestID,
 			"status":     "blocked_for_nested_response",
 		}
 	}
+	nested := nestedResponses[0]
 	if shimAggregated, _ := nested["shim_quorum_aggregated"].(bool); !shimAggregated {
 		return map[string]any{
 			"request_id": requestID,

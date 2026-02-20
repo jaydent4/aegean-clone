@@ -845,7 +845,8 @@ func TestExecBlockedRequestResumesAfterNestedResponse(t *testing.T) {
 	var exec *Exec
 	exec = NewExec("exec1", []string{"exec1"}, nil, verifierCh, shimCh, 1,
 		func(_ *Exec, request map[string]any, _ int64, _ float64) map[string]any {
-			if nested, ok := exec.ConsumeNestedResponse(request["request_id"]); ok && nested != nil {
+			if nestedResponses, ok := exec.GetNestedResponses(request["request_id"]); ok && len(nestedResponses) > 0 {
+				nested := nestedResponses[0]
 				return map[string]any{
 					"request_id": request["request_id"],
 					"status":     "ok",
@@ -906,7 +907,7 @@ func TestExecParallelBatchesYieldBlockedToNext(t *testing.T) {
 			requestID := request["request_id"]
 			switch op {
 			case "block":
-				if nested, ok := exec.ConsumeNestedResponse(requestID); ok && nested != nil {
+				if nestedResponses, ok := exec.GetNestedResponses(requestID); ok && len(nestedResponses) > 0 {
 					return map[string]any{"request_id": requestID, "status": "ok"}
 				}
 				return map[string]any{"request_id": requestID, "status": "blocked_for_nested_response"}
@@ -967,7 +968,7 @@ func TestExecParallelBatchWindowGatesByStableSeq(t *testing.T) {
 			requestID := request["request_id"]
 			switch op {
 			case "block":
-				if nested, ok := exec.ConsumeNestedResponse(requestID); ok && nested != nil {
+				if nestedResponses, ok := exec.GetNestedResponses(requestID); ok && len(nestedResponses) > 0 {
 					return map[string]any{"request_id": requestID, "status": "ok"}
 				}
 				return map[string]any{"request_id": requestID, "status": "blocked_for_nested_response"}
@@ -1039,7 +1040,7 @@ func TestExecParallelBatchSchedulingDeterministic(t *testing.T) {
 			mu.Lock()
 			trace = append(trace, requestID)
 			mu.Unlock()
-			if nested, ok := exec.ConsumeNestedResponse(requestID); ok && nested != nil {
+			if nestedResponses, ok := exec.GetNestedResponses(requestID); ok && len(nestedResponses) > 0 {
 				return map[string]any{"request_id": requestID, "status": "ok"}
 			}
 			return map[string]any{"request_id": requestID, "status": "blocked_for_nested_response"}
@@ -1101,7 +1102,7 @@ func TestExecForceSequentialDisablesParallelYield(t *testing.T) {
 			requestID := request["request_id"]
 			switch op {
 			case "block":
-				if nested, ok := exec.ConsumeNestedResponse(requestID); ok && nested != nil {
+				if nestedResponses, ok := exec.GetNestedResponses(requestID); ok && len(nestedResponses) > 0 {
 					return map[string]any{"request_id": requestID, "status": "ok"}
 				}
 				return map[string]any{"request_id": requestID, "status": "blocked_for_nested_response"}
