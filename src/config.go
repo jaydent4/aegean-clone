@@ -15,6 +15,7 @@ type NodeConfig struct {
 	Shim                     string   `json:"shim"`
 	IsPrimaryBatcher         bool     `json:"is_primary_batcher"`
 	ExecWorkflow             string   `json:"exec_workflow"`
+	InitStateWorkflow        string   `json:"init_state_workflow"`
 	ClientWorkflow           string   `json:"client_workflow"`
 	ShimQuorumSize           int      `json:"shimQuorumSize"`
 	VerifyResponseQuorumSize int      `json:"verifyResponseQuorumSize"`

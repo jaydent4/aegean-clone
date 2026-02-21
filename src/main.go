@@ -60,7 +60,15 @@ func main() {
 		if execFn == nil {
 			panic(fmt.Sprintf("unknown exec workflow %q for node %s", execWorkflow, *name))
 		}
-		node = nodes.NewServer(*name, *host, *port, cfg.Clients, cfg.Nodes, cfg.IsPrimaryBatcher, cfg.ShimQuorumSize, cfg.VerifyResponseQuorumSize, cfg.ExecVerifyQuorumSize, cfg.PhaseQuorumSize, cfg.ExpectedExecVotes, execFn)
+		initStateWorkflow := cfg.InitStateWorkflow
+		if initStateWorkflow == "" {
+			initStateWorkflow = "default"
+		}
+		initFn := workflow.InitStateWorkflows[initStateWorkflow]
+		if initFn == nil {
+			panic(fmt.Sprintf("unknown init state workflow %q for node %s", initStateWorkflow, *name))
+		}
+		node = nodes.NewServer(*name, *host, *port, cfg.Clients, cfg.Nodes, cfg.IsPrimaryBatcher, cfg.ShimQuorumSize, cfg.VerifyResponseQuorumSize, cfg.ExecVerifyQuorumSize, cfg.PhaseQuorumSize, cfg.ExpectedExecVotes, execFn, initFn)
 	default:
 		panic(fmt.Sprintf("unrecognized node type: %s", cfg.Type))
 	}

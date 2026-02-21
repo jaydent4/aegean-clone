@@ -28,3 +28,9 @@ var ExecWorkflows = map[string]exec.ExecuteRequestFunc{
 	"req_race_backend_2":       reqraceworkflow.ExecuteRequestBackend2,
 	"req_race_backend_3":       reqraceworkflow.ExecuteRequestBackend3,
 }
+
+var InitStateWorkflows = map[string]exec.InitStateFunc{
+	"default":         aegeanworkflow.InitState,
+	"aegean_default":  aegeanworkflow.InitState,
+	"req_race_default": reqraceworkflow.InitState,
+}

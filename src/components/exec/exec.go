@@ -31,6 +31,7 @@ type batchMerkleContext struct {
 
 // ExecuteRequestFunc handles a single request for an exec node.
 type ExecuteRequestFunc func(e *Exec, request map[string]any, ndSeed int64, ndTimestamp float64) map[string]any
+type InitStateFunc func(e *Exec) map[string]string
 
 type Exec struct {
 	Name      string
@@ -84,14 +85,20 @@ type Exec struct {
 	ExecuteRequest ExecuteRequestFunc
 }
 
-func NewExec(name string, verifiers []string, peers []string, verifierCh chan<- map[string]any, shimCh chan<- map[string]any, verifyResponseQuorumSize int, executeRequest ExecuteRequestFunc) *Exec {
+func NewExec(name string, verifiers []string, peers []string, verifierCh chan<- map[string]any, shimCh chan<- map[string]any, verifyResponseQuorumSize int, executeRequest ExecuteRequestFunc, initStateFn InitStateFunc) *Exec {
 	if verifierCh == nil || shimCh == nil {
 		panic("exec component requires non-nil channels")
 	}
 	if executeRequest == nil {
 		panic("exec component requires ExecuteRequest")
 	}
+
 	initialKV := map[string]string{}
+	if initStateFn != nil {
+		if customKV := initStateFn(&Exec{Name: name}); customKV != nil {
+			initialKV = common.CopyStringMap(customKV)
+		}
+	}
 	initialMerkle := NewMerkleTreeFromMap(initialKV)
 	stable := State{
 		KVStore:    common.CopyStringMap(initialKV),
