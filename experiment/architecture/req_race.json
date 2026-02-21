@@ -8,7 +8,7 @@
     "oha_client": {
       "type": "oha_client",
       "next": ["node2", "node3", "node4"],
-      "client_workflow": "req_race_client"
+      "client_workflow": "TODO"
     },
     "middle": {
       "type": "server",

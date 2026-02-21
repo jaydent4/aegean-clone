@@ -8,7 +8,7 @@
     "oha_client": {
       "type": "oha_client",
       "next": ["node2", "node3", "node4"],
-      "client_workflow": "aegean_pipelined"
+      "client_workflow": "aegean_oha_client"
     },
     "middle": {
       "type": "server",
