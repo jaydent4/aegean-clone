@@ -11,13 +11,14 @@ import (
 const (
 	ohaTargetURL = "http://node2:8000/"
 	ohaRequestN  = 1000
+	ohaTargetNode = "node2"
 )
 
 func OhaClientRequestLogic(c *nodes.Client) {
-	_ = c
+	c.WaitForNodesReady([]string{ohaTargetNode})
 
 	command := fmt.Sprintf(
-		`oha -n %d -m POST -H "Content-Type: application/json" -d '{"oha_client":true}' %s`,
+		`oha -n %d -m POST -H "Content-Type: application/json" -d '{"oha_client":true,"is_client_oha":true}' %s`,
 		ohaRequestN,
 		ohaTargetURL,
 	)

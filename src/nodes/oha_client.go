@@ -36,7 +36,7 @@ func (c *OHAClient) Start() {
 }
 
 func (c *OHAClient) HandleMessage(payload map[string]any) map[string]any {
-	log.Printf("warning: oha client should not receive any messages")
+	log.Printf("warning: oha client should not receive any messages, payload=%v", payload)
 	return map[string]any{}
 }
 

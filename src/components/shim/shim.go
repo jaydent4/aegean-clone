@@ -48,10 +48,14 @@ func (s *Shim) HandleRequestMessage(payload map[string]any) map[string]any {
 	requestKey := fmt.Sprintf("%v", requestID)
 	isClientOHA, _ := payload["is_client_oha"].(bool)
 
-	// If client is Oha: broadcast to peers, then return the actual response
+	// If client is Oha: broadcast to peers, then return the actual response when everyone finishes
 	if isClientOHA {
+		var peerDone <-chan struct{}
+		closed := make(chan struct{})
+		close(closed)
+		peerDone = closed
 		if forwarded, _ := payload["oha_broadcasted"].(bool); !forwarded {
-			s.broadcastOHARequest(payload)
+			peerDone = s.broadcastOHARequestAsync(payload)
 		}
 
 		s.waitersMu.Lock()
@@ -65,7 +69,9 @@ func (s *Shim) HandleRequestMessage(payload map[string]any) map[string]any {
 		if s.BatcherCh != nil {
 			s.BatcherCh <- payload
 		}
-		return <-waiter
+		localResponse := <-waiter
+		<-peerDone
+		return localResponse
 	}
 
 	if !s.requestQuorumHelper.Add(requestID, sender) {
@@ -104,7 +110,6 @@ func (s *Shim) HandleOutgoingResponse(payload map[string]any) map[string]any {
 	responseData, _ := payload["response"].(map[string]any)
 	sender := s.Name
 	requestKey := fmt.Sprintf("%v", requestID)
-	isClientOHA, _ := payload["is_client_oha"].(bool)
 	s.waitersMu.Lock()
 	waiter, hasWaiter := s.waiters[requestKey]
 	s.waitersMu.Unlock()
@@ -116,15 +121,13 @@ func (s *Shim) HandleOutgoingResponse(payload map[string]any) map[string]any {
 		"sender":     sender,
 	}
 
-	if isClientOHA {
-		if hasWaiter {
-			s.waitersMu.Lock()
-			delete(s.waiters, requestKey)
-			s.waitersMu.Unlock()
-			waiter <- fullResponse
-			return map[string]any{"status": "response_returned_inline", "request_id": requestID}
-		}
-		return map[string]any{"status": "missing_waiter_for_inline_response", "request_id": requestID}
+	// Exec removes the "is_client_oha" field, but hasWaiter can also do the job
+	if hasWaiter {
+		s.waitersMu.Lock()
+		delete(s.waiters, requestKey)
+		s.waitersMu.Unlock()
+		waiter <- fullResponse
+		return map[string]any{"status": "response_returned_inline", "request_id": requestID}
 	}
 
 	// Handle response from exec - broadcast to all clients that sent the request
@@ -139,20 +142,40 @@ func (s *Shim) HandleOutgoingResponse(payload map[string]any) map[string]any {
 	return map[string]any{"status": "response_broadcast", "recipients": s.Clients}
 }
 
-func (s *Shim) broadcastOHARequest(payload map[string]any) {
+func (s *Shim) broadcastOHARequestAsync(payload map[string]any) <-chan struct{} {
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+
+	broadcasted := false
 	for _, peer := range s.Peers {
 		if peer == "" || peer == s.Name {
 			continue
 		}
+		broadcasted = true
+		wg.Add(1)
 
-		outgoing := make(map[string]any, len(payload)+3)
-		for k, v := range payload {
-			outgoing[k] = v
-		}
-		outgoing["type"] = "request"
-		outgoing["sender"] = s.Name
-		outgoing["oha_broadcasted"] = true
-		outgoing["is_client_oha"] = true
-		_, _ = common.SendMessage(peer, 8000, outgoing)
+		go func(peer string) {
+			defer wg.Done()
+			outgoing := make(map[string]any, len(payload)+3)
+			for k, v := range payload {
+				outgoing[k] = v
+			}
+			outgoing["type"] = "request"
+			outgoing["sender"] = s.Name
+			outgoing["oha_broadcasted"] = true
+			outgoing["is_client_oha"] = true
+			_, _ = common.SendMessage(peer, 8000, outgoing)
+		}(peer)
 	}
+
+	if !broadcasted {
+		close(done)
+		return done
+	}
+
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	return done
 }

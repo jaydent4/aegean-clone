@@ -36,7 +36,7 @@ def load_experiment_topology(config_path):
         if not service_cfg:
             raise ValueError(f"node {node_name} references unknown service '{service_name}'")
 
-        if service_cfg.get("type") == "client":
+        if service_cfg.get("type") in {"client", "oha_client"}:
             client_names.append(node_name)
 
     return node_names, sorted(client_names)
