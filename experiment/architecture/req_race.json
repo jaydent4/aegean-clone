@@ -5,6 +5,11 @@
       "next": ["node2", "node3", "node4"],
       "client_workflow": "req_race_client"
     },
+    "oha_client": {
+      "type": "oha_client",
+      "next": ["node2", "node3", "node4"],
+      "client_workflow": "req_race_client"
+    },
     "middle": {
       "type": "server",
       "clients": ["node1"],

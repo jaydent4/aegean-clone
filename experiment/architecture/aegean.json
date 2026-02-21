@@ -5,6 +5,11 @@
       "next": ["node2", "node3", "node4"],
       "client_workflow": "aegean_pipelined"
     },
+    "oha_client": {
+      "type": "oha_client",
+      "next": ["node2", "node3", "node4"],
+      "client_workflow": "aegean_pipelined"
+    },
     "middle": {
       "type": "server",
       "clients": ["node1"],
@@ -30,7 +35,7 @@
   },
   "nodes": {
     "node1": {
-      "service": "client"
+      "service": "oha_client"
     },
     "node2": {
       "service": "middle",

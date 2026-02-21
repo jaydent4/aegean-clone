@@ -1,24 +1,23 @@
 package nodes
 
-import "log"
-import "sync"
+import (
+	"log"
+	"sync"
+)
 
 type OHAClient struct {
-	*Node
-	Next         []string
-	RequestLogic func(c *OHAClient)
-	mu           sync.Mutex
-	finished     bool
+	*Client
+	mu       sync.Mutex
+	finished bool
 }
 
-func NewOHAClient(name, host string, port int, next []string, requestLogic func(c *OHAClient)) *OHAClient {
+func NewOHAClient(name, host string, port int, next []string, requestLogic func(c *Client)) *OHAClient {
 	if requestLogic == nil {
 		panic("oha client requires RequestLogic")
 	}
+	baseClient := NewClient(name, host, port, next, requestLogic)
 	client := &OHAClient{
-		Node:         NewNode(name, host, port),
-		Next:         next,
-		RequestLogic: requestLogic,
+		Client: baseClient,
 	}
 	client.Node.HandleMessage = client.HandleMessage
 	client.Node.HandleProgress = client.HandleProgress
@@ -28,7 +27,7 @@ func NewOHAClient(name, host string, port int, next []string, requestLogic func(
 
 func (c *OHAClient) Start() {
 	go func() {
-		c.RequestLogic(c)
+		c.RequestLogic(c.Client)
 		c.mu.Lock()
 		c.finished = true
 		c.mu.Unlock()

@@ -41,6 +41,16 @@ func main() {
 			panic(fmt.Sprintf("unknown client workflow %q for node %s", clientWorkflow, *name))
 		}
 		node = nodes.NewClient(*name, *host, *port, cfg.Next, clientFn)
+	case "oha_client":
+		clientWorkflow := cfg.ClientWorkflow
+		if clientWorkflow == "" {
+			clientWorkflow = "default"
+		}
+		clientFn := workflow.ClientWorkflows[clientWorkflow]
+		if clientFn == nil {
+			panic(fmt.Sprintf("unknown client workflow %q for node %s", clientWorkflow, *name))
+		}
+		node = nodes.NewOHAClient(*name, *host, *port, cfg.Next, clientFn)
 	case "server":
 		execWorkflow := cfg.ExecWorkflow
 		if execWorkflow == "" {
