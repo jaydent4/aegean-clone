@@ -65,7 +65,7 @@ func NewServer(name, host string, port int, clients []string, nodes []string, is
 	}
 
 	// Init each component
-	server.Shim = shim.NewShim(name, shimToBatcher, shimToExec, clients, peers, shimQuorumSize)
+	server.Shim = shim.NewShim(name, shimToBatcher, shimToExec, clients, peers, isPrimaryBatcher, shimQuorumSize)
 	server.Batcher = batcher.NewBatcher(name, batcherToMixer, nodes, isPrimaryBatcher)
 	server.Mixer = mixer.NewMixer(name, mixerToExec)
 	server.Exec = exec.NewExec(name, nodes, peers, execToVerifier, execToShim, verifyResponseQuorumSize, executeRequest)
@@ -152,9 +152,6 @@ func (s *Server) HandleMessage(payload map[string]any) map[string]any {
 	// Route by message type to the correct component
 	msgType, _ := payload["type"].(string)
 	if msgType == "" || msgType == "request" {
-		if !s.isPrimaryBatcher {
-			return map[string]any{"status": "ignored_non_primary"}
-		}
 		return s.Shim.HandleRequestMessage(payload)
 	}
 

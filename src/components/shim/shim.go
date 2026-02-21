@@ -12,13 +12,14 @@ type Shim struct {
 	ExecCh               chan<- map[string]any
 	Clients              []string
 	Peers                []string
+	isPrimaryBatcher     bool
 	requestQuorumHelper  *common.QuorumHelper
 	responseQuorumHelper *common.QuorumHelper
 	waitersMu            sync.Mutex
 	waiters              map[string]chan map[string]any
 }
 
-func NewShim(name string, batcherCh chan<- map[string]any, execCh chan<- map[string]any, clients []string, peers []string, quorumSize int) *Shim {
+func NewShim(name string, batcherCh chan<- map[string]any, execCh chan<- map[string]any, clients []string, peers []string, isPrimaryBatcher bool, quorumSize int) *Shim {
 	if batcherCh == nil {
 		panic("shim component requires non-nil batcherCh")
 	}
@@ -28,6 +29,7 @@ func NewShim(name string, batcherCh chan<- map[string]any, execCh chan<- map[str
 		ExecCh:               execCh,
 		Clients:              clients,
 		Peers:                peers,
+		isPrimaryBatcher:     isPrimaryBatcher,
 		requestQuorumHelper:  common.NewQuorumHelper(quorumSize),
 		responseQuorumHelper: common.NewQuorumHelper(quorumSize),
 		waiters:              make(map[string]chan map[string]any),
@@ -47,6 +49,10 @@ func (s *Shim) HandleRequestMessage(payload map[string]any) map[string]any {
 	sender, _ := payload["sender"].(string)
 	requestKey := fmt.Sprintf("%v", requestID)
 	isClientOHA, _ := payload["is_client_oha"].(bool)
+
+	if !s.isPrimaryBatcher && !isClientOHA {
+		return map[string]any{"status": "ignored_non_primary"}
+	}
 
 	// If client is Oha: broadcast to peers, then return the actual response when everyone finishes
 	if isClientOHA {
