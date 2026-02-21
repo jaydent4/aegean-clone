@@ -80,7 +80,7 @@ func expectNoShimMessage(t *testing.T, ch <-chan map[string]any, wait time.Durat
 // Forwards a client request only after quorum of senders is reached
 func TestShimForwardsOnQuorum(t *testing.T) {
 	batcherCh := make(chan map[string]any, 16)
-	shim := NewShim("shim", batcherCh, nil, nil, 2)
+	shim := NewShim("shim", batcherCh, nil, nil, nil, 2)
 
 	first := shim.HandleRequestMessage(map[string]any{
 		"type":       "request",
@@ -110,7 +110,7 @@ func TestShimForwardsOnQuorum(t *testing.T) {
 // Duplicate senders do not advance quorum
 func TestShimIgnoresDuplicateSenderUntilQuorum(t *testing.T) {
 	batcherCh := make(chan map[string]any, 16)
-	shim := NewShim("shim", batcherCh, nil, nil, 2)
+	shim := NewShim("shim", batcherCh, nil, nil, nil, 2)
 
 	first := shim.HandleRequestMessage(map[string]any{
 		"type":       "request",
@@ -149,7 +149,7 @@ func TestShimBroadcastsResponseToClients(t *testing.T) {
 	defer ts.close()
 
 	batcherCh := make(chan map[string]any, 16)
-	shim := NewShim("shim", batcherCh, nil, []string{"127.0.0.1", "127.0.0.1"}, 2)
+	shim := NewShim("shim", batcherCh, nil, []string{"127.0.0.1", "127.0.0.1"}, nil, 2)
 
 	resp := shim.HandleOutgoingResponse(map[string]any{
 		"type":       "response",
@@ -170,7 +170,7 @@ func TestShimBroadcastsResponseToClients(t *testing.T) {
 // Missing type defaults to a client request and follows quorum forwarding
 func TestShimDefaultsToRequestType(t *testing.T) {
 	batcherCh := make(chan map[string]any, 16)
-	shim := NewShim("shim", batcherCh, nil, nil, 2)
+	shim := NewShim("shim", batcherCh, nil, nil, nil, 2)
 
 	shim.HandleRequestMessage(map[string]any{
 		"request_id": "r4",
@@ -193,7 +193,7 @@ func TestShimDefaultsToRequestType(t *testing.T) {
 // Different request IDs maintain independent quorums
 func TestShimIndependentQuorumsPerRequestID(t *testing.T) {
 	batcherCh := make(chan map[string]any, 16)
-	shim := NewShim("shim", batcherCh, nil, nil, 2)
+	shim := NewShim("shim", batcherCh, nil, nil, nil, 2)
 
 	shim.HandleRequestMessage(map[string]any{
 		"type":       "request",
@@ -232,7 +232,7 @@ func TestShimIndependentQuorumsPerRequestID(t *testing.T) {
 // Interleaved senders across requests still forward each at quorum
 func TestShimInterleavedSendersAcrossRequests(t *testing.T) {
 	batcherCh := make(chan map[string]any, 16)
-	shim := NewShim("shim", batcherCh, nil, nil, 2)
+	shim := NewShim("shim", batcherCh, nil, nil, nil, 2)
 
 	shim.HandleRequestMessage(map[string]any{
 		"type":       "request",
@@ -270,7 +270,7 @@ func TestShimInterleavedSendersAcrossRequests(t *testing.T) {
 func TestShimForwardsNestedResponseAfterQuorum(t *testing.T) {
 	batcherCh := make(chan map[string]any, 16)
 	execCh := make(chan map[string]any, 16)
-	shim := NewShim("shim", batcherCh, execCh, nil, 2)
+	shim := NewShim("shim", batcherCh, execCh, nil, nil, 2)
 
 	first := shim.HandleIncomingResponse(map[string]any{
 		"type":       "response",
@@ -298,5 +298,45 @@ func TestShimForwardsNestedResponseAfterQuorum(t *testing.T) {
 	}
 	if got, _ := forwarded["shim_quorum_aggregated"].(bool); !got {
 		t.Fatalf("expected shim_quorum_aggregated=true")
+	}
+}
+
+// OHA mode does not wait for request quorum before processing.
+func TestShimClientOHADoesNotWaitForRequestQuorum(t *testing.T) {
+	batcherCh := make(chan map[string]any, 16)
+	shim := NewShim("shim", batcherCh, nil, nil, nil, 2)
+
+	resultCh := make(chan map[string]any, 1)
+	go func() {
+		resultCh <- shim.HandleRequestMessage(map[string]any{
+			"type":       "request",
+			"request_id": "r_no_quorum",
+			"sender":     "clientA",
+			"is_client_oha": true,
+		})
+	}()
+
+	forwarded := expectShimMessage(t, batcherCh, "request")
+	if forwarded["request_id"] != "r_no_quorum" {
+		t.Fatalf("expected forwarded request_id r_no_quorum, got %v", forwarded["request_id"])
+	}
+
+	out := shim.HandleOutgoingResponse(map[string]any{
+		"type":       "response",
+		"request_id": "r_no_quorum",
+		"is_client_oha": true,
+		"response":   map[string]any{"status": "ok"},
+	})
+	if out["status"] != "response_returned_inline" {
+		t.Fatalf("expected response_returned_inline, got %v", out["status"])
+	}
+
+	select {
+	case resp := <-resultCh:
+		if got, _ := resp["type"].(string); got != "response" {
+			t.Fatalf("expected inline response type, got %v", resp["type"])
+		}
+	case <-time.After(750 * time.Millisecond):
+		t.Fatalf("timed out waiting for inline OHA response")
 	}
 }
