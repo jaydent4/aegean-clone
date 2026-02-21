@@ -4,6 +4,7 @@ import (
 	"aegean/common"
 	"fmt"
 	"sync"
+	"sync/atomic"
 )
 
 type Shim struct {
@@ -17,6 +18,7 @@ type Shim struct {
 	responseQuorumHelper *common.QuorumHelper
 	waitersMu            sync.Mutex
 	waiters              map[string]chan map[string]any
+	ohaRequestSeq        uint64
 }
 
 func NewShim(name string, batcherCh chan<- map[string]any, execCh chan<- map[string]any, clients []string, peers []string, isPrimaryBatcher bool, quorumSize int) *Shim {
@@ -44,11 +46,19 @@ func (s *Shim) HandleRequestMessage(payload map[string]any) map[string]any {
 		msgType = "request"
 	}
 
+	isClientOHA, _ := payload["is_client_oha"].(bool)
+	if isClientOHA {
+		// OHA may replay lines from body files under load; assign a monotonic
+		// request_id at the shim edge if one is not provided.
+		if _, exists := payload["request_id"]; !exists {
+			payload["request_id"] = atomic.AddUint64(&s.ohaRequestSeq, 1)
+		}
+	}
+
 	// Handle incoming client request - wait for quorum then forward
 	requestID := payload["request_id"]
 	sender, _ := payload["sender"].(string)
 	requestKey := fmt.Sprintf("%v", requestID)
-	isClientOHA, _ := payload["is_client_oha"].(bool)
 
 	if !s.isPrimaryBatcher && !isClientOHA {
 		return map[string]any{"status": "ignored_non_primary"}

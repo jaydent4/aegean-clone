@@ -13,12 +13,12 @@ import (
 )
 
 const (
-	numRequests        = 10
+	numRequests        = 1000
 	ohaTargetURL       = "http://node2:8000/"
 	ohaTargetNode      = "node2"
 	ohaBodyPath        = "/tmp/oha-requests.ndjson"
 	ohaRequestTimeout  = "5s"
-	ohaCommandDeadline = 1 * time.Minute
+	ohaCommandDeadline = 2 * time.Minute
 )
 
 func OhaClientRequestLogic(c *nodes.Client) {
@@ -32,32 +32,31 @@ func OhaClientRequestLogic(c *nodes.Client) {
 	defer os.Remove(ohaBodyPath)
 
 	writer := bufio.NewWriter(bodyFile)
-	for requestID := 1; requestID <= numRequests; requestID++ {
+	for requestIdx := 1; requestIdx <= numRequests; requestIdx++ {
 		timestamp := float64(time.Now().UnixNano()) / 1e9
 		request := map[string]any{
-			"request_id": requestID,
-			"timestamp":  timestamp,
-			"sender":     c.Name,
-			"op":         "spin_write_read",
+			"timestamp": timestamp,
+			"sender":    c.Name,
+			"op":        "spin_write_read",
 			"op_payload": map[string]any{
 				"spin_time":   0.01,
-				"write_key":   strconv.Itoa(requestID % writeKeyMod),
-				"write_value": "value_" + strconv.Itoa(requestID),
-				"read_key":    strconv.Itoa(requestID % readKeyMod),
+				"write_key":   strconv.Itoa(requestIdx % writeKeyMod),
+				"write_value": "value_" + strconv.Itoa(requestIdx),
+				"read_key":    strconv.Itoa(requestIdx % readKeyMod),
 			},
 			"is_client_oha": true,
 		}
 		line, err := json.Marshal(request)
 		if err != nil {
-			log.Printf("failed to marshal oha request %d: %v", requestID, err)
+			log.Printf("failed to marshal oha request %d: %v", requestIdx, err)
 			return
 		}
 		if _, err := writer.Write(line); err != nil {
-			log.Printf("failed to write oha request %d: %v", requestID, err)
+			log.Printf("failed to write oha request %d: %v", requestIdx, err)
 			return
 		}
 		if err := writer.WriteByte('\n'); err != nil {
-			log.Printf("failed to write oha newline %d: %v", requestID, err)
+			log.Printf("failed to write oha newline %d: %v", requestIdx, err)
 			return
 		}
 	}
