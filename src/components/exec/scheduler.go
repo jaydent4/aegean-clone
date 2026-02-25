@@ -27,9 +27,6 @@ func newExecScheduler() *execScheduler {
 func (s *execScheduler) enqueueNestedResponse(requestID string, payload map[string]any) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, exists := s.inflightRequests[requestID]; !exists {
-		return false
-	}
 	s.nestedResponses[requestID] = append(s.nestedResponses[requestID], payload)
 	select {
 	case s.nestedReadyCh <- struct{}{}:
