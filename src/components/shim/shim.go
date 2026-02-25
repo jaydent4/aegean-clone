@@ -26,13 +26,14 @@ func NewShim(name string, batcherCh chan<- map[string]any, execCh chan<- map[str
 		panic("shim component requires non-nil batcherCh")
 	}
 	shim := &Shim{
-		Name:                 name,
-		BatcherCh:            batcherCh,
-		ExecCh:               execCh,
-		Clients:              clients,
-		Peers:                peers,
-		isPrimaryBatcher:     isPrimaryBatcher,
-		requestQuorumHelper:  common.NewQuorumHelper(quorumSize),
+		Name:                name,
+		BatcherCh:           batcherCh,
+		ExecCh:              execCh,
+		Clients:             clients,
+		Peers:               peers,
+		isPrimaryBatcher:    isPrimaryBatcher,
+		requestQuorumHelper: common.NewQuorumHelper(quorumSize),
+		// TODO: quorumSize should depend on size of nested service
 		responseQuorumHelper: common.NewQuorumHelper(quorumSize),
 		waiters:              make(map[string]chan map[string]any),
 	}
