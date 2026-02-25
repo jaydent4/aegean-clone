@@ -14,8 +14,8 @@ import (
 
 const (
 	ohaBodyPath        = "/tmp/oha-requests.ndjson"
-	ohaRequestTimeout  = "30s"
-	ohaCommandDeadline = 20 * time.Minute
+	ohaRequestTimeout  = "5s"
+	ohaCommandDeadline = 10 * time.Second
 )
 
 func OhaClientRequestLogic(c *nodes.Client) {
