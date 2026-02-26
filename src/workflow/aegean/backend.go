@@ -30,12 +30,14 @@ func shouldDiverge(nodeName string, targetNodes map[string]struct{}, everyN uint
 }
 
 func executeRequestBase(e *exec.Exec, request map[string]any, ndSeed int64, ndTimestamp float64, targetNodes map[string]struct{}, everyN uint64) map[string]any {
+	_ = ndSeed
+	_ = ndTimestamp
+
 	requestID := request["request_id"]
 	op, _ := request["op"].(string)
 	opPayload, _ := request["op_payload"].(map[string]any)
 	injectDivergence := shouldDiverge(e.Name, targetNodes, everyN)
 
-	// Execute a single request and return the response
 	response := map[string]any{"request_id": requestID}
 
 	switch op {
@@ -45,7 +47,6 @@ func executeRequestBase(e *exec.Exec, request map[string]any, ndSeed int64, ndTi
 		writeValue := common.GetString(opPayload, "write_value")
 		readKey := common.GetString(opPayload, "read_key")
 
-		// Spin for the given time
 		if spinTime > 0 {
 			time.Sleep(time.Duration(spinTime * float64(time.Second)))
 		}
@@ -55,9 +56,7 @@ func executeRequestBase(e *exec.Exec, request map[string]any, ndSeed int64, ndTi
 			writeValue = writeValue + "_divergent_" + e.Name
 		}
 
-		// Write to key
 		e.WriteKV(writeKey, writeValue)
-		// Read from key
 		response["read_value"] = e.ReadKV(readKey)
 		response["status"] = "ok"
 	default:
@@ -65,8 +64,6 @@ func executeRequestBase(e *exec.Exec, request map[string]any, ndSeed int64, ndTi
 		response["error"] = "Unknown op: " + op
 	}
 
-	_ = ndSeed
-	_ = ndTimestamp
 	return response
 }
 

@@ -5,21 +5,41 @@ import (
 	"aegean/components/exec"
 )
 
-const fanoutBaseResponseContextKey = "fanout_base_response"
+const (
+	fanoutStageContextKey        = "fanout_stage"
+	fanoutBaseResponseContextKey = "fanout_base_response"
+
+	fanoutStageAwaitNested = "await_nested"
+)
+
+func blockedForNested(requestID any) map[string]any {
+	return map[string]any{
+		"status":     "blocked_for_nested_response",
+		"request_id": requestID,
+	}
+}
 
 func executeFanoutBase(e *exec.Exec, request map[string]any, ndSeed int64, ndTimestamp float64, targetNodes map[string]struct{}, everyN uint64) map[string]any {
 	requestID := request["request_id"]
-	nestedResponses, hasNested := e.GetNestedResponses(requestID)
-	_, started := e.GetRequestContextValue(requestID, fanoutBaseResponseContextKey)
+	stageAny, _ := e.GetRequestContextValue(requestID, fanoutStageContextKey)
+	stage, _ := stageAny.(string)
 
-	// Stage 1: no local continuation context and no cached nested response.
-	if !started && (!hasNested || len(nestedResponses) == 0) {
+	switch stage {
+	case "":
+		// Stage 1: execute local work, cache base response, fanout nested requests, then block.
 		response := executeRequestBase(e, request, ndSeed, ndTimestamp, targetNodes, everyN)
 		if !e.SetRequestContextValue(requestID, fanoutBaseResponseContextKey, response) {
 			return map[string]any{
 				"status":     "error",
 				"request_id": requestID,
 				"error":      "failed to initialize request continuation context",
+			}
+		}
+		if !e.SetRequestContextValue(requestID, fanoutStageContextKey, fanoutStageAwaitNested) {
+			return map[string]any{
+				"status":     "error",
+				"request_id": requestID,
+				"error":      "failed to set fanout stage context",
 			}
 		}
 
@@ -39,28 +59,27 @@ func executeFanoutBase(e *exec.Exec, request map[string]any, ndSeed int64, ndTim
 				}
 			}(target, outgoing)
 		}
+		return blockedForNested(requestID)
 
-		return map[string]any{
-			"status":     "blocked_for_nested_response",
-			"request_id": requestID,
+	case fanoutStageAwaitNested:
+		// Stage 2: wait for nested result, then finalize and clean up.
+		nestedResponses, hasNested := e.GetNestedResponses(requestID)
+		if !hasNested || len(nestedResponses) == 0 {
+			return blockedForNested(requestID)
 		}
-	}
+		nested := nestedResponses[0]
+		if fanoutDone, output := processNestedFanoutResponse(e, requestID, nested); fanoutDone {
+			e.ClearRequestContext(requestID)
+			return output
+		}
+		return blockedForNested(requestID)
 
-	// Stage 2: either continuation context exists or a nested response is cached.
-	if !hasNested || len(nestedResponses) == 0 {
+	default:
 		return map[string]any{
-			"status":     "blocked_for_nested_response",
+			"status":     "error",
 			"request_id": requestID,
+			"error":      "unknown fanout stage: " + stage,
 		}
-	}
-	nested := nestedResponses[0]
-	if fanoutDone, output := processNestedFanoutResponse(e, requestID, nested); fanoutDone {
-		e.ClearRequestContext(requestID)
-		return output
-	}
-	return map[string]any{
-		"status":     "blocked_for_nested_response",
-		"request_id": requestID,
 	}
 }
 
