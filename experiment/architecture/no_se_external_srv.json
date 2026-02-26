@@ -1,0 +1,48 @@
+{
+  "services": {
+    "oha_client": {
+      "type": "oha_client",
+      "next": ["node2", "node3", "node4"],
+      "client_workflow": "no_se_external_srv_oha_client"
+    },
+    "server": {
+      "type": "server",
+      "clients": ["node1"],
+      "nodes": ["node2", "node3", "node4"],
+      "exec_workflow": "no_se_external_srv_server",
+      "init_state_workflow": "no_se_external_srv_default",
+      "shimQuorumSize": 1,
+      "verifyResponseQuorumSize": 1,
+      "execVerifyQuorumSize": 2,
+      "phaseQuorumSize": 2,
+      "expectedExecVotes": 3
+    },
+    "external_service": {
+      "type": "external_service",
+      "nodes": "node5",
+      "exec_workflow": "TODO",
+      "init_state_workflow": "no_se_external_srv_default"
+    }
+  },
+  "nodes": {
+    "node1": {
+      "service": "oha_client"
+    },
+    "node2": {
+      "service": "server",
+      "is_primary_batcher": true
+    },
+    "node3": {
+      "service": "server",
+      "is_primary_batcher": false
+    },
+    "node4": {
+      "service": "server",
+      "is_primary_batcher": false
+    },
+    "node5": {
+      "service": "external_service",
+      "is_primary_batcher": true
+    }
+  }
+}
