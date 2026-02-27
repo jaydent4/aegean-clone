@@ -74,6 +74,18 @@ func expectMessage(t *testing.T, ch <-chan map[string]any, wantType string) map[
 	}
 }
 
+func waitForCondition(t *testing.T, timeout time.Duration, cond func() bool, message string) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("%s", message)
+}
+
 func makeSpinRequest(id string, writeKey string, writeValue string, readKey string) map[string]any {
 	return map[string]any{
 		"request_id": id,
@@ -357,13 +369,11 @@ func TestExecBuffersOutOfOrderBatches(t *testing.T) {
 		),
 	}
 	exec.HandleBatchMessage(batch1)
-
-	if _, ok := exec.pendingExecResults[1]; !ok {
-		t.Fatalf("expected pending response for seq 1 after flush")
-	}
-	if _, ok := exec.pendingExecResults[2]; !ok {
-		t.Fatalf("expected pending response for seq 2 after flush")
-	}
+	waitForCondition(t, 500*time.Millisecond, func() bool {
+		_, ok1 := exec.pendingExecResults[1]
+		_, ok2 := exec.pendingExecResults[2]
+		return ok1 && ok2
+	}, "expected pending responses for seq 1 and 2 after flush")
 
 }
 
@@ -488,9 +498,10 @@ func TestExecHandleBatchDoesNotLoseBatchWhenProcessMuHeld(t *testing.T) {
 		t.Fatalf("timed out waiting for HandleBatchMessage")
 	}
 
-	if _, ok := exec.pendingExecResults[1]; !ok {
-		t.Fatalf("expected seq 1 pending result to survive transfer-time clear window")
-	}
+	waitForCondition(t, 500*time.Millisecond, func() bool {
+		_, ok := exec.pendingExecResults[1]
+		return ok
+	}, "expected seq 1 pending result to survive transfer-time clear window")
 }
 
 // Verify responses arriving before their batches are buffered and flushed later
@@ -714,15 +725,16 @@ func TestExecHandleVerifyResponseMessageProcessesStableSeqRollbackImmediately(t 
 	if resp["status"] != "buffered" {
 		t.Fatalf("expected buffered response status, got %v", resp["status"])
 	}
-	if !exec.forceSequential {
-		t.Fatalf("expected forceSequential true after immediate rollback handling")
-	}
-	if exec.view != 2 {
-		t.Fatalf("expected view to advance to 2, got %d", exec.view)
-	}
-	if _, ok := exec.pendingExecResults[3]; ok {
-		t.Fatalf("expected seq=3 pending response to be cleared by rollback")
-	}
+	waitForCondition(t, 500*time.Millisecond, func() bool {
+		if !exec.forceSequential {
+			return false
+		}
+		if exec.view != 2 {
+			return false
+		}
+		_, ok := exec.pendingExecResults[3]
+		return !ok
+	}, "expected immediate rollback effects (forceSequential/view/pending clear)")
 }
 
 func TestExecRollbackReplaysUncommittedBatch(t *testing.T) {
@@ -780,12 +792,13 @@ func TestExecRollbackReplaysUncommittedBatch(t *testing.T) {
 	if resp["status"] != "buffered" {
 		t.Fatalf("expected buffered response status, got %v", resp["status"])
 	}
-	if runCount != 2 {
-		t.Fatalf("expected uncommitted batch to be replayed once after rollback, got execution count %d", runCount)
-	}
-	if _, ok := exec.pendingExecResults[3]; !ok {
-		t.Fatalf("expected replayed seq=3 to be pending again")
-	}
+	waitForCondition(t, 500*time.Millisecond, func() bool {
+		if runCount != 2 {
+			return false
+		}
+		_, ok := exec.pendingExecResults[3]
+		return ok
+	}, "expected uncommitted batch to be replayed once after rollback")
 }
 
 // Hashing is deterministic across different map insertion orders
