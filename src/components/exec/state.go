@@ -10,15 +10,17 @@ type State struct {
 }
 
 func (s *State) EnsureMerkle() {
-	if s.KVStore == nil {
-		s.KVStore = make(map[string]string)
-	}
 	if s.Merkle == nil {
+		if s.KVStore == nil {
+			s.KVStore = make(map[string]string)
+		}
 		s.Merkle = NewMerkleTreeFromMap(s.KVStore)
 		s.MerkleRoot = s.Merkle.Root()
 		return
 	}
-	// Rebuild from KV to keep direct map assignments deterministic in prototype code/tests.
-	s.Merkle = NewMerkleTreeFromMap(s.KVStore)
+	// Keep KVStore and Merkle initialized; hot paths rely on incremental Merkle updates.
+	if s.KVStore == nil {
+		s.KVStore = s.Merkle.SnapshotMap()
+	}
 	s.MerkleRoot = s.Merkle.Root()
 }

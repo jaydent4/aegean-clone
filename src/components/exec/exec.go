@@ -175,8 +175,8 @@ func (e *Exec) WriteKV(key, value string) {
 			return
 		}
 	}
+	e.workingState.KVStore[key] = value
 	e.workingState.Merkle.Set(key, value)
-	e.workingState.KVStore = e.workingState.Merkle.SnapshotMap()
 	e.workingState.MerkleRoot = e.workingState.Merkle.Root()
 }
 
@@ -207,10 +207,11 @@ func (e *Exec) finalizeBatchMerkleContext() {
 		}
 		sort.Strings(keys)
 		for _, key := range keys {
-			e.workingState.Merkle.Set(key, e.batchCtx.pendingNew[key])
+			value := e.batchCtx.pendingNew[key]
+			e.workingState.KVStore[key] = value
+			e.workingState.Merkle.Set(key, value)
 		}
 	}
-	e.workingState.KVStore = e.workingState.Merkle.SnapshotMap()
 	e.workingState.MerkleRoot = e.workingState.Merkle.Root()
 	e.batchCtx = nil
 }
