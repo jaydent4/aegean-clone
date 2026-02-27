@@ -1,5 +1,7 @@
 package nodes
 
+import "aegean/common"
+
 type ExternalService struct {
 	*Node
 	InitState    func(es *ExternalService)
@@ -21,6 +23,9 @@ func NewExternalService(
 		ServiceLogic: serviceLogic,
 		RunConfig:    runConfig,
 	}
+	service.Node.EnablePprof = common.BoolOrDefault(runConfig, "pprof_enabled", true)
+	service.Node.BlockProfileRate = common.IntOrDefault(runConfig, "pprof_block_profile_rate", 1)
+	service.Node.MutexProfileFraction = common.IntOrDefault(runConfig, "pprof_mutex_profile_fraction", 1)
 	service.InitState(service)
 
 	service.Node.HandleMessage = service.HandleMessage

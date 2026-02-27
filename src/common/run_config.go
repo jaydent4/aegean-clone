@@ -57,3 +57,36 @@ func MustString(config map[string]any, key string) string {
 	}
 	return typed
 }
+
+func IntOrDefault(config map[string]any, key string, defaultValue int) int {
+	value, ok := config[key]
+	if !ok {
+		return defaultValue
+	}
+
+	switch typed := value.(type) {
+	case int:
+		return typed
+	case int64:
+		return int(typed)
+	case float64:
+		if math.Trunc(typed) != typed {
+			panic(fmt.Sprintf("run config field %q must be an integer", key))
+		}
+		return int(typed)
+	default:
+		panic(fmt.Sprintf("run config field %q must be an integer", key))
+	}
+}
+
+func BoolOrDefault(config map[string]any, key string, defaultValue bool) bool {
+	value, ok := config[key]
+	if !ok {
+		return defaultValue
+	}
+	typed, ok := value.(bool)
+	if !ok {
+		panic(fmt.Sprintf("run config field %q must be a bool", key))
+	}
+	return typed
+}
