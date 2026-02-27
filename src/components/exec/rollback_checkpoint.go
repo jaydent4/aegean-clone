@@ -1,25 +1,24 @@
 package exec
 
+import "aegean/common"
+
 type rollbackCheckpoint struct {
 	SeqNum         int
 	Token          string
-	Merkle         *MerkleTree
+	State          map[string]string
 	MerkleRoot     string
 	ValidationHash string
 }
 
-func (e *Exec) storeCheckpoint(seqNum int, token string, merkle *MerkleTree, merkleRoot string) {
-	merkleCopy := NewMerkleTreeFromMap(nil)
-	if merkle != nil {
-		merkleCopy = merkle.Clone()
-	}
+func (e *Exec) storeCheckpoint(seqNum int, token string, state map[string]string, merkleRoot string) {
+	stateCopy := common.CopyStringMap(state)
 	if merkleRoot == "" {
-		merkleRoot = merkleCopy.Root()
+		merkleRoot = NewMerkleTreeFromMap(stateCopy).Root()
 	}
 	e.checkpoints[seqNum] = rollbackCheckpoint{
 		SeqNum:         seqNum,
 		Token:          token,
-		Merkle:         merkleCopy,
+		State:          stateCopy,
 		MerkleRoot:     merkleRoot,
 		ValidationHash: computeCheckpointValidationHash(seqNum, token, merkleRoot),
 	}

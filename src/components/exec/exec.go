@@ -17,7 +17,6 @@ const logExecStateDetails = false
 type pendingExecResult struct {
 	outputs    []map[string]any
 	state      map[string]string
-	merkle     *MerkleTree
 	merkleRoot string
 	token      string
 	// verifySent indicates whether a verify message has been sent for this seq
@@ -57,7 +56,7 @@ type Exec struct {
 	stableState  State
 	workingState State
 	// Buffers tentative execution results until verifiers confirm, then either commits or discards them
-	// keys: outputs, state, merkle, merkleRoot, token, verifySent
+	// keys: outputs, state, merkleRoot, token, verifySent
 	pendingExecResults map[int]pendingExecResult
 	// Stores original inputs so the exec can deterministically replay later if needed
 	// maps seq_num to batch payload object
@@ -143,7 +142,7 @@ func NewExec(name string, verifiers []string, peers []string, verifierCh chan<- 
 		workerCount:           4,
 	}
 	exec.verifyResponseQuorum = common.NewQuorumHelper(verifyResponseQuorumSize)
-	exec.storeCheckpoint(0, stable.PrevHash, stable.Merkle, stable.MerkleRoot)
+	exec.storeCheckpoint(0, stable.PrevHash, stable.KVStore, stable.MerkleRoot)
 	exec.scheduler = newExecScheduler()
 	return exec
 }

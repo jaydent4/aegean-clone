@@ -16,10 +16,6 @@ func (e *Exec) flushNextVerify() bool {
 	e.mu.Unlock()
 	// Compute token with committed prevHash to avoid divergence for the next sequence.
 	if ok && seq == stableSeqNum+1 && !pending.verifySent {
-		if pending.merkle == nil {
-			pending.merkle = NewMerkleTreeFromMap(pending.state)
-			pending.merkleRoot = pending.merkle.Root()
-		}
 		token := e.computeStateHash(pending.merkleRoot, pending.outputs, prevHash, seq)
 		pending.token = token
 		pending.verifySent = true
@@ -77,39 +73,24 @@ func (e *Exec) flushNextVerify() bool {
 }
 
 func (e *Exec) finalizeCommit(seqNum int, pending pendingExecResult, agreedToken string) {
-	if pending.merkle == nil {
-		pending.merkle = NewMerkleTreeFromMap(pending.state)
-		pending.merkleRoot = pending.merkle.Root()
-	}
 	e.mu.Lock()
 	delete(e.pendingExecResults, seqNum)
 	e.stableState = State{
-		KVStore:    common.CopyStringMap(pending.state),
-		Merkle:     pending.merkle.Clone(),
+		KVStore:    pending.state,
+		Merkle:     nil,
 		MerkleRoot: pending.merkleRoot,
 		SeqNum:     seqNum,
 		PrevHash:   agreedToken,
 		Verified:   true,
 	}
-	e.storeCheckpoint(seqNum, agreedToken, pending.merkle, pending.merkleRoot)
+	e.storeCheckpoint(seqNum, agreedToken, pending.state, pending.merkleRoot)
 	for batchSeq := range e.replayableBatchInputs {
 		if batchSeq <= seqNum {
 			delete(e.replayableBatchInputs, batchSeq)
 		}
 	}
 	e.forceSequential = false
-	// Important: do not always reset workingState to the just-committed snapshot.
-	// If seq>seqNum already executed speculatively, resetting to committed state
-	// would discard those speculative writes and make later verify tokens diverge
-	// from peers (leading to unnecessary state transfer/rollback cycles).
-	workingKV, workingMerkle, workingRoot := e.selectWorkingStateAfterCommitLocked(pending)
 	e.mu.Unlock()
-
-	e.stateMu.Lock()
-	e.workingState.KVStore = workingKV
-	e.workingState.Merkle = workingMerkle
-	e.workingState.MerkleRoot = workingRoot
-	e.stateMu.Unlock()
 
 	for _, output := range pending.outputs {
 		requestID := output["request_id"]
@@ -138,28 +119,4 @@ func (e *Exec) gcCommittedNestedResponses(outputs []map[string]any) {
 		return
 	}
 	e.scheduler.clearNestedResponses(requestIDs)
-}
-
-// Rebase workingState to the highest pending speculative snapshot
-// This is necessary because the workingState of seq=n+1 may not capture the results from seq=n
-func (e *Exec) selectWorkingStateAfterCommitLocked(committed pendingExecResult) (map[string]string, *MerkleTree, string) {
-	maxSeq := -1
-	var tip pendingExecResult
-	for seq, candidate := range e.pendingExecResults {
-		if seq > maxSeq {
-			maxSeq = seq
-			tip = candidate
-		}
-	}
-
-	if maxSeq >= 0 {
-		if tip.merkle == nil {
-			tip.merkle = NewMerkleTreeFromMap(tip.state)
-			tip.merkleRoot = tip.merkle.Root()
-			e.pendingExecResults[maxSeq] = tip
-		}
-		return common.CopyStringMap(tip.state), tip.merkle.Clone(), tip.merkleRoot
-	}
-
-	return common.CopyStringMap(committed.state), committed.merkle.Clone(), committed.merkleRoot
 }

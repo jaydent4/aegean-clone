@@ -124,7 +124,7 @@ func (e *Exec) requestStateTransfer(minStableSeq int, _ int) bool {
 			PrevHash:   transferredPrevHash,
 			Verified:   true,
 		}
-		e.storeCheckpoint(e.stableState.SeqNum, e.stableState.PrevHash, mergedMerkle, mergedMerkle.Root())
+		e.storeCheckpoint(e.stableState.SeqNum, e.stableState.PrevHash, merged, mergedMerkle.Root())
 		e.forceSequential = false
 		for seq := range e.pendingExecResults {
 			delete(e.pendingExecResults, seq)

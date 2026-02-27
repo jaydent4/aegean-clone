@@ -35,11 +35,10 @@ func (e *Exec) rollbackTo(seqNum int, token string) bool {
 	}
 	e.nextBatchSeq = seqNum + 1
 	e.nextVerifySeq = seqNum + 1
-	checkpointMerkle := checkpoint.Merkle.Clone()
-	checkpointState := checkpointMerkle.SnapshotMap()
+	checkpointState := common.CopyStringMap(checkpoint.State)
 	e.stableState = State{
 		KVStore:    checkpointState,
-		Merkle:     checkpointMerkle,
+		Merkle:     nil,
 		MerkleRoot: checkpoint.MerkleRoot,
 		SeqNum:     checkpoint.SeqNum,
 		PrevHash:   checkpoint.Token,
@@ -50,7 +49,7 @@ func (e *Exec) rollbackTo(seqNum int, token string) bool {
 
 	e.stateMu.Lock()
 	e.workingState.KVStore = common.CopyStringMap(checkpointState)
-	e.workingState.Merkle = checkpointMerkle.Clone()
+	e.workingState.Merkle = nil
 	e.workingState.MerkleRoot = checkpoint.MerkleRoot
 	e.stateMu.Unlock()
 	return true

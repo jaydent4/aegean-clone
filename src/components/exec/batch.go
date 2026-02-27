@@ -70,9 +70,8 @@ func (e *Exec) handleBatch(payload map[string]any) map[string]any {
 
 	e.stateMu.Lock()
 	e.workingState.EnsureMerkle()
-	merkleSnapshot := e.workingState.Merkle.Clone()
-	stateSnapshot := merkleSnapshot.SnapshotMap()
-	stateRoot := merkleSnapshot.Root()
+	stateSnapshot := common.CopyStringMap(e.workingState.KVStore)
+	stateRoot := e.workingState.MerkleRoot
 	e.stateMu.Unlock()
 
 	e.mu.Lock()
@@ -80,7 +79,6 @@ func (e *Exec) handleBatch(payload map[string]any) map[string]any {
 	e.pendingExecResults[seqNum] = pendingExecResult{
 		outputs:    outputs,
 		state:      stateSnapshot,
-		merkle:     merkleSnapshot,
 		merkleRoot: stateRoot,
 		token:      "",
 	}

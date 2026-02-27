@@ -596,7 +596,7 @@ func TestExecRollbackDecisionForcesSequential(t *testing.T) {
 	exec, _, _ := newTestExec("exec1", nil, nil)
 	checkpointKV := map[string]string{"stable": "yes"}
 	checkpointMerkle := NewMerkleTreeFromMap(checkpointKV)
-	exec.storeCheckpoint(4, "t1", checkpointMerkle, checkpointMerkle.Root())
+	exec.storeCheckpoint(4, "t1", checkpointMerkle.SnapshotMap(), checkpointMerkle.Root())
 	exec.pendingExecResults[4] = pendingExecResult{
 		outputs: []map[string]any{{"request_id": "r1", "status": "ok"}},
 		state:   map[string]string{"dirty": "no"},
@@ -644,7 +644,7 @@ func TestExecRollbackAtStableSeqAppliesForceSequential(t *testing.T) {
 		PrevHash:   "stable-token",
 		Verified:   false,
 	}
-	exec.storeCheckpoint(2, "stable-token", stableMerkle, stableMerkle.Root())
+	exec.storeCheckpoint(2, "stable-token", stableMerkle.SnapshotMap(), stableMerkle.Root())
 	exec.pendingExecResults[3] = pendingExecResult{
 		outputs: []map[string]any{{"request_id": "r3", "status": "ok"}},
 		state:   map[string]string{"dirty": "no"},
@@ -694,7 +694,7 @@ func TestExecHandleVerifyResponseMessageProcessesStableSeqRollbackImmediately(t 
 		PrevHash:   "stable-token",
 		Verified:   false,
 	}
-	exec.storeCheckpoint(2, "stable-token", stableMerkle, stableMerkle.Root())
+	exec.storeCheckpoint(2, "stable-token", stableMerkle.SnapshotMap(), stableMerkle.Root())
 	exec.nextVerifySeq = 3 // Simulate outstanding seq=3 path.
 	exec.pendingExecResults[3] = pendingExecResult{
 		outputs: []map[string]any{{"request_id": "r3", "status": "ok"}},
@@ -755,7 +755,7 @@ func TestExecRollbackReplaysUncommittedBatch(t *testing.T) {
 		PrevHash:   "stable-token",
 		Verified:   false,
 	}
-	exec.storeCheckpoint(2, "stable-token", stableMerkle, stableMerkle.Root())
+	exec.storeCheckpoint(2, "stable-token", stableMerkle.SnapshotMap(), stableMerkle.Root())
 	exec.nextBatchSeq = 3
 	exec.nextVerifySeq = 3
 	exec.handleBatch(map[string]any{
