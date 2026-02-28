@@ -29,6 +29,7 @@ func ExecuteRequestServer(e *exec.Exec, request map[string]any, ndSeed int64, nd
 		"op_payload": request["op_payload"],
 	}
 
+	// TODO: This should be 2 stages
 	externalResp, err := common.SendMessage(externalServiceNode, 8000, externalReq)
 	if err != nil {
 		return map[string]any{

@@ -14,7 +14,7 @@
       "type": "server",
       "clients": ["node1"],
       "nodes": ["node2", "node3", "node4"],
-      "exec_workflow": "aegean_middle",
+      "exec_workflow": "aegean_middle_diverge_2",
       "init_state_workflow": "aegean_default",
       "shimQuorumSize": 1,
       "verifyResponseQuorumSize": 1,

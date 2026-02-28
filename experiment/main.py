@@ -247,8 +247,25 @@ def start_remote_cpu_profiles(pprof_nodes, cpu_seconds):
             stderr=subprocess.PIPE,
             text=True,
         )
-        commands[node_name] = proc
+        commands[node_name] = {
+            "proc": proc,
+            "stopped_early": False,
+        }
     return commands
+
+
+def stop_remote_cpu_profiles(remote_cpu_commands):
+    if not remote_cpu_commands:
+        return
+
+    logger.info("Stopping remote CPU profiles")
+    for node_name, command in remote_cpu_commands.items():
+        proc = command["proc"]
+        if proc.poll() is None:
+            command["stopped_early"] = True
+            proc.terminate()
+        else:
+            logger.debug("CPU profile already finished for %s", node_name)
 
 
 def wait_remote_cpu_profiles(remote_cpu_commands, timeout_seconds):
@@ -256,12 +273,18 @@ def wait_remote_cpu_profiles(remote_cpu_commands, timeout_seconds):
         return
 
     deadline = time.time() + timeout_seconds
-    for node_name, proc in remote_cpu_commands.items():
+    for node_name, command in remote_cpu_commands.items():
+        proc = command["proc"]
+        stopped_early = command["stopped_early"]
         timeout_left = max(1.0, deadline - time.time())
         try:
             _, stderr = proc.communicate(timeout=timeout_left)
             if proc.returncode != 0:
-                logger.warning("CPU profile collection failed for %s: %s", node_name, (stderr or "").strip())
+                message = (stderr or "").strip()
+                if stopped_early:
+                    logger.info("CPU profile for %s stopped after experiment completion", node_name)
+                else:
+                    logger.warning("CPU profile collection failed for %s: %s", node_name, message)
         except subprocess.TimeoutExpired:
             proc.kill()
             logger.warning("CPU profile collection timed out for %s", node_name)
@@ -329,7 +352,9 @@ def main():
     node_names, client_names, pprof_nodes = load_experiment_topology(architecture_path)
     run_dir = create_results_run_dir()
 
-    cpu_profile_seconds = int(run_config.get("pprof_cpu_seconds", 30))
+    cpu_profile_max_seconds = int(
+        run_config.get("pprof_cpu_max_seconds", run_config.get("pprof_cpu_seconds", 24 * 60 * 60))
+    )
     cpu_profile_wait_slack_seconds = int(run_config.get("pprof_cpu_wait_slack_seconds", 10))
     collect_pprof_enabled = bool(run_config.get("collect_pprof", True))
 
@@ -344,21 +369,25 @@ def main():
 
     remote_cpu_commands = {}
     if collect_pprof_enabled:
-        remote_cpu_commands = start_remote_cpu_profiles(pprof_nodes, cpu_profile_seconds)
+        remote_cpu_commands = start_remote_cpu_profiles(pprof_nodes, cpu_profile_max_seconds)
 
     logger.info("Waiting for client completion")
+    progress_start = time.monotonic()
     completed = wait_for_clients_progress(
         client_names,
         poll_interval=1.0,
         stall_timeout=5.0,
     )
+    progress_duration_seconds = max(0.0, time.monotonic() - progress_start)
+    logger.info("Client progress duration: %.2fs", progress_duration_seconds)
     if not completed:
         logger.warning("Proceeding after progress timeout")
 
     if collect_pprof_enabled:
+        stop_remote_cpu_profiles(remote_cpu_commands)
         wait_remote_cpu_profiles(
             remote_cpu_commands,
-            timeout_seconds=cpu_profile_seconds + cpu_profile_wait_slack_seconds,
+            timeout_seconds=cpu_profile_wait_slack_seconds,
         )
         capture_remote_snapshot_profiles(pprof_nodes)
 
