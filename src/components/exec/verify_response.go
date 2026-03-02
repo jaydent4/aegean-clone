@@ -37,14 +37,13 @@ func (e *Exec) flushNextVerifyResponse() bool {
 		return false
 	}
 
-	resolved := false
 	for _, msg := range msgs {
-		resp := e.handleVerifyResponse(msg)
-		if done, _ := resp["resolved"].(bool); done {
-			resolved = true
-		}
+		e.handleVerifyResponse(msg)
 	}
-	return resolved
+	// Always return true, even though all msgs may not have resolved: false
+	// This is because we popped verifyBuffer, so we should keep
+	// drainBufferedMessages alive to view the next verify response
+	return true
 }
 
 func (e *Exec) handleVerifyResponse(payload map[string]any) map[string]any {
