@@ -1,6 +1,8 @@
 package exec
 
-import "aegean/common"
+import (
+	"aegean/common"
+)
 
 type parallelBatchRuntime struct {
 	batchSeq int
@@ -111,16 +113,25 @@ func (s *execScheduler) executeSequentialBatches(e *Exec, parallelBatches [][]ma
 	outputs := make([]map[string]any, 0, len(allScheduled))
 	for _, batch := range batches {
 		for _, req := range batch.requests {
+			/*
+			  This is based on the assumption that sequential execution is only triggered when
+			  a previous parallel execution was rolled back. Because the parallel execution finished,
+			  all the nested responses should be cached and reused during the sequential execution.
+			  Therefore, we simply repeatedly call ExecuteRequest to reach the final state.
+			  TODO: However, nested requests will still be emitted with the current implementation, which is
+			  mostly fine because the shim will dedup it.
+			  If some nested response is lost or another factor should prevent repeated calls to ExecuteRequest
+			  from having the workflow reach the final state, this may cause unliveness. However, this usually
+			  does not happen unless the workflow developer maliciously triggers this
+			*/
 			for {
 				output := e.ExecuteRequest(e, req.payload, ndSeed, ndTimestamp)
-				if common.GetString(output, "status") == "blocked_for_nested_response" {
-					<-s.nestedReadyCh
-					continue
+				if common.GetString(output, "status") != "blocked_for_nested_response" {
+					req.state = requestFinished
+					req.output = output
+					outputs = append(outputs, output)
+					break
 				}
-				req.state = requestFinished
-				req.output = output
-				outputs = append(outputs, output)
-				break
 			}
 		}
 	}

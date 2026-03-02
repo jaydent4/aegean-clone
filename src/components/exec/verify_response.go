@@ -14,9 +14,14 @@ func (e *Exec) flushNextVerifyResponse() bool {
 		return false
 	}
 	e.mu.Lock()
+	view := e.view
 	stableSeqNum := e.stableState.SeqNum
 	pending, hasPending := e.pendingExecResults[msgSeq]
 	e.mu.Unlock()
+	if msgView < view {
+		e.verifyBuffer.Pop(msgView, msgSeq)
+		return false
+	}
 	// Keep the highest-priority tuple buffered until this seq is actionable.
 	// For seq > stable:
 	// - no pending result yet -> cannot decide
@@ -113,29 +118,46 @@ func (e *Exec) handleVerifyResponse(payload map[string]any) map[string]any {
 		}
 		if e.rollbackTo(seqNum, agreedToken) {
 			return map[string]any{"status": "processed", "decision": "rollback", "resolved": true}
-		}
-		// If rollback fails, repair
-		log.Printf(
-			"%s: verifier decision=state_transfer seq_num=%d view_num=%d reason=rollback_failed verifier_id=%s token=%s",
-			e.Name,
-			seqNum,
-			view,
-			verifierID,
-			shortHash(agreedToken),
-		)
-		if logExecStateDetails {
+		} else {
 			log.Printf(
-				"%s: verifier decision state seq_num=%d decision=state_transfer reason=rollback_failed state=%v",
+				"%s: verifier decision=wait_to_rollback seq_num=%d view_num=%d reason=rollback_failed verifier_id=%s token=%s",
 				e.Name,
 				seqNum,
-				e.stableStateSnapshotForLog(),
+				view,
+				verifierID,
+				shortHash(agreedToken),
 			)
+			return map[string]any{"status": "processed", "decision": "rollback", "resolved": false}
 		}
-		e.requestStateTransferWithRetry(seqNum, 0, 10*time.Millisecond)
-		e.mu.Lock()
-		e.forceSequential = true
-		e.mu.Unlock()
-		return map[string]any{"status": "processed", "decision": "state_transfer", "resolved": true}
+		/*
+			Alternatively, we can do a state transfer. However, this can be problematic:
+			Replicas do not emit responses when state transfers. So if a majority of replicas state transfer
+			due to rollback failures, some requests may be missing a quorum of responses. This is a correctness issue
+			Instead, we return resolved: false and wait for seq_num to catch up the the seq_num specified in the
+			verifier message
+			// If rollback fails, repair
+			log.Printf(
+				"%s: verifier decision=state_transfer seq_num=%d view_num=%d reason=rollback_failed verifier_id=%s token=%s",
+				e.Name,
+				seqNum,
+				view,
+				verifierID,
+				shortHash(agreedToken),
+			)
+			if logExecStateDetails {
+				log.Printf(
+					"%s: verifier decision state seq_num=%d decision=state_transfer reason=rollback_failed state=%v",
+					e.Name,
+					seqNum,
+					e.stableStateSnapshotForLog(),
+				)
+			}
+			e.requestStateTransferWithRetry(seqNum, 0, 10*time.Millisecond)
+			e.mu.Lock()
+			e.forceSequential = true
+			e.mu.Unlock()
+			return map[string]any{"status": "processed", "decision": "state_transfer", "resolved": true}
+		*/
 	}
 
 	// Already-committed sequence with no rollback is a normal no-op.
@@ -212,6 +234,7 @@ func (e *Exec) ensureVerifyResponseTimerLocked(seqNum int) {
 			return
 		}
 		// Timeout fallback: force sequential path
+		log.Printf("Warning: seq_num=%d goes to timeout fallback path", seqNum)
 		e.forceSequential = true
 		delete(e.verifyResponseTimers, seqNum)
 	})

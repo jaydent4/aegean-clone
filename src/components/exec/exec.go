@@ -276,8 +276,6 @@ func (e *Exec) runCoordinator() {
 		ev := <-e.ingressCh
 		e.applyIngressEvent(ev)
 
-		// Coalesce any queued ingress so coordinator owns all enqueue transitions
-		// before evaluating drain progress.
 		for {
 			select {
 			case ev = <-e.ingressCh:
@@ -309,15 +307,8 @@ func (e *Exec) applyIngressEvent(ev ingressEvent) {
 // Only the coordinator goroutine invokes this method; that single-owner model
 // provides sequencing safety for nextBatchSeq/nextVerifySeq advancement.
 func (e *Exec) drainBufferedMessages() bool {
-	progressed := false
-	if e.flushNextBatch() {
-		progressed = true
-	}
-	if e.flushNextVerify() {
-		progressed = true
-	}
-	if e.flushNextVerifyResponse() {
-		progressed = true
-	}
-	return progressed
+	bResp := e.flushNextBatch()
+	vResp := e.flushNextVerify()
+	vrResp := e.flushNextVerifyResponse()
+	return bResp || vResp || vrResp
 }

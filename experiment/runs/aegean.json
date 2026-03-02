@@ -1,11 +1,11 @@
 {
   "architecture": "aegean.json",
-  "num_requests": 1000,
+  "num_requests": 10000,
   "spin_time_seconds": 0.01,
   "write_key_mod": 1000,
   "read_key_mod": 1000,
   "key_count": 1000,
   "value_length": 10000,
-  "oha_request_timeout": "10s",
-  "oha_command_deadline_seconds": 60
+  "oha_request_timeout": "999s",
+  "oha_command_deadline_seconds": 360
 }

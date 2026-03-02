@@ -1,6 +1,7 @@
 package exec
 
 import (
+	"log"
 	"sort"
 
 	"aegean/common"
@@ -11,6 +12,7 @@ func (e *Exec) rollbackTo(seqNum int, token string) bool {
 	checkpoint, ok := e.checkpoints[seqNum]
 	if !ok || !e.validateRollbackCheckpoint(checkpoint, token) {
 		e.mu.Unlock()
+		log.Println("warning: invalid rollback checkpoint", ok, checkpoint.SeqNum, checkpoint.Token, checkpoint.ValidationHash, token)
 		return false
 	}
 
@@ -28,10 +30,8 @@ func (e *Exec) rollbackTo(seqNum int, token string) bool {
 			delete(e.pendingExecResults, pendingSeq)
 		}
 	}
-	e.batchBuffer.Clear()
-	e.verifyBuffer.Clear()
 	for _, replaySeq := range replaySeqs {
-		e.batchBuffer.Add(replaySeq, e.replayableBatchInputs[replaySeq])
+		e.ingressCh <- ingressEvent{kind: ingressBatchEvent, payload: e.replayableBatchInputs[replaySeq]}
 	}
 	e.nextBatchSeq = seqNum + 1
 	e.nextVerifySeq = seqNum + 1

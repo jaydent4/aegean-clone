@@ -129,8 +129,6 @@ func (e *Exec) requestStateTransfer(minStableSeq int, _ int) bool {
 		for seq := range e.pendingExecResults {
 			delete(e.pendingExecResults, seq)
 		}
-		e.batchBuffer.Clear()
-		e.verifyBuffer.Clear()
 		replaySeqs := make([]int, 0)
 		for seq := range e.replayableBatchInputs {
 			if seq > e.stableState.SeqNum {
@@ -139,7 +137,7 @@ func (e *Exec) requestStateTransfer(minStableSeq int, _ int) bool {
 		}
 		sort.Ints(replaySeqs)
 		for _, replaySeq := range replaySeqs {
-			e.batchBuffer.Add(replaySeq, e.replayableBatchInputs[replaySeq])
+			e.ingressCh <- ingressEvent{kind: ingressBatchEvent, payload: e.replayableBatchInputs[replaySeq]}
 		}
 		e.nextBatchSeq = e.stableState.SeqNum + 1
 		e.nextVerifySeq = e.stableState.SeqNum + 1
