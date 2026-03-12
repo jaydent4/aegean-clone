@@ -28,6 +28,20 @@ RUN set -eux; \
     chmod +x /usr/local/bin/oha; \
     oha --version
 
+# Install k6 (prebuilt release binary, supports linux/amd64 + linux/arm64)
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+      amd64) asset="k6-v1.2.3-linux-amd64.tar.gz" ;; \
+      arm64) asset="k6-v1.2.3-linux-arm64.tar.gz" ;; \
+      *) echo "unsupported arch: $arch" >&2; exit 1 ;; \
+    esac; \
+    wget -O /tmp/k6.tar.gz "https://github.com/grafana/k6/releases/download/v1.2.3/${asset}"; \
+    tar -xzf /tmp/k6.tar.gz -C /tmp; \
+    install -m 0755 "/tmp/${asset%.tar.gz}/k6" /usr/local/bin/k6; \
+    rm -rf /tmp/k6.tar.gz "/tmp/${asset%.tar.gz}"; \
+    k6 version
+
 # Ensure `go` resolves even in shells with a minimal PATH
 RUN ln -sf /usr/local/go/bin/go /usr/bin/go
 
