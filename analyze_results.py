@@ -159,7 +159,7 @@ def main():
 
     folder = args.results_folder
     if not os.path.isabs(folder):
-        candidate = os.path.join(os.path.dirname(__file__), "..", "results", folder)
+        candidate = os.path.join(os.path.dirname(__file__), "results", folder)
         if os.path.isdir(candidate):
             folder = os.path.abspath(candidate)
         elif os.path.isdir(folder):

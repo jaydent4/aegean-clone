@@ -60,10 +60,6 @@ RUN passwd -d root && passwd -u root || true
 # Set working directory
 WORKDIR /app
 
-# Copy application code
-COPY src/ ./src/
-COPY experiment/ ./experiment/
-
 # Expose ports
 EXPOSE 22
 EXPOSE 8000-8100
