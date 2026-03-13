@@ -58,6 +58,16 @@ func main() {
 			panic(fmt.Sprintf("unknown client workflow %q for node %s", clientWorkflow, *name))
 		}
 		node = nodes.NewOHAClient(*name, *host, *port, cfg.Next, readyNodes, runConfig.Params, clientFn)
+	case "k6_client":
+		clientWorkflow := cfg.ClientWorkflow
+		if clientWorkflow == "" {
+			clientWorkflow = "default"
+		}
+		clientFn := workflow.ClientWorkflows[clientWorkflow]
+		if clientFn == nil {
+			panic(fmt.Sprintf("unknown client workflow %q for node %s", clientWorkflow, *name))
+		}
+		node = nodes.NewK6Client(*name, *host, *port, cfg.Next, readyNodes, runConfig.Params, clientFn)
 	case "server":
 		execWorkflow := cfg.ExecWorkflow
 		if execWorkflow == "" {

@@ -10,6 +10,11 @@
       "next": ["node2", "node3", "node4"],
       "client_workflow": "aegean_oha_client"
     },
+    "k6_client": {
+      "type": "k6_client",
+      "next": ["node2", "node3", "node4"],
+      "client_workflow": "aegean_k6_client"
+    },
     "middle": {
       "type": "server",
       "clients": ["node1"],
@@ -37,7 +42,7 @@
   },
   "nodes": {
     "node1": {
-      "service": "oha_client"
+      "service": "k6_client"
     },
     "node2": {
       "service": "middle",

@@ -10,6 +10,7 @@ import (
 
 var ClientWorkflows = map[string]func(c *nodes.Client){
 	"aegean_client":           aegeanworkflow.ClientRequestLogic,
+	"aegean_k6_client":        aegeanworkflow.K6ClientRequestLogic,
 	"aegean_oha_client":       aegeanworkflow.OhaClientRequestLogic,
 	"aegean_pipelined":        aegeanworkflow.ClientRequestLogicPipelined,
 	"external_srv_oha_client": externalsrvworkflow.OhaClientRequestLogic,

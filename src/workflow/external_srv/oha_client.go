@@ -18,8 +18,8 @@ const ohaBodyPath = "/tmp/oha-requests.ndjson"
 
 func OhaClientRequestLogic(c *nodes.Client) {
 	numRequests := common.MustInt(c.RunConfig, "num_requests")
-	ohaRequestTimeout := common.MustString(c.RunConfig, "oha_request_timeout")
-	ohaCommandDeadlineSeconds := common.MustInt(c.RunConfig, "oha_command_deadline_seconds")
+	ohaRequestTimeout := common.MustString(c.RunConfig, "request_timeout")
+	ohaCommandDeadlineSeconds := common.MustInt(c.RunConfig, "command_deadline_seconds")
 	ohaCommandDeadline := time.Duration(ohaCommandDeadlineSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)

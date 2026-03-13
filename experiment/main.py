@@ -51,7 +51,7 @@ def load_experiment_topology(architecture_path):
             raise ValueError(f"node {node_name} references unknown service '{service_name}'")
 
         service_type = service_cfg.get("type")
-        if service_type in {"client", "oha_client"}:
+        if service_type in {"client", "oha_client", "k6_client"}:
             client_names.append(node_name)
         if service_type in {"server", "external_service"}:
             pprof_nodes.append(node_name)
@@ -363,9 +363,9 @@ def main():
 
     launch_nodes(node_names, args.config_path)
     logger.info("Waiting for all nodes to become ready")
-    all_nodes_ready = wait_for_nodes_ready(node_names, timeout=30.0, poll_interval=1.0)
+    all_nodes_ready = wait_for_nodes_ready(node_names, timeout=120.0, poll_interval=1.0)
     if not all_nodes_ready:
-        logger.warning("Node readiness timeout after 30s; proceeding anyway")
+        logger.warning("Node readiness timeout after 120s; proceeding anyway")
 
     remote_cpu_commands = {}
     if collect_pprof_enabled:

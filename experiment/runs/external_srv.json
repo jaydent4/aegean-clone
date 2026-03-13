@@ -2,6 +2,6 @@
   "architecture": "external_srv.json",
   "num_requests": 1000,
   "external_service_mode": "idempotent",
-  "oha_request_timeout": "5s",
-  "oha_command_deadline_seconds": 30
+  "request_timeout": "5s",
+  "command_deadline_seconds": 30
 }
