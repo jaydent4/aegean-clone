@@ -154,14 +154,14 @@ def format_json(obj):
 
 def main():
     parser = argparse.ArgumentParser(description="Analyze experiment trace results")
-    parser.add_argument("results_folder", help="Folder name under experiment/results or a full path")
+    parser.add_argument("results_folder", help="Folder name under results/ or a full path")
     args = parser.parse_args()
 
     folder = args.results_folder
     if not os.path.isabs(folder):
-        candidate = os.path.join(os.path.dirname(__file__), "results", folder)
+        candidate = os.path.join(os.path.dirname(__file__), "..", "results", folder)
         if os.path.isdir(candidate):
-            folder = candidate
+            folder = os.path.abspath(candidate)
         elif os.path.isdir(folder):
             folder = os.path.abspath(folder)
         else:

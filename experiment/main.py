@@ -63,7 +63,7 @@ def _scp(node_name, remote_path, local_path):
     return subprocess.run(["scp", f"{node_name}:{remote_path}", local_path], check=False)
 
 
-def create_results_run_dir(results_dir="experiment/results"):
+def create_results_run_dir(results_dir="results"):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_dir = os.path.join(results_dir, timestamp)
     os.makedirs(run_dir, exist_ok=True)
