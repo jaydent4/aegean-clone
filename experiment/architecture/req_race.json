@@ -2,18 +2,18 @@
   "services": {
     "client": {
       "type": "client",
-      "next": ["node2", "node3", "node4"],
+      "next": ["node1", "node2", "node3"],
       "client_workflow": "req_race_client"
     },
     "oha_client": {
       "type": "oha_client",
-      "next": ["node2", "node3", "node4"],
+      "next": ["node1", "node2", "node3"],
       "client_workflow": "req_race_oha_client"
     },
     "middle": {
       "type": "server",
-      "clients": ["node1"],
-      "nodes": ["node2", "node3", "node4"],
+      "clients": ["node0"],
+      "nodes": ["node1", "node2", "node3"],
       "exec_workflow": "req_race_middle",
       "init_state_workflow": "req_race_default",
       "shimQuorumSize": 1,
@@ -24,8 +24,8 @@
     },
     "backend_1": {
       "type": "server",
-      "clients": ["node2", "node3", "node4"],
-      "nodes": ["node5", "node6", "node7"],
+      "clients": ["node1", "node2", "node3"],
+      "nodes": ["node4", "node5", "node6"],
       "exec_workflow": "req_race_backend_1",
       "init_state_workflow": "req_race_default",
       "shimQuorumSize": 2,
@@ -36,8 +36,8 @@
     },
     "backend_2": {
       "type": "server",
-      "clients": ["node2", "node3", "node4"],
-      "nodes": ["node8", "node9", "node10"],
+      "clients": ["node1", "node2", "node3"],
+      "nodes": ["node7", "node8", "node9"],
       "exec_workflow": "req_race_backend_2",
       "init_state_workflow": "req_race_default",
       "shimQuorumSize": 2,
@@ -48,8 +48,8 @@
     },
     "backend_3": {
       "type": "server",
-      "clients": ["node2", "node3", "node4"],
-      "nodes": ["node11", "node12", "node13"],
+      "clients": ["node1", "node2", "node3"],
+      "nodes": ["node10", "node11", "node12"],
       "exec_workflow": "req_race_backend_3",
       "init_state_workflow": "req_race_default",
       "shimQuorumSize": 2,
@@ -60,54 +60,54 @@
     }
   },
   "nodes": {
-    "node1": {
+    "node0": {
       "service": "client"
+    },
+    "node1": {
+      "service": "middle",
+      "is_primary_batcher": true
     },
     "node2": {
       "service": "middle",
-      "is_primary_batcher": true
+      "is_primary_batcher": false
     },
     "node3": {
       "service": "middle",
       "is_primary_batcher": false
     },
     "node4": {
-      "service": "middle",
-      "is_primary_batcher": false
+      "service": "backend_1",
+      "is_primary_batcher": true
     },
     "node5": {
       "service": "backend_1",
-      "is_primary_batcher": true
+      "is_primary_batcher": false
     },
     "node6": {
       "service": "backend_1",
       "is_primary_batcher": false
     },
     "node7": {
-      "service": "backend_1",
-      "is_primary_batcher": false
+      "service": "backend_2",
+      "is_primary_batcher": true
     },
     "node8": {
       "service": "backend_2",
-      "is_primary_batcher": true
+      "is_primary_batcher": false
     },
     "node9": {
       "service": "backend_2",
       "is_primary_batcher": false
     },
     "node10": {
-      "service": "backend_2",
-      "is_primary_batcher": false
-    },
-    "node11": {
       "service": "backend_3",
       "is_primary_batcher": true
     },
-    "node12": {
+    "node11": {
       "service": "backend_3",
       "is_primary_batcher": false
     },
-    "node13": {
+    "node12": {
       "service": "backend_3",
       "is_primary_batcher": false
     }

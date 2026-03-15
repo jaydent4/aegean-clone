@@ -133,9 +133,9 @@ def install_host(host: str) -> tuple[bool, list[str]]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Install the packages and SSH setup from docker/Dockerfile onto node1..nodeN over SSH."
+        description="Install the packages and SSH setup from docker/Dockerfile onto node0..node<count-1> over SSH."
     )
-    parser.add_argument("count", type=int, help="Install on node1 through node<count>.")
+    parser.add_argument("count", type=int, help="Install on node0 through node<count-1>.")
     return parser.parse_args()
 
 
@@ -146,7 +146,7 @@ def main() -> int:
         return 2
 
     failures: list[str] = []
-    for idx in range(1, args.count + 1):
+    for idx in range(args.count):
         host = f"node{idx}"
         success, host_failures = install_host(host)
         failures.extend(host_failures)

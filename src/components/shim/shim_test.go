@@ -275,7 +275,7 @@ func TestShimForwardsNestedResponseAfterQuorum(t *testing.T) {
 	first := shim.HandleIncomingResponse(map[string]any{
 		"type":       "response",
 		"request_id": "r9",
-		"sender":     "node7",
+		"sender":     "node6",
 		"response":   map[string]any{"status": "ok", "value": "a"},
 	})
 	if first["status"] != "waiting_for_quorum" {
@@ -286,7 +286,7 @@ func TestShimForwardsNestedResponseAfterQuorum(t *testing.T) {
 	second := shim.HandleIncomingResponse(map[string]any{
 		"type":       "response",
 		"request_id": "r9",
-		"sender":     "node8",
+		"sender":     "node7",
 		"response":   map[string]any{"status": "ok", "value": "a"},
 	})
 	if second["status"] != "forwarded_nested_response" {

@@ -79,9 +79,9 @@ def format_output(stdout: str, stderr: str) -> str:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Ensure /app on node1..nodeN is the aegean-clone repo, pulling or cloning as needed."
+        description="Ensure /app on node0..node<count-1> is the aegean-clone repo, pulling or cloning as needed."
     )
-    parser.add_argument("count", type=int, help="Operate on node1 through node<count>.")
+    parser.add_argument("count", type=int, help="Operate on node0 through node<count-1>.")
     return parser.parse_args()
 
 
@@ -92,7 +92,7 @@ def main() -> int:
         return 2
 
     failures: list[str] = []
-    for idx in range(1, args.count + 1):
+    for idx in range(args.count):
         host = f"node{idx}"
         result = run_host(host)
         if result.returncode == 0:

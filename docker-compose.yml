@@ -18,33 +18,33 @@ x-node-common: &node-common
   volumes:
     - .:/app
   extra_hosts:
-    - "node1:10.0.0.10"
-    - "node2:10.0.0.11"
-    - "node3:10.0.0.12"
-    - "node4:10.0.0.13"
-    - "node5:10.0.0.14"
-    - "node6:10.0.0.15"
-    - "node7:10.0.0.16"
-    - "node8:10.0.0.17"
-    - "node9:10.0.0.18"
-    - "node10:10.0.0.19"
-    - "node11:10.0.0.20"
-    - "node12:10.0.0.21"
-    - "node13:10.0.0.22"
-    - "node14:10.0.0.23"
-    - "node15:10.0.0.24"
-    - "node16:10.0.0.25"
-    - "node17:10.0.0.26"
-    - "node18:10.0.0.27"
-    - "node19:10.0.0.28"
-    - "node20:10.0.0.29"
-    - "node21:10.0.0.30"
+    - "node0:10.0.0.10"
+    - "node1:10.0.0.11"
+    - "node2:10.0.0.12"
+    - "node3:10.0.0.13"
+    - "node4:10.0.0.14"
+    - "node5:10.0.0.15"
+    - "node6:10.0.0.16"
+    - "node7:10.0.0.17"
+    - "node8:10.0.0.18"
+    - "node9:10.0.0.19"
+    - "node10:10.0.0.20"
+    - "node11:10.0.0.21"
+    - "node12:10.0.0.22"
+    - "node13:10.0.0.23"
+    - "node14:10.0.0.24"
+    - "node15:10.0.0.25"
+    - "node16:10.0.0.26"
+    - "node17:10.0.0.27"
+    - "node18:10.0.0.28"
+    - "node19:10.0.0.29"
+    - "node20:10.0.0.30"
   restart: unless-stopped
 
 services:
-  node1:
+  node0:
     <<: *node-common
-    hostname: node1
+    hostname: node0
     ports:
       - "2201:22"
       - "9001:8000"
@@ -52,9 +52,9 @@ services:
       aegean-net:
         ipv4_address: 10.0.0.10
 
-  node2:
+  node1:
     <<: *node-common
-    hostname: node2
+    hostname: node1
     ports:
       - "2202:22"
       - "9002:8000"
@@ -62,9 +62,9 @@ services:
       aegean-net:
         ipv4_address: 10.0.0.11
 
-  node3:
+  node2:
     <<: *node-common
-    hostname: node3
+    hostname: node2
     ports:
       - "2203:22"
       - "9003:8000"
@@ -72,9 +72,9 @@ services:
       aegean-net:
         ipv4_address: 10.0.0.12
 
-  node4:
+  node3:
     <<: *node-common
-    hostname: node4
+    hostname: node3
     ports:
       - "2204:22"
       - "9004:8000"
@@ -82,9 +82,9 @@ services:
       aegean-net:
         ipv4_address: 10.0.0.13
 
-  node5:
+  node4:
     <<: *node-common
-    hostname: node5
+    hostname: node4
     ports:
       - "2205:22"
       - "9005:8000"
@@ -92,9 +92,9 @@ services:
       aegean-net:
         ipv4_address: 10.0.0.14
 
-  node6:
+  node5:
     <<: *node-common
-    hostname: node6
+    hostname: node5
     ports:
       - "2206:22"
       - "9006:8000"
@@ -102,9 +102,9 @@ services:
       aegean-net:
         ipv4_address: 10.0.0.15
 
-  node7:
+  node6:
     <<: *node-common
-    hostname: node7
+    hostname: node6
     ports:
       - "2207:22"
       - "9007:8000"
@@ -112,9 +112,9 @@ services:
       aegean-net:
         ipv4_address: 10.0.0.16
 
-  node8:
+  node7:
     <<: *node-common
-    hostname: node8
+    hostname: node7
     ports:
       - "2208:22"
       - "9008:8000"
@@ -122,9 +122,9 @@ services:
       aegean-net:
         ipv4_address: 10.0.0.17
 
-  node9:
+  node8:
     <<: *node-common
-    hostname: node9
+    hostname: node8
     ports:
       - "2209:22"
       - "9009:8000"
@@ -132,9 +132,9 @@ services:
       aegean-net:
         ipv4_address: 10.0.0.18
 
-  node10:
+  node9:
     <<: *node-common
-    hostname: node10
+    hostname: node9
     ports:
       - "2210:22"
       - "9010:8000"
@@ -142,9 +142,9 @@ services:
       aegean-net:
         ipv4_address: 10.0.0.19
 
-  node11:
+  node10:
     <<: *node-common
-    hostname: node11
+    hostname: node10
     ports:
       - "2211:22"
       - "9011:8000"
@@ -152,9 +152,9 @@ services:
       aegean-net:
         ipv4_address: 10.0.0.20
 
-  node12:
+  node11:
     <<: *node-common
-    hostname: node12
+    hostname: node11
     ports:
       - "2212:22"
       - "9012:8000"
@@ -162,9 +162,9 @@ services:
       aegean-net:
         ipv4_address: 10.0.0.21
 
-  node13:
+  node12:
     <<: *node-common
-    hostname: node13
+    hostname: node12
     ports:
       - "2213:22"
       - "9013:8000"
@@ -172,9 +172,9 @@ services:
       aegean-net:
         ipv4_address: 10.0.0.22
 
-  node14:
+  node13:
     <<: *node-common
-    hostname: node14
+    hostname: node13
     ports:
       - "2214:22"
       - "9014:8000"
@@ -182,9 +182,9 @@ services:
       aegean-net:
         ipv4_address: 10.0.0.23
 
-  node15:
+  node14:
     <<: *node-common
-    hostname: node15
+    hostname: node14
     ports:
       - "2215:22"
       - "9015:8000"
@@ -192,9 +192,9 @@ services:
       aegean-net:
         ipv4_address: 10.0.0.24
 
-  node16:
+  node15:
     <<: *node-common
-    hostname: node16
+    hostname: node15
     ports:
       - "2216:22"
       - "9016:8000"
@@ -202,9 +202,9 @@ services:
       aegean-net:
         ipv4_address: 10.0.0.25
 
-  node17:
+  node16:
     <<: *node-common
-    hostname: node17
+    hostname: node16
     ports:
       - "2217:22"
       - "9017:8000"
@@ -212,9 +212,9 @@ services:
       aegean-net:
         ipv4_address: 10.0.0.26
 
-  node18:
+  node17:
     <<: *node-common
-    hostname: node18
+    hostname: node17
     ports:
       - "2218:22"
       - "9018:8000"
@@ -222,9 +222,9 @@ services:
       aegean-net:
         ipv4_address: 10.0.0.27
 
-  node19:
+  node18:
     <<: *node-common
-    hostname: node19
+    hostname: node18
     ports:
       - "2219:22"
       - "9019:8000"
@@ -232,9 +232,9 @@ services:
       aegean-net:
         ipv4_address: 10.0.0.28
 
-  node20:
+  node19:
     <<: *node-common
-    hostname: node20
+    hostname: node19
     ports:
       - "2220:22"
       - "9020:8000"
@@ -242,9 +242,9 @@ services:
       aegean-net:
         ipv4_address: 10.0.0.29
 
-  node21:
+  node20:
     <<: *node-common
-    hostname: node21
+    hostname: node20
     ports:
       - "2221:22"
       - "9021:8000"

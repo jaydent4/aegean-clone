@@ -11,9 +11,9 @@ const (
 	middleStageAwaitNested = "await_nested"
 )
 
-var backend1Targets = []string{"node5", "node6", "node7"}
-var backend2Targets = []string{"node8", "node9", "node10"}
-var backend3Targets = []string{"node11", "node12", "node13"}
+var backend1Targets = []string{"node4", "node5", "node6"}
+var backend2Targets = []string{"node7", "node8", "node9"}
+var backend3Targets = []string{"node10", "node11", "node12"}
 
 // ExecuteRequestMiddle fans out to both backends and completes on the first nested response.
 func ExecuteRequestMiddle(e *exec.Exec, request map[string]any, ndSeed int64, ndTimestamp float64) map[string]any {

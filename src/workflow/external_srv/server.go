@@ -19,7 +19,7 @@ func ExecuteRequestServer(e *exec.Exec, request map[string]any, ndSeed int64, nd
 		}
 	}
 
-	externalServiceNode := "node5"
+	externalServiceNode := "node4"
 	externalReq := map[string]any{
 		"type":       "request",
 		"request_id": requestID,

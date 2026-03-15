@@ -1,7 +1,7 @@
-node1 amd133.utah.cloudlab.us
-node2 amd165.utah.cloudlab.us
-node3 amd153.utah.cloudlab.us
-node4 hp056.utah.cloudlab.us
-node5 hp070.utah.cloudlab.us
-node6 hp065.utah.cloudlab.us
-node7 amd134.utah.cloudlab.us
+node0 amd133.utah.cloudlab.us
+node1 amd165.utah.cloudlab.us
+node2 amd153.utah.cloudlab.us
+node3 hp056.utah.cloudlab.us
+node4 hp070.utah.cloudlab.us
+node5 hp065.utah.cloudlab.us
+node6 amd134.utah.cloudlab.us

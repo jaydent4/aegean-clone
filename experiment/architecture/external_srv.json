@@ -2,13 +2,13 @@
   "services": {
     "oha_client": {
       "type": "oha_client",
-      "next": ["node2", "node3", "node4"],
+      "next": ["node1", "node2", "node3"],
       "client_workflow": "external_srv_oha_client"
     },
     "server": {
       "type": "server",
-      "clients": ["node1"],
-      "nodes": ["node2", "node3", "node4"],
+      "clients": ["node0"],
+      "nodes": ["node1", "node2", "node3"],
       "exec_workflow": "external_srv_server",
       "init_state_workflow": "external_srv_default",
       "shimQuorumSize": 1,
@@ -24,22 +24,22 @@
     }
   },
   "nodes": {
-    "node1": {
+    "node0": {
       "service": "oha_client"
+    },
+    "node1": {
+      "service": "server",
+      "is_primary_batcher": true
     },
     "node2": {
       "service": "server",
-      "is_primary_batcher": true
+      "is_primary_batcher": false
     },
     "node3": {
       "service": "server",
       "is_primary_batcher": false
     },
     "node4": {
-      "service": "server",
-      "is_primary_batcher": false
-    },
-    "node5": {
       "service": "external_service",
       "is_primary_batcher": true
     }

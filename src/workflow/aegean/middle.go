@@ -43,7 +43,7 @@ func executeFanoutBase(e *exec.Exec, request map[string]any, ndSeed int64, ndTim
 			}
 		}
 
-		fanoutTargets := []string{"node5", "node6", "node7"}
+		fanoutTargets := []string{"node4", "node5", "node6"}
 		for _, target := range fanoutTargets {
 			outgoing := map[string]any{
 				"type":       "request",
@@ -89,22 +89,22 @@ func ExecuteRequestMiddle(e *exec.Exec, request map[string]any, ndSeed int64, nd
 
 func ExecuteRequestMiddleDivergeOneNode(e *exec.Exec, request map[string]any, ndSeed int64, ndTimestamp float64) map[string]any {
 	return executeFanoutBase(e, request, ndSeed, ndTimestamp, map[string]struct{}{
-		"node2": {},
+		"node1": {},
 	}, 4)
 }
 
 func ExecuteRequestMiddleDivergeTwoNode(e *exec.Exec, request map[string]any, ndSeed int64, ndTimestamp float64) map[string]any {
 	return executeFanoutBase(e, request, ndSeed, ndTimestamp, map[string]struct{}{
+		"node1": {},
 		"node2": {},
-		"node3": {},
 	}, 20)
 }
 
 func ExecuteRequestMiddleDivergeThreeNode(e *exec.Exec, request map[string]any, ndSeed int64, ndTimestamp float64) map[string]any {
 	return executeFanoutBase(e, request, ndSeed, ndTimestamp, map[string]struct{}{
+		"node1": {},
 		"node2": {},
 		"node3": {},
-		"node4": {},
 	}, 20)
 }
 
