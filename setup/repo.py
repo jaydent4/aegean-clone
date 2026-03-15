@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
 
 import argparse
+from pathlib import Path
 import shlex
 import subprocess
 import sys
 
 
 REPO_URL = "https://github.com/ucla-progsoftsys/aegean-clone.git"
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def shell_quote(script: str) -> str:
     return shlex.quote(script)
 
 
-def build_remote_command() -> str:
+def build_git_command() -> str:
     body = f"""
 set -euo pipefail
 if [ "$(id -u)" -eq 0 ]; then
@@ -30,26 +32,40 @@ if ! command -v git >/dev/null 2>&1; then
   exit 1
 fi
 
-if [ -d /app/.git ]; then
-  remote_url="$($SUDO git -C /app remote get-url origin)"
-  if [ "$remote_url" != "{REPO_URL}" ]; then
-    echo "/app exists but origin is $remote_url, expected {REPO_URL}" >&2
-    exit 1
-  fi
-  $SUDO git -C /app pull --ff-only
-elif [ -e /app ]; then
-  echo "/app exists but is not a git repository" >&2
-  exit 1
-else
-  parent_dir="$($SUDO dirname /app)"
-  $SUDO mkdir -p "$parent_dir"
-  $SUDO git clone {shell_quote(REPO_URL)} /app
+parent_dir="$($SUDO dirname /app)"
+$SUDO mkdir -p "$parent_dir"
+if [ -e /app ]; then
+  $SUDO rm -rf /app
 fi
+$SUDO git clone {shell_quote(REPO_URL)} /app
 """
     return body
 
 
-def run_host(host: str) -> subprocess.CompletedProcess[str]:
+def build_upload_command() -> str:
+    body = """
+set -euo pipefail
+if [ "$(id -u)" -eq 0 ]; then
+  SUDO=""
+elif command -v sudo >/dev/null 2>&1; then
+  SUDO="sudo"
+else
+  echo "sudo is required when not connected as root" >&2
+  exit 1
+fi
+
+parent_dir="$($SUDO dirname /app)"
+$SUDO mkdir -p "$parent_dir"
+if [ -e /app ]; then
+  $SUDO rm -rf /app
+fi
+$SUDO mkdir -p /app
+$SUDO tar -xf - -C /app
+"""
+    return body
+
+
+def run_host_git(host: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [
             "ssh",
@@ -60,10 +76,49 @@ def run_host(host: str) -> subprocess.CompletedProcess[str]:
             host,
             "bash",
             "-lc",
-            build_remote_command(),
+            build_git_command(),
         ],
         text=True,
         capture_output=True,
+    )
+
+
+def run_host_upload(host: str) -> subprocess.CompletedProcess[str]:
+    tar_proc = subprocess.Popen(
+        ["tar", "-cf", "-", "."],
+        cwd=REPO_ROOT,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=False,
+    )
+    try:
+        ssh_proc = subprocess.run(
+            [
+                "ssh",
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "ConnectTimeout=10",
+                host,
+                "bash",
+                "-lc",
+                build_upload_command(),
+            ],
+            stdin=tar_proc.stdout,
+            capture_output=True,
+        )
+    finally:
+        if tar_proc.stdout is not None:
+            tar_proc.stdout.close()
+    tar_stderr = tar_proc.communicate()[1]
+    if tar_proc.returncode != 0:
+        stderr = tar_stderr.decode() if tar_stderr else "local tar command failed"
+        return subprocess.CompletedProcess(ssh_proc.args if "ssh_proc" in locals() else ["ssh", host], 1, "", stderr)
+    return subprocess.CompletedProcess(
+        ssh_proc.args,
+        ssh_proc.returncode,
+        ssh_proc.stdout.decode(),
+        ((tar_stderr.decode() if tar_stderr else "") + ssh_proc.stderr.decode()),
     )
 
 
@@ -79,9 +134,14 @@ def format_output(stdout: str, stderr: str) -> str:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Ensure /app on node0..node<count-1> is the aegean-clone repo, pulling or cloning as needed."
+        description="Populate /app on node0..node<count-1> either from GitHub or by uploading the current local checkout."
     )
     parser.add_argument("count", type=int, help="Operate on node0 through node<count-1>.")
+    parser.add_argument(
+        "--upload",
+        action="store_true",
+        help="Replace /app with this local repo checkout instead of doing a fresh GitHub clone.",
+    )
     return parser.parse_args()
 
 
@@ -94,7 +154,7 @@ def main() -> int:
     failures: list[str] = []
     for idx in range(args.count):
         host = f"node{idx}"
-        result = run_host(host)
+        result = run_host_upload(host) if args.upload else run_host_git(host)
         if result.returncode == 0:
             print(f"{host}: repo ready at /app")
             continue
