@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 
 from pathlib import Path
+import socket
 import subprocess
 import sys
 
 
-BEGIN_MARKER = "# BEGIN AEGEAN NODE CONFIG"
-END_MARKER = "# END AEGEAN NODE CONFIG"
+BEGIN_MARKER = "# BEGIN AEGEAN NODE HOSTS"
+END_MARKER = "# END AEGEAN NODE HOSTS"
 REMOTE_REPO_PATH = "/app"
+TARGET = Path("/etc/hosts")
+DOCKER_SUBNET_PREFIX = "10.0.0."
+DOCKER_BASE_OCTET = 10
 SOURCE_FILES = {
     "docker": "docker_nodes",
     "distributed": "distributed_nodes",
@@ -47,42 +51,55 @@ def replace_managed_block(existing: str, block: str) -> str:
     return existing + "\n\n" + block
 
 
+def docker_host_ip(name: str) -> str:
+    if not name.startswith("node"):
+        raise ValueError(f"unsupported docker node name: {name}")
+    index = int(name.removeprefix("node"))
+    return f"{DOCKER_SUBNET_PREFIX}{DOCKER_BASE_OCTET + index}"
+
+
+def resolve_ipv4(hostname: str) -> str:
+    try:
+        infos = socket.getaddrinfo(hostname, None, socket.AF_INET, socket.SOCK_STREAM)
+    except socket.gaierror as exc:
+        raise RuntimeError(f"failed to resolve {hostname}: {exc}") from exc
+
+    for info in infos:
+        address = info[4][0]
+        if address:
+            return address
+    raise RuntimeError(f"failed to resolve an IPv4 address for {hostname}")
+
+
 def render_snippet(mode: str, source_text: str) -> str:
-    blocks = []
+    lines = []
     for name, value in parse_nodes(source_text):
         if mode == "docker":
-            blocks.append(
-                "\n".join(
-                    [
-                        f"Host {name}",
-                        "  HostName localhost",
-                        f"  Port {value}",
-                        "  User root",
-                        "  StrictHostKeyChecking no",
-                        "  UserKnownHostsFile /dev/null",
-                    ]
-                )
-            )
+            host_ip = docker_host_ip(name)
         else:
-            blocks.append(
-                "\n".join(
-                    [
-                        f"Host {name}",
-                        f"  HostName {value}",
-                        "  User gjl",
-                        "  StrictHostKeyChecking no",
-                        "  UserKnownHostsFile /dev/null",
-                    ]
-                )
-            )
-    return "\n\n".join(blocks)
+            host_ip = resolve_ipv4(value)
+        lines.append(f"{host_ip} {name}")
+    return "\n".join(lines)
 
 
-def sync_remote_nodes(mode: str, source_text: str) -> int:
+def write_hosts(updated: str) -> None:
+    result = subprocess.run(
+        ["sudo", "tee", str(TARGET)],
+        input=updated,
+        text=True,
+        stdout=subprocess.DEVNULL,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"failed to update {TARGET} via sudo")
+
+
+def sync_remote_nodes(mode: str) -> int:
     if mode != "distributed":
         return 0
 
-    script_path = f"{REMOTE_REPO_PATH}/setup/ssh_config.py"
+    source_text = (Path(__file__).resolve().parent / SOURCE_FILES[mode]).read_text()
+    script_path = f"{REMOTE_REPO_PATH}/setup/hosts.py"
     failures = []
     for name, hostname in parse_nodes(source_text):
         result = subprocess.run(
@@ -107,12 +124,12 @@ def sync_remote_nodes(mode: str, source_text: str) -> int:
 
     if failures:
         print(
-            f"Failed to update remote ~/.ssh/config on: {', '.join(failures)}",
+            f"Failed to update remote /etc/hosts on: {', '.join(failures)}",
             file=sys.stderr,
         )
         return 1
 
-    print(f"Updated remote ~/.ssh/config on {len(parse_nodes(source_text))} nodes")
+    print(f"Updated remote /etc/hosts on {len(parse_nodes(source_text))} nodes")
     return 0
 
 
@@ -120,7 +137,7 @@ def main() -> int:
     args = sys.argv[1:]
     if not args or args[0] not in {"docker", "distributed"}:
         print(
-            "usage: python3 setup/ssh_config.py [docker|distributed] [--local-only]",
+            "usage: python3 setup/hosts.py [docker|distributed] [--local-only]",
             file=sys.stderr,
         )
         return 1
@@ -136,20 +153,28 @@ def main() -> int:
 
     script_dir = Path(__file__).resolve().parent
     source = script_dir / SOURCE_FILES[mode]
-    target = Path.home() / ".ssh" / "config"
     source_text = source.read_text()
 
-    snippet = render_snippet(mode, source_text)
+    try:
+        snippet = render_snippet(mode, source_text)
+    except (RuntimeError, ValueError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
     block = f"{BEGIN_MARKER}\n{snippet}\n{END_MARKER}\n"
-    existing = target.read_text() if target.exists() else ""
+    existing = TARGET.read_text()
     updated = replace_managed_block(existing, block)
 
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(updated)
-    print(f"Updated {target} with {mode} config")
+    try:
+        write_hosts(updated)
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    print(f"Updated {TARGET} with {mode} config")
 
     if not local_only:
-        return sync_remote_nodes(mode, source_text)
+        return sync_remote_nodes(mode)
 
     return 0
 
