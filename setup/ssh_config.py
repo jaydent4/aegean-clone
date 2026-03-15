@@ -30,6 +30,41 @@ def replace_managed_block(existing: str, block: str) -> str:
     return existing + "\n\n" + block
 
 
+def render_snippet(mode: str, source_text: str) -> str:
+    blocks = []
+    for line in source_text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        name, value = line.split(None, 1)
+        if mode == "docker":
+            blocks.append(
+                "\n".join(
+                    [
+                        f"Host {name}",
+                        "  HostName localhost",
+                        f"  Port {value}",
+                        "  User root",
+                        "  StrictHostKeyChecking no",
+                        "  UserKnownHostsFile /dev/null",
+                    ]
+                )
+            )
+        else:
+            blocks.append(
+                "\n".join(
+                    [
+                        f"Host {name}",
+                        f"  HostName {value}",
+                        "  User gjl",
+                        "  StrictHostKeyChecking no",
+                        "  UserKnownHostsFile /dev/null",
+                    ]
+                )
+            )
+    return "\n\n".join(blocks)
+
+
 def main() -> int:
     if len(sys.argv) != 2 or sys.argv[1] not in {"docker", "distributed"}:
         print("usage: python3 setup/ssh_config.py [docker|distributed]", file=sys.stderr)
@@ -40,7 +75,7 @@ def main() -> int:
     source = script_dir / f"{mode}_ssh_config"
     target = Path.home() / ".ssh" / "config"
 
-    snippet = source.read_text().strip()
+    snippet = render_snippet(mode, source.read_text())
     block = f"{BEGIN_MARKER}\n{snippet}\n{END_MARKER}\n"
     existing = target.read_text() if target.exists() else ""
     updated = replace_managed_block(existing, block)

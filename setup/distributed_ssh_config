@@ -1,41 +1,7 @@
-Host node1
-  HostName amd133.utah.cloudlab.us
-  User gjl
-  StrictHostKeyChecking no
-  UserKnownHostsFile /dev/null
-
-Host node2
-  HostName amd165.utah.cloudlab.us
-  User gjl
-  StrictHostKeyChecking no
-  UserKnownHostsFile /dev/null
-
-Host node3
-  HostName amd153.utah.cloudlab.us
-  User gjl
-  StrictHostKeyChecking no
-  UserKnownHostsFile /dev/null
-
-Host node4
-  HostName hp056.utah.cloudlab.us
-  User gjl
-  StrictHostKeyChecking no
-  UserKnownHostsFile /dev/null
-
-Host node5
-  HostName hp070.utah.cloudlab.us
-  User gjl
-  StrictHostKeyChecking no
-  UserKnownHostsFile /dev/null
-
-Host node6
-  HostName hp065.utah.cloudlab.us
-  User gjl
-  StrictHostKeyChecking no
-  UserKnownHostsFile /dev/null
-
-Host node7
-  HostName amd134.utah.cloudlab.us
-  User gjl
-  StrictHostKeyChecking no
-  UserKnownHostsFile /dev/null
+node1 amd133.utah.cloudlab.us
+node2 amd165.utah.cloudlab.us
+node3 amd153.utah.cloudlab.us
+node4 hp056.utah.cloudlab.us
+node5 hp070.utah.cloudlab.us
+node6 hp065.utah.cloudlab.us
+node7 amd134.utah.cloudlab.us

@@ -1,146 +1,40 @@
-Host node1
-  HostName localhost
-  Port 2201
-  User root
-  StrictHostKeyChecking no
-  UserKnownHostsFile /dev/null
-
-Host node2
-  HostName localhost
-  Port 2202
-  User root
-  StrictHostKeyChecking no
-  UserKnownHostsFile /dev/null
-
-Host node3
-  HostName localhost
-  Port 2203
-  User root
-  StrictHostKeyChecking no
-  UserKnownHostsFile /dev/null
-
-Host node4
-  HostName localhost
-  Port 2204
-  User root
-  StrictHostKeyChecking no
-  UserKnownHostsFile /dev/null
-
-Host node5
-  HostName localhost
-  Port 2205
-  User root
-  StrictHostKeyChecking no
-  UserKnownHostsFile /dev/null
-
-Host node6
-  HostName localhost
-  Port 2206
-  User root
-  StrictHostKeyChecking no
-  UserKnownHostsFile /dev/null
-
-Host node7
-  HostName localhost
-  Port 2207
-  User root
-  StrictHostKeyChecking no
-  UserKnownHostsFile /dev/null
-
-Host node8
-  HostName localhost
-  Port 2208
-  User root
-  StrictHostKeyChecking no
-  UserKnownHostsFile /dev/null
-
-Host node9
-  HostName localhost
-  Port 2209
-  User root
-  StrictHostKeyChecking no
-  UserKnownHostsFile /dev/null
-
-Host node10
-  HostName localhost
-  Port 2210
-  User root
-  StrictHostKeyChecking no
-  UserKnownHostsFile /dev/null
-
-Host node11
-  HostName localhost
-  Port 2211
-  User root
-  StrictHostKeyChecking no
-  UserKnownHostsFile /dev/null
-
-Host node12
-  HostName localhost
-  Port 2212
-  User root
-  StrictHostKeyChecking no
-  UserKnownHostsFile /dev/null
-
-Host node13
-  HostName localhost
-  Port 2213
-  User root
-  StrictHostKeyChecking no
-  UserKnownHostsFile /dev/null
-
-Host node14
-  HostName localhost
-  Port 2214
-  User root
-  StrictHostKeyChecking no
-  UserKnownHostsFile /dev/null
-
-Host node15
-  HostName localhost
-  Port 2215
-  User root
-  StrictHostKeyChecking no
-  UserKnownHostsFile /dev/null
-
-Host node16
-  HostName localhost
-  Port 2216
-  User root
-  StrictHostKeyChecking no
-  UserKnownHostsFile /dev/null
-
-Host node17
-  HostName localhost
-  Port 2217
-  User root
-  StrictHostKeyChecking no
-  UserKnownHostsFile /dev/null
-
-Host node18
-  HostName localhost
-  Port 2218
-  User root
-  StrictHostKeyChecking no
-  UserKnownHostsFile /dev/null
-
-Host node19
-  HostName localhost
-  Port 2219
-  User root
-  StrictHostKeyChecking no
-  UserKnownHostsFile /dev/null
-
-Host node20
-  HostName localhost
-  Port 2220
-  User root
-  StrictHostKeyChecking no
-  UserKnownHostsFile /dev/null
-
-Host node21
-  HostName localhost
-  Port 2221
-  User root
-  StrictHostKeyChecking no
-  UserKnownHostsFile /dev/null
+node1 2201
+node2 2202
+node3 2203
+node4 2204
+node5 2205
+node6 2206
+node7 2207
+node8 2208
+node9 2209
+node10 2210
+node11 2211
+node12 2212
+node13 2213
+node14 2214
+node15 2215
+node16 2216
+node17 2217
+node18 2218
+node19 2219
+node20 2220
+node21 2221
+node22 2222
+node23 2223
+node24 2224
+node25 2225
+node26 2226
+node27 2227
+node28 2228
+node29 2229
+node30 2230
+node31 2231
+node32 2232
+node33 2233
+node34 2234
+node35 2235
+node36 2236
+node37 2237
+node38 2238
+node39 2239
+node40 2240
