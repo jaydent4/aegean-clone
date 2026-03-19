@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 
 K6_VERSION = "v1.2.3"
+GO_VERSION = "1.23.12"
 
 
 @dataclass(frozen=True)
@@ -55,6 +56,21 @@ tar -xzf /tmp/k6.tar.gz -C /tmp
 install -m 0755 "/tmp/${{asset%.tar.gz}}/k6" /usr/local/bin/k6
 rm -rf /tmp/k6.tar.gz "/tmp/${{asset%.tar.gz}}"
 k6 version""",
+    ),
+    Step(
+        "install go",
+        rf"""arch="$(dpkg --print-architecture)"
+case "$arch" in
+  amd64) goarch="amd64" ;;
+  arm64) goarch="arm64" ;;
+  *) echo "unsupported arch: $arch" >&2; exit 1 ;;
+esac
+asset="go{GO_VERSION}.linux-${{goarch}}.tar.gz"
+wget -O /tmp/go.tar.gz "https://go.dev/dl/${{asset}}"
+rm -rf /usr/local/go
+tar -C /usr/local -xzf /tmp/go.tar.gz
+rm -f /tmp/go.tar.gz
+/usr/local/go/bin/go version""",
     ),
     Step("go symlink", "ln -sf /usr/local/go/bin/go /usr/bin/go"),
     Step(
