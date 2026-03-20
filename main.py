@@ -16,17 +16,46 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
+
+
+def resolve_run_config_paths(run_config_path):
+    resolved_run_config_path = os.path.abspath(run_config_path)
+    relative_run_config_path = os.path.relpath(resolved_run_config_path, REPO_ROOT)
+
+    runs_dir_name = "runs"
+    current_dir = os.path.dirname(resolved_run_config_path)
+    while True:
+        if os.path.basename(current_dir) == runs_dir_name:
+            experiment_dir = os.path.dirname(current_dir)
+            architecture_dir = os.path.join(experiment_dir, "architecture")
+            if os.path.isdir(architecture_dir):
+                return resolved_run_config_path, relative_run_config_path, architecture_dir
+
+        parent_dir = os.path.dirname(current_dir)
+        if parent_dir == current_dir:
+            break
+        current_dir = parent_dir
+
+    raise ValueError(
+        f"could not resolve experiment architecture directory for run config: {run_config_path}"
+    )
+
+
 def load_run_config(run_config_path):
-    with open(run_config_path, "r", encoding="utf-8") as f:
+    resolved_run_config_path, relative_run_config_path, architecture_dir = resolve_run_config_paths(
+        run_config_path
+    )
+
+    with open(resolved_run_config_path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
     architecture = data.get("architecture")
     if not architecture:
         raise ValueError("run config must include non-empty 'architecture'")
 
-    base_dir = os.path.dirname(run_config_path) or "."
-    architecture_path = os.path.normpath(os.path.join(base_dir, "../architecture", architecture))
-    return architecture_path, data
+    architecture_path = os.path.normpath(os.path.join(architecture_dir, architecture))
+    return resolved_run_config_path, relative_run_config_path, architecture_path, data
 
 
 def load_experiment_topology(architecture_path):
@@ -368,7 +397,9 @@ def main():
     parser.add_argument("config_path", help="Path to run config JSON")
     args = parser.parse_args()
 
-    architecture_path, run_config = load_run_config(args.config_path)
+    _, relative_run_config_path, architecture_path, run_config = load_run_config(
+        args.config_path
+    )
     node_names, client_names, pprof_nodes = load_experiment_topology(architecture_path)
     run_dir = create_results_run_dir()
 
@@ -381,7 +412,7 @@ def main():
     logger.info("Experiment starting")
     stop_docker_nodes(node_names)
 
-    launch_nodes(node_names, args.config_path)
+    launch_nodes(node_names, relative_run_config_path)
     logger.info("Waiting for all nodes to become ready")
     all_nodes_ready = wait_for_nodes_ready(node_names, timeout=120.0, poll_interval=1.0)
     if not all_nodes_ready:
