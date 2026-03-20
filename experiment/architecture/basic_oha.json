@@ -1,0 +1,64 @@
+{
+  "services": {
+    "client": {
+      "type": "client",
+      "next": ["node1", "node2", "node3"],
+      "client_workflow": "aegean_pipelined"
+    },
+    "oha_client": {
+      "type": "oha_client",
+      "next": ["node1", "node2", "node3"],
+      "client_workflow": "aegean_oha_client"
+    },
+    "k6_client": {
+      "type": "k6_client",
+      "next": ["node1", "node2", "node3"],
+      "client_workflow": "aegean_k6_client"
+    },
+    "middle": {
+      "type": "server",
+      "clients": ["node0"],
+      "nodes": ["node1", "node2", "node3"],
+      "exec_workflow": "aegean_middle",
+      "init_state_workflow": "aegean_default",
+      "shimQuorumSize": 1,
+      "verifyResponseQuorumSize": 1,
+      "execVerifyQuorumSize": 2,
+      "phaseQuorumSize": 2,
+      "expectedExecVotes": 3
+    },
+    "backend": {
+      "type": "server",
+      "clients": ["node1", "node2", "node3"],
+      "nodes": ["node4"],
+      "exec_workflow": "aegean_backend",
+      "init_state_workflow": "aegean_default",
+      "shimQuorumSize": 1,
+      "verifyResponseQuorumSize": 1,
+      "execVerifyQuorumSize": 1,
+      "phaseQuorumSize": 1,
+      "expectedExecVotes": 1
+    }
+  },
+  "nodes": {
+    "node0": {
+      "service": "oha_client"
+    },
+    "node1": {
+      "service": "middle",
+      "is_primary_batcher": true
+    },
+    "node2": {
+      "service": "middle",
+      "is_primary_batcher": false
+    },
+    "node3": {
+      "service": "middle",
+      "is_primary_batcher": false
+    },
+    "node4": {
+      "service": "backend",
+      "is_primary_batcher": true
+    }
+  }
+}
