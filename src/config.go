@@ -119,7 +119,10 @@ func loadRunConfig(path string) (RunConfig, error) {
 		return RunConfig{}, fmt.Errorf("run config %s missing required field \"architecture\"", path)
 	}
 	if !filepath.IsAbs(architecture) {
-		architecture = filepath.Clean(filepath.Join(filepath.Dir(path), "../architecture", architecture))
+		architecture, err = resolveArchitecturePath(path, architecture)
+		if err != nil {
+			return RunConfig{}, err
+		}
 	}
 	delete(raw, "architecture")
 
@@ -127,6 +130,31 @@ func loadRunConfig(path string) (RunConfig, error) {
 		Architecture: architecture,
 		Params:       raw,
 	}, nil
+}
+
+func resolveArchitecturePath(runConfigPath, architecture string) (string, error) {
+	currentDir := filepath.Dir(filepath.Clean(runConfigPath))
+	for {
+		if filepath.Base(currentDir) == "runs" {
+			architectureDir := filepath.Join(filepath.Dir(currentDir), "architecture")
+			info, err := os.Stat(architectureDir)
+			if err == nil && info.IsDir() {
+				return filepath.Clean(filepath.Join(architectureDir, architecture)), nil
+			}
+		}
+
+		parentDir := filepath.Dir(currentDir)
+		if parentDir == currentDir {
+			break
+		}
+		currentDir = parentDir
+	}
+
+	return "", fmt.Errorf(
+		"run config %s: could not resolve architecture directory for %q",
+		runConfigPath,
+		architecture,
+	)
 }
 
 func decodeObject(raw json.RawMessage) (map[string]any, error) {
