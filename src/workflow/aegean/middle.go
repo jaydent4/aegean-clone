@@ -3,6 +3,7 @@ package aegeanworkflow
 import (
 	"aegean/common"
 	"aegean/components/exec"
+	"sync"
 )
 
 const (
@@ -44,7 +45,9 @@ func executeFanoutBase(e *exec.Exec, request map[string]any, ndSeed int64, ndTim
 		}
 
 		fanoutTargets := []string{"node4", "node5", "node6"}
+		var wg sync.WaitGroup
 		for _, target := range fanoutTargets {
+			wg.Add(1)
 			outgoing := map[string]any{
 				"type":       "request",
 				"request_id": requestID,
@@ -54,11 +57,13 @@ func executeFanoutBase(e *exec.Exec, request map[string]any, ndSeed int64, ndTim
 				"op_payload": request["op_payload"],
 			}
 			go func(target string, outgoing map[string]any) {
+				defer wg.Done()
 				_, err := common.SendMessage(target, 8000, outgoing)
 				if err != nil {
 				}
 			}(target, outgoing)
 		}
+		wg.Wait()
 		return blockedForNested(requestID)
 
 	case fanoutStageAwaitNested:
