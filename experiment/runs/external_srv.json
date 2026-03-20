@@ -3,5 +3,10 @@
   "num_requests": 1000,
   "external_service_mode": "idempotent",
   "request_timeout": "5s",
-  "command_deadline_seconds": 30
+  "command_deadline_seconds": 30,
+  "batch_size": 40,
+  "batch_timeout_ms": 20,
+  "parallel_window_k": 4,
+  "worker_count": 4,
+  "gomaxprocs": 4
 }

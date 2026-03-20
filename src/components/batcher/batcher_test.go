@@ -14,7 +14,10 @@ func makeReq(id int) map[string]any {
 // Batches flush immediately when reaching batchSize
 func TestBatcherFlushOnSize(t *testing.T) {
 	outCh := make(chan map[string]any, 1)
-	b := NewBatcher("b", outCh, []string{"b"}, true)
+	b := NewBatcher("b", outCh, []string{"b"}, true, map[string]any{
+		"batch_size":       40,
+		"batch_timeout_ms": 20,
+	})
 	b.batchSize = 2
 	b.batchTimeout = 1 * time.Second
 
@@ -44,7 +47,10 @@ func TestBatcherFlushOnSize(t *testing.T) {
 // Batches flush after timeout even if batchSize is not reached
 func TestBatcherFlushOnTimeout(t *testing.T) {
 	outCh := make(chan map[string]any, 1)
-	b := NewBatcher("b", outCh, []string{"b"}, true)
+	b := NewBatcher("b", outCh, []string{"b"}, true, map[string]any{
+		"batch_size":       40,
+		"batch_timeout_ms": 20,
+	})
 	b.batchSize = 10
 	b.batchTimeout = 10 * time.Millisecond
 
@@ -64,7 +70,10 @@ func TestBatcherFlushOnTimeout(t *testing.T) {
 // Non-primary batchers ignore incoming requests
 func TestBatcherNonPrimaryIgnored(t *testing.T) {
 	outCh := make(chan map[string]any, 1)
-	b := NewBatcher("b", outCh, []string{"b"}, false)
+	b := NewBatcher("b", outCh, []string{"b"}, false, map[string]any{
+		"batch_size":       40,
+		"batch_timeout_ms": 20,
+	})
 	b.batchSize = 1
 
 	resp := b.HandleRequestMessage(makeReq(1))
@@ -76,5 +85,20 @@ func TestBatcherNonPrimaryIgnored(t *testing.T) {
 	case msg := <-outCh:
 		t.Fatalf("unexpected batch emitted: %v", msg)
 	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestBatcherRunConfigOverrides(t *testing.T) {
+	outCh := make(chan map[string]any, 1)
+	b := NewBatcher("b", outCh, []string{"b"}, true, map[string]any{
+		"batch_size":       7,
+		"batch_timeout_ms": 35,
+	})
+
+	if b.batchSize != 7 {
+		t.Fatalf("expected batchSize 7, got %d", b.batchSize)
+	}
+	if b.batchTimeout != 35*time.Millisecond {
+		t.Fatalf("expected batchTimeout 35ms, got %v", b.batchTimeout)
 	}
 }

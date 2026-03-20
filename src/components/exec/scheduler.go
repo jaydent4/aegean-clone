@@ -2,6 +2,8 @@ package exec
 
 import (
 	"sync"
+
+	"aegean/common"
 )
 
 type execScheduler struct {
@@ -13,14 +15,13 @@ type execScheduler struct {
 	parallelWindowK  int
 }
 
-func newExecScheduler() *execScheduler {
+func newExecScheduler(runConfig map[string]any) *execScheduler {
 	return &execScheduler{
 		inflightRequests: make(map[string]*scheduledRequest),
 		nestedResponses:  make(map[string][]map[string]any),
 		nestedReadyCh:    make(chan struct{}, 1),
 		contextStore:     newRequestContextStore(),
-		// Tunable
-		parallelWindowK: 4,
+		parallelWindowK:  common.MustInt(runConfig, "parallel_window_k"),
 	}
 }
 

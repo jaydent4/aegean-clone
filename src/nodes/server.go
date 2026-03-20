@@ -9,6 +9,7 @@ import (
 	"aegean/components/verifier"
 	"context"
 	"math/rand/v2"
+	"runtime"
 	"runtime/pprof"
 	"time"
 )
@@ -62,6 +63,7 @@ func NewServer(name, host string, port int, clients []string, nodes []string, is
 	server.Node.EnablePprof = common.BoolOrDefault(runConfig, "pprof_enabled", true)
 	server.Node.BlockProfileRate = common.IntOrDefault(runConfig, "pprof_block_profile_rate", 1)
 	server.Node.MutexProfileFraction = common.IntOrDefault(runConfig, "pprof_mutex_profile_fraction", 1)
+	runtime.GOMAXPROCS(common.MustInt(runConfig, "gomaxprocs"))
 
 	peers := make([]string, 0, len(nodes))
 	for _, node := range nodes {
@@ -72,7 +74,7 @@ func NewServer(name, host string, port int, clients []string, nodes []string, is
 
 	// Init each component
 	server.Shim = shim.NewShim(name, shimToBatcher, shimToExec, clients, peers, isPrimaryBatcher, shimQuorumSize)
-	server.Batcher = batcher.NewBatcher(name, batcherToMixer, nodes, isPrimaryBatcher)
+	server.Batcher = batcher.NewBatcher(name, batcherToMixer, nodes, isPrimaryBatcher, runConfig)
 	server.Mixer = mixer.NewMixer(name, mixerToExec)
 	server.Exec = exec.NewExec(name, nodes, peers, execToVerifier, execToShim, verifyResponseQuorumSize, executeRequest, initStateFn, runConfig)
 	server.Verifier = verifier.NewVerifier(name, nodes, nodes, verifierToExec, execVerifyQuorumSize, phaseQuorumSize, expectedExecVotes)

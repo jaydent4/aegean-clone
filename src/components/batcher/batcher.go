@@ -24,19 +24,18 @@ type Batcher struct {
 	lastBatchTime time.Time
 }
 
-func NewBatcher(name string, nextCh chan<- map[string]any, execs []string, isPrimary bool) *Batcher {
+func NewBatcher(name string, nextCh chan<- map[string]any, execs []string, isPrimary bool, runConfig map[string]any) *Batcher {
 	if nextCh == nil {
 		panic("batcher component requires non-nil nextCh")
 	}
 	b := &Batcher{
-		Name:      name,
-		NextCh:    nextCh,
-		Execs:     execs,
-		isPrimary: isPrimary,
-		batch:     []map[string]any{},
-		// Tunable
-		batchSize:     40,
-		batchTimeout:  20 * time.Millisecond,
+		Name:          name,
+		NextCh:        nextCh,
+		Execs:         execs,
+		isPrimary:     isPrimary,
+		batch:         []map[string]any{},
+		batchSize:     common.MustInt(runConfig, "batch_size"),
+		batchTimeout:  time.Duration(common.MustInt(runConfig, "batch_timeout_ms")) * time.Millisecond,
 		lastBatchTime: time.Now(),
 	}
 	return b

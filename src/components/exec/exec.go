@@ -154,11 +154,11 @@ func NewExec(name string, verifiers []string, peers []string, verifierCh chan<- 
 		nextBatchSeq:          1,
 		nextVerifySeq:         1,
 		ingressCh:             make(chan ingressEvent, 8192),
-		workerCount:           4,
+		workerCount:           common.MustInt(initialRunConfig, "worker_count"),
 	}
 	exec.verifyResponseQuorum = common.NewQuorumHelper(verifyResponseQuorumSize)
 	exec.storeCheckpoint(0, stable.PrevHash, stable.KVStore, stable.MerkleRoot)
-	exec.scheduler = newExecScheduler()
+	exec.scheduler = newExecScheduler(initialRunConfig)
 	go exec.runCoordinator()
 	return exec
 }

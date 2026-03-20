@@ -2,5 +2,10 @@
   "architecture": "req_race.json",
   "num_requests": 1000,
   "request_timeout": "5s",
-  "command_deadline_seconds": 10
+  "command_deadline_seconds": 10,
+  "batch_size": 40,
+  "batch_timeout_ms": 20,
+  "parallel_window_k": 4,
+  "worker_count": 4,
+  "gomaxprocs": 4
 }

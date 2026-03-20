@@ -106,8 +106,31 @@ func makeParallelBatches(requests ...map[string]any) [][]map[string]any {
 func newTestExec(name string, verifiers []string, peers []string) (*Exec, chan map[string]any, chan map[string]any) {
 	verifierCh := make(chan map[string]any, 64)
 	shimCh := make(chan map[string]any, 64)
-	exec := NewExec(name, verifiers, peers, verifierCh, shimCh, 1, testExecuteRequest, nil, map[string]any{})
+	exec := NewExec(name, verifiers, peers, verifierCh, shimCh, 1, testExecuteRequest, nil, requiredExecRunConfig())
 	return exec, verifierCh, shimCh
+}
+
+func requiredExecRunConfig() map[string]any {
+	return map[string]any{
+		"worker_count":      4,
+		"parallel_window_k": 4,
+	}
+}
+
+func TestExecRunConfigOverrides(t *testing.T) {
+	verifierCh := make(chan map[string]any, 64)
+	shimCh := make(chan map[string]any, 64)
+	exec := NewExec("exec1", []string{"exec1"}, nil, verifierCh, shimCh, 1, testExecuteRequest, nil, map[string]any{
+		"worker_count":      3,
+		"parallel_window_k": 6,
+	})
+
+	if exec.workerCount != 3 {
+		t.Fatalf("expected workerCount 3, got %d", exec.workerCount)
+	}
+	if exec.scheduler.parallelWindowK != 6 {
+		t.Fatalf("expected parallelWindowK 6, got %d", exec.scheduler.parallelWindowK)
+	}
 }
 
 func testExecuteRequest(e *Exec, request map[string]any, ndSeed int64, ndTimestamp float64) map[string]any {
@@ -747,7 +770,7 @@ func TestExecRollbackReplaysUncommittedBatch(t *testing.T) {
 			return map[string]any{"request_id": request["request_id"], "status": "ok"}
 		},
 		nil,
-		map[string]any{},
+		requiredExecRunConfig(),
 	)
 	stableKV := map[string]string{"stable": "yes"}
 	stableMerkle := NewMerkleTreeFromMap(stableKV)
@@ -874,7 +897,7 @@ func TestExecBlockedRequestResumesAfterNestedResponse(t *testing.T) {
 			}
 		},
 		nil,
-		map[string]any{},
+		requiredExecRunConfig(),
 	)
 
 	done := make(chan map[string]any, 1)
@@ -936,7 +959,7 @@ func TestExecParallelBatchesYieldBlockedToNext(t *testing.T) {
 			}
 		},
 		nil,
-		map[string]any{},
+		requiredExecRunConfig(),
 	)
 	exec.scheduler.parallelWindowK = 2
 
@@ -1000,7 +1023,7 @@ func TestExecParallelBatchWindowGatesByStableSeq(t *testing.T) {
 			}
 		},
 		nil,
-		map[string]any{},
+		requiredExecRunConfig(),
 	)
 	exec.scheduler.parallelWindowK = 2
 
@@ -1067,7 +1090,7 @@ func TestExecParallelBatchSchedulingDeterministic(t *testing.T) {
 			return map[string]any{"request_id": requestID, "status": "blocked_for_nested_response"}
 		},
 		nil,
-		map[string]any{},
+		requiredExecRunConfig(),
 	)
 	exec.workerCount = 1
 	exec.scheduler.parallelWindowK = 2
@@ -1137,7 +1160,7 @@ func TestExecForceSequentialDisablesParallelYield(t *testing.T) {
 			}
 		},
 		nil,
-		map[string]any{},
+		requiredExecRunConfig(),
 	)
 	exec.forceSequential = true
 
