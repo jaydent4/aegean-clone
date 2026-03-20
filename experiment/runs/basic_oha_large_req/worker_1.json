@@ -1,5 +1,5 @@
 {
-  "architecture": "basic.json",
+  "architecture": "basic_oha.json",
   "num_requests": 10000,
   "spin_time_seconds": 0.005,
   "write_key_mod": 1000,
