@@ -19,9 +19,9 @@ type Batcher struct {
 	batchSize    int
 	batchTimeout time.Duration
 	// Monotonic batch sequence number
-	seqNum        int
-	mu            sync.Mutex
-	lastBatchTime time.Time
+	seqNum         int
+	mu             sync.Mutex
+	batchStartTime time.Time
 }
 
 func NewBatcher(name string, nextCh chan<- map[string]any, execs []string, isPrimary bool, runConfig map[string]any) *Batcher {
@@ -29,14 +29,13 @@ func NewBatcher(name string, nextCh chan<- map[string]any, execs []string, isPri
 		panic("batcher component requires non-nil nextCh")
 	}
 	b := &Batcher{
-		Name:          name,
-		NextCh:        nextCh,
-		Execs:         execs,
-		isPrimary:     isPrimary,
-		batch:         []map[string]any{},
-		batchSize:     common.MustInt(runConfig, "batch_size"),
-		batchTimeout:  time.Duration(common.MustInt(runConfig, "batch_timeout_ms")) * time.Millisecond,
-		lastBatchTime: time.Now(),
+		Name:         name,
+		NextCh:       nextCh,
+		Execs:        execs,
+		isPrimary:    isPrimary,
+		batch:        []map[string]any{},
+		batchSize:    common.MustInt(runConfig, "batch_size"),
+		batchTimeout: time.Duration(common.MustInt(runConfig, "batch_timeout_ms")) * time.Millisecond,
 	}
 	return b
 }
@@ -50,7 +49,7 @@ func (b *Batcher) batchFlusher() {
 		time.Sleep(b.batchTimeout)
 		b.mu.Lock()
 		// Flush on timeout if there are pending requests
-		if len(b.batch) > 0 && time.Since(b.lastBatchTime) >= b.batchTimeout {
+		if len(b.batch) > 0 && !b.batchStartTime.IsZero() && time.Since(b.batchStartTime) >= b.batchTimeout {
 			b.flushBatchLocked()
 		}
 		b.mu.Unlock()
@@ -63,14 +62,14 @@ func (b *Batcher) flushBatchLocked() {
 	}
 	if !b.isPrimary {
 		b.batch = []map[string]any{}
-		b.lastBatchTime = time.Now()
+		b.batchStartTime = time.Time{}
 		return
 	}
 
 	batch := b.batch
 	b.batch = []map[string]any{}
 	b.seqNum++
-	b.lastBatchTime = time.Now()
+	b.batchStartTime = time.Time{}
 
 	// Attach nondeterminism data for consistent execution across replicas
 	message := map[string]any{
@@ -100,6 +99,9 @@ func (b *Batcher) HandleRequestMessage(payload map[string]any) map[string]any {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	if len(b.batch) == 0 {
+		b.batchStartTime = time.Now()
+	}
 	b.batch = append(b.batch, payload)
 	if len(b.batch) >= b.batchSize {
 		b.flushBatchLocked()
