@@ -5,13 +5,25 @@
       "next": ["node1", "node2", "node3"],
       "client_workflow": "supersimple_oha_client"
     },
-    "server": {
+    "middle": {
       "type": "server",
       "clients": ["node0"],
       "nodes": ["node1", "node2", "node3"],
-      "exec_workflow": "supersimple_server",
+      "exec_workflow": "supersimple_middle",
       "init_state_workflow": "supersimple_default",
       "shimQuorumSize": 1,
+      "verifyResponseQuorumSize": 1,
+      "execVerifyQuorumSize": 2,
+      "phaseQuorumSize": 2,
+      "expectedExecVotes": 3
+    },
+    "backend": {
+      "type": "server",
+      "clients": ["node1", "node2", "node3"],
+      "nodes": ["node4", "node5", "node6"],
+      "exec_workflow": "supersimple_backend",
+      "init_state_workflow": "supersimple_default",
+      "shimQuorumSize": 2,
       "verifyResponseQuorumSize": 1,
       "execVerifyQuorumSize": 2,
       "phaseQuorumSize": 2,
@@ -23,15 +35,27 @@
       "service": "oha_client"
     },
     "node1": {
-      "service": "server",
+      "service": "middle",
       "is_primary_batcher": true
     },
     "node2": {
-      "service": "server",
+      "service": "middle",
       "is_primary_batcher": false
     },
     "node3": {
-      "service": "server",
+      "service": "middle",
+      "is_primary_batcher": false
+    },
+    "node4": {
+      "service": "backend",
+      "is_primary_batcher": true
+    },
+    "node5": {
+      "service": "backend",
+      "is_primary_batcher": false
+    },
+    "node6": {
+      "service": "backend",
       "is_primary_batcher": false
     }
   }

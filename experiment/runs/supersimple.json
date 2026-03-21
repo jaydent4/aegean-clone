@@ -1,6 +1,8 @@
 {
   "architecture": "supersimple.json",
   "num_requests": 1000,
+  "supersimple_nesres_block": false,
+  "supersimple_forward_prob": 0,
   "request_timeout": "999s",
   "command_deadline_seconds": 360,
   "batch_size": 40,
