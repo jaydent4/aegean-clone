@@ -122,10 +122,8 @@ def create_results_run_dir(relative_run_config_path, results_dir="results"):
 def collect_logs(run_dir, node_names, client_names):
     logger.info("Collecting logs (%d nodes, %d clients)", len(node_names), len(client_names))
 
-    logs_dir = os.path.join(run_dir, "logs")
-    os.makedirs(logs_dir, exist_ok=True)
     for name in node_names:
-        local_path = os.path.join(logs_dir, f"{name}.log")
+        local_path = os.path.join(run_dir, f"{name}.log")
         _scp(name, "/tmp/node.log", local_path)
     logger.info("Log collection complete: %s", run_dir)
 
