@@ -43,53 +43,19 @@ func runClientRequestLogic(c *nodes.Client, waitForResponse bool) {
 			},
 		}
 
-		expectedResult := map[string]any{
-			"read_value": expectedReadValue(requestID, writeKeyMod, readKeyMod, valueLength),
-			"request_id": requestID,
-			"status":     "ok",
-		}
-
 		sent := false
 		for _, nextNode := range c.Next {
 			_, err := netx.SendMessage(nextNode, 8000, request)
 			if err != nil {
-				_ = c.TraceLogger.WriteTrace(map[string]any{
-					"type":            "request",
-					"request_id":      requestID,
-					"send_to":         nextNode,
-					"status_code":     "error",
-					"payload":         request,
-					"expected_result": expectedResult,
-					"timestamp":       time.Now().Format(time.RFC3339Nano),
-				})
 				continue
 			}
 			sent = true
-			_ = c.TraceLogger.WriteTrace(map[string]any{
-				"type":            "request",
-				"request_id":      requestID,
-				"send_to":         nextNode,
-				"status_code":     "ack",
-				"payload":         request,
-				"expected_result": expectedResult,
-				"timestamp":       time.Now().Format(time.RFC3339Nano),
-			})
 		}
 
 		if waitForResponse && sent {
 			c.WaitForRequestCompletion(requestID)
 		}
 	}
-}
-
-func expectedReadValue(requestID int, writeKeyMod int, readKeyMod int, valueLength int) string {
-	readKey := requestID % readKeyMod
-	for candidate := requestID; candidate >= 1; candidate-- {
-		if candidate%writeKeyMod == readKey {
-			return makeLargeWriteValue(candidate, valueLength)
-		}
-	}
-	return ""
 }
 
 func makeLargeWriteValue(requestID int, valueLength int) string {

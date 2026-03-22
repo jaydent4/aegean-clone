@@ -1,7 +1,6 @@
 package nodes
 
 import (
-	"aegean/common"
 	netx "aegean/net"
 	"fmt"
 	"sync"
@@ -13,14 +12,11 @@ type Client struct {
 	Next              []string
 	ReadyNodes        []string
 	completedRequests map[string]struct{}
-	TraceLogger       *common.TraceLogger
 	mu                sync.Mutex
 	cond              *sync.Cond
 	RequestLogic      func(c *Client)
 	RunConfig         map[string]any
 }
-
-const clientTraceLogPath = "/tmp/client_result.jsonl"
 
 func NewClient(name, host string, port int, next []string, readyNodes []string, runConfig map[string]any, requestLogic func(c *Client)) *Client {
 	if requestLogic == nil {
@@ -33,12 +29,6 @@ func NewClient(name, host string, port int, next []string, readyNodes []string, 
 		completedRequests: make(map[string]struct{}),
 		RequestLogic:      requestLogic,
 		RunConfig:         runConfig,
-	}
-	traceLogger, err := common.NewTraceLogger(clientTraceLogPath)
-	if err != nil {
-		client.TraceLogger = common.NewNoopTraceLogger()
-	} else {
-		client.TraceLogger = traceLogger
 	}
 	client.cond = sync.NewCond(&client.mu)
 	client.Node.HandleMessage = client.HandleMessage
@@ -56,22 +46,12 @@ func (c *Client) Start() {
 func (c *Client) HandleMessage(payload map[string]any) map[string]any {
 
 	requestID := payload["request_id"]
-	response, _ := payload["response"].(map[string]any)
-	sender, _ := payload["sender"].(string)
 	key := toKey(requestID)
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if _, done := c.completedRequests[key]; done {
-		_ = c.TraceLogger.WriteTrace(map[string]any{
-			"type":          "response",
-			"request_id":    requestID,
-			"receive_from":  sender,
-			"payload":       payload,
-			"actual_result": response,
-			"timestamp":     time.Now().Format(time.RFC3339Nano),
-		})
 		return map[string]any{"status": "already_completed"}
 	}
 
@@ -79,15 +59,6 @@ func (c *Client) HandleMessage(payload map[string]any) map[string]any {
 	c.completedRequests[key] = struct{}{}
 	c.cond.Broadcast()
 	// TODO: In full BFT mode, would wait for f+1 matching responses
-
-	_ = c.TraceLogger.WriteTrace(map[string]any{
-		"type":          "response",
-		"request_id":    requestID,
-		"receive_from":  sender,
-		"payload":       payload,
-		"actual_result": response,
-		"timestamp":     time.Now().Format(time.RFC3339Nano),
-	})
 
 	return map[string]any{"status": "response_received", "request_id": requestID}
 }

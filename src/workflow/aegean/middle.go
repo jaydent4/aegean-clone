@@ -131,7 +131,7 @@ func processNestedFanoutResponse(e *exec.Exec, requestID any, nested map[string]
 			}
 		}
 	}
-	// Keep client-facing response flat so it matches expected_result shape in traces
+	// Keep the client-facing response flat so it matches the expected response shape.
 	if selectedResponse, ok := nested["response"].(map[string]any); ok {
 		for key, value := range selectedResponse {
 			if _, exists := output[key]; !exists {

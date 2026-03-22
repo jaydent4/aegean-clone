@@ -127,12 +127,6 @@ def collect_logs(run_dir, node_names, client_names):
     for name in node_names:
         local_path = os.path.join(logs_dir, f"{name}.log")
         _scp(name, "/tmp/node.log", local_path)
-
-    traces_dir = os.path.join(run_dir, "traces")
-    os.makedirs(traces_dir, exist_ok=True)
-    for name in client_names:
-        local_path = os.path.join(traces_dir, f"{name}.jsonl")
-        _scp(name, "/tmp/client_result.jsonl", local_path)
     logger.info("Log collection complete: %s", run_dir)
 
 
