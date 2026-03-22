@@ -12,7 +12,6 @@ import (
 type OHAClient struct {
 	*Client
 	mu         sync.Mutex
-	finished   bool
 	requestSeq uint64
 	pending    map[string]*pendingOHARequest
 	// TODO: QuorumHelper currently has no per-request cleanup/reset API
@@ -35,7 +34,6 @@ func NewOHAClient(name, host string, port int, next []string, readyNodes []strin
 		finalResponseQuorum: common.NewQuorumHelper(quorumSize),
 	}
 	client.Node.HandleMessage = client.HandleMessage
-	client.Node.HandleProgress = client.HandleProgress
 	client.Node.HandleReady = client.HandleReady
 	return client
 }
@@ -44,9 +42,6 @@ func (c *OHAClient) Start() {
 	go func() {
 		c.WaitForNodesReady([]string{c.Name})
 		c.RequestLogic(c.Client)
-		c.mu.Lock()
-		c.finished = true
-		c.mu.Unlock()
 	}()
 	c.Node.Start()
 }
@@ -158,23 +153,6 @@ func (c *OHAClient) handleResponse(payload map[string]any) map[string]any {
 	}
 
 	return map[string]any{"status": "response_recorded", "request_id": requestID}
-}
-
-func (c *OHAClient) HandleProgress(payload map[string]any) map[string]any {
-	c.mu.Lock()
-	finished := c.finished
-	c.mu.Unlock()
-
-	progress := float32(0)
-	if finished {
-		progress = 1
-	}
-
-	return map[string]any{
-		"progress":               progress,
-		"finished":               finished,
-		"disableProgressTimeout": true,
-	}
 }
 
 func (c *OHAClient) HandleReady(payload map[string]any) map[string]any {

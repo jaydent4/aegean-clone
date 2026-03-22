@@ -26,7 +26,6 @@ func runClientRequestLogic(c *nodes.Client, waitForResponse bool) {
 	valueLength := common.MustInt(c.RunConfig, "value_length")
 
 	c.WaitForNodesReady(c.ReadyNodes)
-	c.TotalProgress = float32(numRequests * len(c.Next))
 
 	for requestID := 1; requestID <= numRequests; requestID++ {
 		timestamp := float64(time.Now().UnixNano()) / 1e9

@@ -38,9 +38,6 @@ func TestNodeStart(t *testing.T) {
 	node.HandleMessage = func(req map[string]any) map[string]any {
 		return map[string]any{"echo": req["msg"]}
 	}
-	node.HandleProgress = func(req map[string]any) map[string]any {
-		return map[string]any{"progress": 0.0, "finished": false}
-	}
 
 	// Start server in background
 	go node.Start()

@@ -16,8 +16,6 @@ type Node struct {
 
 	// HandleMessage must be set by embedding types to process requests.
 	HandleMessage netx.MessageHandler
-	// HandleProgress is mounted on /progress and mirrors HandleMessage semantics.
-	HandleProgress netx.MessageHandler
 	// HandleReady is mounted on /ready and mirrors HandleMessage semantics.
 	HandleReady netx.MessageHandler
 }
@@ -43,9 +41,6 @@ func (n *Node) Start() {
 	addr := fmt.Sprintf("%s:%d", n.Host, n.Port)
 	handlers := map[string]netx.MessageHandler{
 		"/": n.HandleMessage,
-	}
-	if n.HandleProgress != nil {
-		handlers["/progress"] = n.HandleProgress
 	}
 	if n.HandleReady != nil {
 		handlers["/ready"] = n.HandleReady

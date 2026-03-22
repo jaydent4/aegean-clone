@@ -18,10 +18,6 @@ type Client struct {
 	cond              *sync.Cond
 	RequestLogic      func(c *Client)
 	RunConfig         map[string]any
-
-	// For /progress
-	progress      float32
-	TotalProgress float32
 }
 
 const clientTraceLogPath = "/tmp/client_result.jsonl"
@@ -46,7 +42,6 @@ func NewClient(name, host string, port int, next []string, readyNodes []string, 
 	}
 	client.cond = sync.NewCond(&client.mu)
 	client.Node.HandleMessage = client.HandleMessage
-	client.Node.HandleProgress = client.HandleProgress
 	client.Node.HandleReady = client.HandleReady
 	return client
 }
@@ -77,13 +72,11 @@ func (c *Client) HandleMessage(payload map[string]any) map[string]any {
 			"actual_result": response,
 			"timestamp":     time.Now().Format(time.RFC3339Nano),
 		})
-		c.progress++
 		return map[string]any{"status": "already_completed"}
 	}
 
 	// In CFT mode with a single exec pipeline, one response is sufficient
 	c.completedRequests[key] = struct{}{}
-	c.progress++
 	c.cond.Broadcast()
 	// TODO: In full BFT mode, would wait for f+1 matching responses
 
@@ -138,19 +131,6 @@ func (c *Client) WaitForNodesReady(nodeNames []string) {
 		}
 
 		time.Sleep(1 * time.Second)
-	}
-}
-
-func (c *Client) HandleProgress(payload map[string]any) map[string]any {
-	c.mu.Lock()
-	progress := c.progress
-	totalProgress := c.TotalProgress
-	c.mu.Unlock()
-
-	return map[string]any{
-		"progress":               progress / totalProgress,
-		"finished":               progress == totalProgress,
-		"disableProgressTimeout": false,
 	}
 }
 

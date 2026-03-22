@@ -12,6 +12,7 @@
   "value_length": 100,
   "request_timeout": "999s",
   "command_deadline_seconds": 360,
+  "run_timeout_seconds": 120,
   "batch_size": 40,
   "batch_timeout_ms": 20,
   "parallel_window_k": 4,

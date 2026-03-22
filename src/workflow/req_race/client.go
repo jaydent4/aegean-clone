@@ -13,7 +13,6 @@ func ClientRequestLogic(c *nodes.Client) {
 	totalRequests := common.MustInt(c.RunConfig, "num_requests")
 
 	c.WaitForNodesReady(c.ReadyNodes)
-	c.TotalProgress = float32(totalRequests)
 
 	for requestID := 1; requestID <= totalRequests; requestID++ {
 		request := map[string]any{

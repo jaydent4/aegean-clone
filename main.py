@@ -7,8 +7,6 @@ import shlex
 import subprocess
 import time
 
-from tqdm import tqdm
-
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -54,6 +52,10 @@ def load_run_config(run_config_path):
     architecture = data.get("architecture")
     if not architecture:
         raise ValueError("run config must include non-empty 'architecture'")
+
+    run_timeout_seconds = data.get("run_timeout_seconds")
+    if not isinstance(run_timeout_seconds, int) or run_timeout_seconds <= 0:
+        raise ValueError("run config must include positive integer 'run_timeout_seconds'")
 
     architecture_path = os.path.normpath(os.path.join(architecture_dir, architecture))
     return resolved_run_config_path, relative_run_config_path, architecture_path, data
@@ -235,63 +237,11 @@ def wait_for_nodes_ready(node_names, timeout=30.0, poll_interval=1.0):
     return False
 
 
-def get_client_progress(client_name):
-    payload = _remote_rpc(client_name, "/progress", timeout=5)
-    progress = float(payload.get("progress", 0.0))
-    finished = bool(payload.get("finished", False))
-    disable_progress_timeout = bool(payload.get("disableProgressTimeout", False))
-    return progress, finished, disable_progress_timeout
-
-
-def wait_for_clients_progress(client_names, poll_interval=1.0, stall_timeout=30.0):
-    if not client_names:
-        return True
-
-    prev_progress = 0.0
-    prev_progress_time = time.monotonic()
-    progress_bar = tqdm(total=float(len(client_names)), desc="Clients")
-
-    try:
-        while True:
-            progress_sum = 0
-            all_finished = True
-            disable_progress_timeout = False
-            for name in client_names:
-                try:
-                    progress, finished, disable_timeout = get_client_progress(name)
-                    progress_sum += progress
-                    all_finished = all_finished and finished
-                    disable_progress_timeout = disable_progress_timeout or disable_timeout
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("Failed to read progress from %s: %s", name, exc)
-                    all_finished = False
-
-            progress_bar.update(progress_sum - prev_progress)
-
-            if all_finished:
-                progress_bar.close()
-                return True
-
-            if progress_sum != prev_progress:
-                prev_progress = progress_sum
-                prev_progress_time = time.monotonic()
-            elif not disable_progress_timeout and time.monotonic() - prev_progress_time > stall_timeout:
-                logger.warning(
-                    "Progress stalled for over %.1fs (total_progress=%.3f)",
-                    stall_timeout,
-                    progress_sum,
-                )
-                return False
-
-            time.sleep(poll_interval)
-    finally:
-        progress_bar.close()
-
-
 def run_experiment(config_path):
     _, relative_run_config_path, architecture_path, run_config = load_run_config(config_path)
     node_names, client_names = load_experiment_topology(architecture_path)
     run_dir = create_results_run_dir(relative_run_config_path)
+    run_timeout_seconds = run_config["run_timeout_seconds"]
 
     logger.info("Experiment starting: %s", relative_run_config_path)
     stop_docker_nodes(node_names)
@@ -302,17 +252,11 @@ def run_experiment(config_path):
     if not all_nodes_ready:
         logger.warning("Node readiness timeout after 120s; proceeding anyway")
 
-    logger.info("Waiting for client completion")
-    progress_start = time.monotonic()
-    completed = wait_for_clients_progress(
-        client_names,
-        poll_interval=1.0,
-        stall_timeout=5.0,
-    )
-    progress_duration_seconds = max(0.0, time.monotonic() - progress_start)
-    logger.info("Client progress duration: %.2fs", progress_duration_seconds)
-    if not completed:
-        logger.warning("Proceeding after progress timeout")
+    logger.info("Waiting for run timeout: %ss", run_timeout_seconds)
+    run_start = time.monotonic()
+    time.sleep(run_timeout_seconds)
+    run_duration_seconds = max(0.0, time.monotonic() - run_start)
+    logger.info("Run timeout reached after %.2fs", run_duration_seconds)
 
     stop_docker_nodes(node_names)
     collect_logs(run_dir, node_names, client_names)

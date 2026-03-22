@@ -24,7 +24,7 @@ func TestLoadRunConfigResolvesArchitectureSiblingToRunsDir(t *testing.T) {
 	}
 
 	runConfigPath := filepath.Join(runDir, "worker_4.json")
-	if err := os.WriteFile(runConfigPath, []byte(`{"architecture":"basic_oha.json","worker_count":4}`), 0o644); err != nil {
+	if err := os.WriteFile(runConfigPath, []byte(`{"architecture":"basic_oha.json","worker_count":4,"run_timeout_seconds":30}`), 0o644); err != nil {
 		t.Fatalf("write run config: %v", err)
 	}
 
@@ -38,5 +38,8 @@ func TestLoadRunConfigResolvesArchitectureSiblingToRunsDir(t *testing.T) {
 	}
 	if got := cfg.Params["worker_count"]; got != float64(4) {
 		t.Fatalf("worker_count = %#v, want 4", got)
+	}
+	if got := cfg.Params["run_timeout_seconds"]; got != float64(30) {
+		t.Fatalf("run_timeout_seconds = %#v, want 30", got)
 	}
 }
