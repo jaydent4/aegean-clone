@@ -14,27 +14,25 @@ import (
 
 func K6ClientRequestLogic(c *nodes.Client) {
 	spinTimeSeconds := common.MustFloat64(c.RunConfig, "spin_time_seconds")
-	k6RequestTimeout := common.MustString(c.RunConfig, "request_timeout")
-	k6CommandDeadlineSeconds := common.MustInt(c.RunConfig, "command_deadline_seconds")
+	runTimeoutSeconds := common.MustInt(c.RunConfig, "run_timeout_seconds")
 	writeKeyMod := common.MustInt(c.RunConfig, "write_key_mod")
 	readKeyMod := common.MustInt(c.RunConfig, "read_key_mod")
 	valueLength := common.MustInt(c.RunConfig, "value_length")
 	k6QPS := common.MustInt(c.RunConfig, "k6_qps")
-	k6Duration := common.MustString(c.RunConfig, "k6_duration")
+	duration := common.MustString(c.RunConfig, "duration")
 	k6PreAllocatedVUs := common.MustInt(c.RunConfig, "k6_pre_allocated_vus")
 	k6MaxVUs := common.MustInt(c.RunConfig, "k6_max_vus")
-	k6CommandDeadline := time.Duration(k6CommandDeadlineSeconds) * time.Second
+	k6CommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)
 	k6TargetURL := fmt.Sprintf("http://%s:8000/", c.Name)
 
 	if err := runK6(k6RunConfig{
 		rate:            k6QPS,
-		duration:        k6Duration,
+		duration:        duration,
 		preAllocatedVUs: k6PreAllocatedVUs,
 		maxVUs:          k6MaxVUs,
 		targetURL:       k6TargetURL,
-		requestTimeout:  k6RequestTimeout,
 		deadline:        k6CommandDeadline,
 		sender:          c.Name,
 		scriptPath:      "workflow/aegean/k6_client.js",
@@ -59,7 +57,6 @@ type k6RunConfig struct {
 	preAllocatedVUs int
 	maxVUs          int
 	targetURL       string
-	requestTimeout  string
 	deadline        time.Duration
 	sender          string
 	scriptPath      string
@@ -73,7 +70,6 @@ func runK6(config k6RunConfig) error {
 	args := []string{
 		"run",
 		"-e", "AEGEAN_TARGET_URL=" + config.targetURL,
-		"-e", "AEGEAN_REQUEST_TIMEOUT=" + config.requestTimeout,
 		"-e", "AEGEAN_SENDER=" + config.sender,
 		"-e", "AEGEAN_RATE=" + strconv.Itoa(config.rate),
 		"-e", "AEGEAN_DURATION=" + config.duration,

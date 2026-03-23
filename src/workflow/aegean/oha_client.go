@@ -15,33 +15,24 @@ import (
 	"time"
 )
 
+const ohaRequestCount = 10000
 const ohaBodyPath = "/tmp/oha-requests.ndjson"
 
 func OhaClientRequestLogic(c *nodes.Client) {
-	numRequests := common.MustInt(c.RunConfig, "num_requests")
+	duration := common.MustString(c.RunConfig, "duration")
 	spinTimeSeconds := common.MustFloat64(c.RunConfig, "spin_time_seconds")
-	ohaRequestTimeout := common.MustString(c.RunConfig, "request_timeout")
-	ohaCommandDeadlineSeconds := common.MustInt(c.RunConfig, "command_deadline_seconds")
+	runTimeoutSeconds := common.MustInt(c.RunConfig, "run_timeout_seconds")
 	writeKeyMod := common.MustInt(c.RunConfig, "write_key_mod")
 	readKeyMod := common.MustInt(c.RunConfig, "read_key_mod")
 	valueLength := common.MustInt(c.RunConfig, "value_length")
-	ohaCommandDeadline := time.Duration(ohaCommandDeadlineSeconds) * time.Second
+	ohaCommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)
 	ohaTargetURL := fmt.Sprintf("http://%s:8000/", c.Name)
 
-	bodyFile, err := os.Create(ohaBodyPath)
-	if err != nil {
-		log.Printf("failed to create temp request file: %v", err)
-		return
-	}
-	defer os.Remove(ohaBodyPath)
-
-	writer := bufio.NewWriter(bodyFile)
-	for requestIdx := 1; requestIdx <= numRequests; requestIdx++ {
-		timestamp := float64(time.Now().UnixNano()) / 1e9
-		request := map[string]any{
-			"timestamp": timestamp,
+	if err := runOha(duration, ohaCommandDeadline, ohaTargetURL, func(requestIdx int) map[string]any {
+		return map[string]any{
+			"timestamp": float64(time.Now().UnixNano()) / 1e9,
 			"sender":    c.Name,
 			"op":        "spin_write_read",
 			"op_payload": map[string]any{
@@ -51,47 +42,8 @@ func OhaClientRequestLogic(c *nodes.Client) {
 				"read_key":    strconv.Itoa(requestIdx % readKeyMod),
 			},
 		}
-		line, err := json.Marshal(request)
-		if err != nil {
-			log.Printf("failed to marshal oha request %d: %v", requestIdx, err)
-			return
-		}
-		if _, err := writer.Write(line); err != nil {
-			log.Printf("failed to write oha request %d: %v", requestIdx, err)
-			return
-		}
-		if err := writer.WriteByte('\n'); err != nil {
-			log.Printf("failed to write oha newline %d: %v", requestIdx, err)
-			return
-		}
-	}
-	if err := writer.Flush(); err != nil {
-		log.Printf("failed to flush oha request file: %v", err)
-		return
-	}
-	if err := bodyFile.Close(); err != nil {
-		log.Printf("failed to close oha request file: %v", err)
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), ohaCommandDeadline)
-	defer cancel()
-
-	cmd := exec.CommandContext(
-		ctx,
-		"oha",
-		"-n", strconv.Itoa(numRequests),
-		"-m", "POST",
-		"-H", "Content-Type: application/json",
-		"-t", ohaRequestTimeout,
-		"-Z", ohaBodyPath,
-		ohaTargetURL,
-	)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
+	}); err != nil {
+		if err == context.DeadlineExceeded {
 			log.Printf("oha client request logic timed out after %s", ohaCommandDeadline)
 			return
 		}
@@ -103,4 +55,58 @@ func makeLargeWriteValue(requestID int, valueLength int) string {
 	token := strconv.Itoa(requestID)
 	repeat := valueLength/len(token) + 1
 	return strings.Repeat(token, repeat)
+}
+
+func runOha(duration string, deadline time.Duration, targetURL string, buildRequest func(int) map[string]any) error {
+	ctx, cancel := context.WithTimeout(context.Background(), deadline)
+	defer cancel()
+
+	if err := writeRequests(ohaBodyPath, ohaRequestCount, buildRequest); err != nil {
+		return err
+	}
+	defer os.Remove(ohaBodyPath)
+
+	cmd := exec.CommandContext(
+		ctx,
+		"oha",
+		"-z", duration,
+		"-m", "POST",
+		"-H", "Content-Type: application/json",
+		"-Z", ohaBodyPath,
+		targetURL,
+	)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return ctx.Err()
+		}
+		return fmt.Errorf("run oha: %w", err)
+	}
+
+	return nil
+}
+
+func writeRequests(bodyPath string, requestCount int, buildRequest func(int) map[string]any) error {
+	bodyFile, err := os.Create(bodyPath)
+	if err != nil {
+		return fmt.Errorf("create request file: %w", err)
+	}
+	defer bodyFile.Close()
+
+	writer := bufio.NewWriter(bodyFile)
+	for requestIdx := 1; requestIdx <= requestCount; requestIdx++ {
+		line, err := json.Marshal(buildRequest(requestIdx))
+		if err != nil {
+			return err
+		}
+		if _, err := writer.Write(line); err != nil {
+			return err
+		}
+		if err := writer.WriteByte('\n'); err != nil {
+			return err
+		}
+	}
+	return writer.Flush()
 }

@@ -1,17 +1,15 @@
 {
   "architecture": "basic_oha.json",
-  "num_requests": 10000,
+  "duration": "15s",
   "spin_time_seconds": 0.005,
   "write_key_mod": 1000,
   "read_key_mod": 1000,
   "key_count": 1000,
   "value_length": 100,
-  "request_timeout": "999s",
-  "command_deadline_seconds": 360,
-  "run_timeout_seconds": 120,
+  "run_timeout_seconds": 20,
   "batch_size": 40,
   "batch_timeout_ms": 20,
   "parallel_window_k": 4,
   "worker_count": 8,
-  "gomaxprocs": 40
+  "gomaxprocs": 4
 }

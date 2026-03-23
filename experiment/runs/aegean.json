@@ -1,8 +1,7 @@
 {
   "architecture": "aegean.json",
-  "num_requests": 10000,
   "k6_qps": 1000,
-  "k6_duration": "30s",
+  "duration": "15s",
   "k6_pre_allocated_vus": 32,
   "k6_max_vus": 32,
   "spin_time_seconds": 0.005,
@@ -10,12 +9,10 @@
   "read_key_mod": 1000,
   "key_count": 1000,
   "value_length": 100,
-  "request_timeout": "999s",
-  "command_deadline_seconds": 360,
-  "run_timeout_seconds": 120,
+  "run_timeout_seconds": 20,
   "batch_size": 40,
   "batch_timeout_ms": 20,
   "parallel_window_k": 4,
   "worker_count": 4,
-  "gomaxprocs": 40
+  "gomaxprocs": 4
 }

@@ -43,6 +43,5 @@ export default function () {
 
   http.post(__ENV.AEGEAN_TARGET_URL, body, {
     headers: { 'Content-Type': 'application/json' },
-    timeout: __ENV.AEGEAN_REQUEST_TIMEOUT,
   });
 }

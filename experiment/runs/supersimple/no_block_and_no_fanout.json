@@ -1,14 +1,12 @@
 {
   "architecture": "supersimple.json",
-  "num_requests": 1000,
+  "duration": "15s",
   "supersimple_nesres_block": false,
   "supersimple_forward_prob": 0.0,
-  "request_timeout": "999s",
-  "command_deadline_seconds": 360,
   "run_timeout_seconds": 20,
   "batch_size": 40,
   "batch_timeout_ms": 20,
   "parallel_window_k": 4,
   "worker_count": 4,
-  "gomaxprocs": 40
+  "gomaxprocs": 4
 }
