@@ -11,12 +11,13 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"time"
 )
 
 const ohaBodyPath = "/tmp/oha-requests.ndjson"
 
-func OhaClientRequestLogic(c *nodes.Client) {
+func OhaClientRequestLogic(c *nodes.OHAClient) {
 	numRequests := common.MustInt(c.RunConfig, "num_requests")
 	spinTimeSeconds := common.MustFloat64(c.RunConfig, "spin_time_seconds")
 	ohaRequestTimeout := common.MustString(c.RunConfig, "request_timeout")
@@ -96,4 +97,10 @@ func OhaClientRequestLogic(c *nodes.Client) {
 		}
 		log.Printf("oha client request logic failed: %v", err)
 	}
+}
+
+func makeLargeWriteValue(requestID int, valueLength int) string {
+	token := strconv.Itoa(requestID)
+	repeat := valueLength/len(token) + 1
+	return strings.Repeat(token, repeat)
 }

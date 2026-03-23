@@ -9,15 +9,15 @@ import (
 	supersimpleworkflow "aegean/workflow/supersimple"
 )
 
-var ClientWorkflows = map[string]func(c *nodes.Client){
-	"aegean_client":           aegeanworkflow.ClientRequestLogic,
-	"aegean_k6_client":        aegeanworkflow.K6ClientRequestLogic,
+var OHAClientWorkflows = map[string]func(c *nodes.OHAClient){
 	"aegean_oha_client":       aegeanworkflow.OhaClientRequestLogic,
-	"aegean_pipelined":        aegeanworkflow.ClientRequestLogicPipelined,
 	"external_srv_oha_client": externalsrvworkflow.OhaClientRequestLogic,
-	"req_race_client":         reqraceworkflow.ClientRequestLogic,
 	"req_race_oha_client":     reqraceworkflow.OhaClientRequestLogic,
 	"supersimple_oha_client":  supersimpleworkflow.OhaClientRequestLogic,
+}
+
+var K6ClientWorkflows = map[string]func(c *nodes.K6Client){
+	"aegean_k6_client": aegeanworkflow.K6ClientRequestLogic,
 }
 
 var ExecWorkflows = map[string]exec.ExecuteRequestFunc{

@@ -1,10 +1,5 @@
 {
   "services": {
-    "client": {
-      "type": "client",
-      "next": ["node1", "node2", "node3"],
-      "client_workflow": "aegean_pipelined"
-    },
     "oha_client": {
       "type": "oha_client",
       "next": ["node1", "node2", "node3"],

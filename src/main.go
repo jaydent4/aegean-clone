@@ -38,22 +38,12 @@ func main() {
 
 	var node starter
 	switch cfg.Type {
-	case "client":
-		clientWorkflow := cfg.ClientWorkflow
-		if clientWorkflow == "" {
-			clientWorkflow = "default"
-		}
-		clientFn := workflow.ClientWorkflows[clientWorkflow]
-		if clientFn == nil {
-			panic(fmt.Sprintf("unknown client workflow %q for node %s", clientWorkflow, *name))
-		}
-		node = nodes.NewClient(*name, *host, *port, cfg.Next, readyNodes, runConfig.Params, clientFn)
 	case "oha_client":
 		clientWorkflow := cfg.ClientWorkflow
 		if clientWorkflow == "" {
 			clientWorkflow = "default"
 		}
-		clientFn := workflow.ClientWorkflows[clientWorkflow]
+		clientFn := workflow.OHAClientWorkflows[clientWorkflow]
 		if clientFn == nil {
 			panic(fmt.Sprintf("unknown client workflow %q for node %s", clientWorkflow, *name))
 		}
@@ -63,7 +53,7 @@ func main() {
 		if clientWorkflow == "" {
 			clientWorkflow = "default"
 		}
-		clientFn := workflow.ClientWorkflows[clientWorkflow]
+		clientFn := workflow.K6ClientWorkflows[clientWorkflow]
 		if clientFn == nil {
 			panic(fmt.Sprintf("unknown client workflow %q for node %s", clientWorkflow, *name))
 		}
