@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-func K6ClientRequestLogic(c *nodes.Client) {
+func K6OpenClientRequestLogic(c *nodes.Client) {
 	spinTimeSeconds := common.MustFloat64(c.RunConfig, "spin_time_seconds")
 	runTimeoutSeconds := common.MustInt(c.RunConfig, "run_timeout_seconds")
 	writeKeyMod := common.MustInt(c.RunConfig, "write_key_mod")
@@ -35,7 +35,7 @@ func K6ClientRequestLogic(c *nodes.Client) {
 		targetURL:       k6TargetURL,
 		deadline:        k6CommandDeadline,
 		sender:          c.Name,
-		scriptPath:      "workflow/aegean/k6_client.js",
+		scriptPath:      "workflow/aegean/k6_open_client.js",
 		extraEnv: []string{
 			"SPIN_TIME_SECONDS=" + fmt.Sprintf("%g", spinTimeSeconds),
 			"WRITE_KEY_MOD=" + strconv.Itoa(writeKeyMod),

@@ -3,7 +3,7 @@
     "client": {
       "type": "client",
       "next": ["node1", "node2", "node3"],
-      "client_workflow": "aegean_k6_client"
+      "client_workflow": "aegean_k6_open_client"
     },
     "middle": {
       "type": "server",
