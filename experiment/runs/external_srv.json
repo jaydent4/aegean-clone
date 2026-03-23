@@ -1,6 +1,7 @@
 {
   "architecture": "external_srv.json",
   "duration": "15s",
+  "k6_vus": 50,
   "external_service_mode": "idempotent",
   "run_timeout_seconds": 20,
   "batch_size": 40,

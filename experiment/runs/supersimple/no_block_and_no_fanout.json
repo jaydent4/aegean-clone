@@ -1,6 +1,7 @@
 {
   "architecture": "supersimple.json",
   "duration": "15s",
+  "k6_vus": 50,
   "supersimple_nesres_block": false,
   "supersimple_forward_prob": 0.0,
   "run_timeout_seconds": 20,

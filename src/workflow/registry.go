@@ -10,13 +10,16 @@ import (
 )
 
 var ClientWorkflows = map[string]func(c *nodes.Client){
-	"aegean_oha_client":       aegeanworkflow.OhaClientRequestLogic,
-	"aegean_k6_client":        aegeanworkflow.K6OpenClientRequestLogic,
-	"aegean_k6_open_client":   aegeanworkflow.K6OpenClientRequestLogic,
-	"aegean_k6_closed_client": aegeanworkflow.K6ClosedClientRequestLogic,
-	"external_srv_oha_client": externalsrvworkflow.OhaClientRequestLogic,
-	"req_race_oha_client":     reqraceworkflow.OhaClientRequestLogic,
-	"supersimple_oha_client":  supersimpleworkflow.OhaClientRequestLogic,
+	"aegean_oha_client":             aegeanworkflow.OhaClientRequestLogic,
+	"aegean_k6_client":              aegeanworkflow.K6OpenClientRequestLogic,
+	"aegean_k6_open_client":         aegeanworkflow.K6OpenClientRequestLogic,
+	"aegean_k6_closed_client":       aegeanworkflow.K6ClosedClientRequestLogic,
+	"external_srv_oha_client":       externalsrvworkflow.OhaClientRequestLogic,
+	"external_srv_k6_closed_client": externalsrvworkflow.K6ClosedClientRequestLogic,
+	"req_race_oha_client":           reqraceworkflow.OhaClientRequestLogic,
+	"req_race_k6_closed_client":     reqraceworkflow.K6ClosedClientRequestLogic,
+	"supersimple_oha_client":        supersimpleworkflow.OhaClientRequestLogic,
+	"supersimple_k6_closed_client":  supersimpleworkflow.K6ClosedClientRequestLogic,
 }
 
 var ExecWorkflows = map[string]exec.ExecuteRequestFunc{

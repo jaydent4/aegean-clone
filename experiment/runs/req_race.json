@@ -1,6 +1,7 @@
 {
   "architecture": "req_race.json",
   "duration": "15s",
+  "k6_vus": 50,
   "run_timeout_seconds": 20,
   "batch_size": 40,
   "batch_timeout_ms": 20,

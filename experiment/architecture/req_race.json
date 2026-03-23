@@ -3,7 +3,7 @@
     "client": {
       "type": "client",
       "next": ["node1", "node2", "node3"],
-      "client_workflow": "req_race_oha_client"
+      "client_workflow": "req_race_k6_closed_client"
     },
     "middle": {
       "type": "server",

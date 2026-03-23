@@ -3,7 +3,7 @@
     "client": {
       "type": "client",
       "next": ["node1", "node2", "node3"],
-      "client_workflow": "external_srv_oha_client"
+      "client_workflow": "external_srv_k6_closed_client"
     },
     "server": {
       "type": "server",
