@@ -1,7 +1,7 @@
 {
   "services": {
-    "oha_client": {
-      "type": "oha_client",
+    "client": {
+      "type": "client",
       "next": ["node1", "node2", "node3"],
       "client_workflow": "supersimple_oha_client"
     },
@@ -32,7 +32,7 @@
   },
   "nodes": {
     "node0": {
-      "service": "oha_client"
+      "service": "client"
     },
     "node1": {
       "service": "middle",

@@ -10,37 +10,33 @@ import (
 	"time"
 )
 
-type K6Client struct {
+type Client struct {
 	*Node
-	Next              []string
-	ReadyNodes        []string
-	completedRequests map[string]struct{}
-	mu                sync.Mutex
-	cond              *sync.Cond
-	requestSeq        uint64
-	pending           map[string]*pendingK6Request
-	// TODO: QuorumHelper currently has no per-request cleanup/reset API
+	Next                []string
+	ReadyNodes          []string
+	completedRequests   map[string]struct{}
+	pending             map[string]chan map[string]any
+	mu                  sync.Mutex
+	cond                *sync.Cond
+	requestSeq          uint64
 	finalResponseQuorum *common.QuorumHelper
-	RequestLogic        func(c *K6Client)
+	clientType          string
+	RequestLogic        func(c *Client)
 	RunConfig           map[string]any
 }
 
-type pendingK6Request struct {
-	doneCh chan map[string]any
-}
-
-func NewK6Client(name, host string, port int, next []string, readyNodes []string, runConfig map[string]any, requestLogic func(c *K6Client)) *K6Client {
+func NewClient(name, host string, port int, next []string, readyNodes []string, runConfig map[string]any, clientType string, requestLogic func(c *Client)) *Client {
 	if requestLogic == nil {
-		panic("k6 client requires RequestLogic")
+		panic("client requires RequestLogic")
 	}
-	quorumSize := len(next)/2 + 1
-	client := &K6Client{
+	client := &Client{
 		Node:                NewNode(name, host, port),
 		Next:                next,
 		ReadyNodes:          append([]string{}, readyNodes...),
 		completedRequests:   make(map[string]struct{}),
-		pending:             make(map[string]*pendingK6Request),
-		finalResponseQuorum: common.NewQuorumHelper(quorumSize),
+		pending:             make(map[string]chan map[string]any),
+		finalResponseQuorum: common.NewQuorumHelper(len(next)/2 + 1),
+		clientType:          clientType,
 		RequestLogic:        requestLogic,
 		RunConfig:           runConfig,
 	}
@@ -50,7 +46,7 @@ func NewK6Client(name, host string, port int, next []string, readyNodes []string
 	return client
 }
 
-func (c *K6Client) Start() {
+func (c *Client) Start() {
 	go func() {
 		c.WaitForNodesReady([]string{c.Name})
 		c.RequestLogic(c)
@@ -58,24 +54,21 @@ func (c *K6Client) Start() {
 	c.Node.Start()
 }
 
-func (c *K6Client) HandleMessage(payload map[string]any) map[string]any {
+func (c *Client) HandleMessage(payload map[string]any) map[string]any {
 	msgType, _ := payload["type"].(string)
 	if msgType == "response" {
 		return c.handleResponse(payload)
-	} else {
-		return c.handleRequest(payload)
 	}
+	return c.handleRequest(payload)
 }
 
-func (c *K6Client) handleRequest(payload map[string]any) map[string]any {
+func (c *Client) handleRequest(payload map[string]any) map[string]any {
 	requestID := atomic.AddUint64(&c.requestSeq, 1)
-	requestKey := fmt.Sprintf("%v", requestID)
+	requestKey := toKey(requestID)
 
-	pendingReq := &pendingK6Request{
-		doneCh: make(chan map[string]any, 1),
-	}
+	doneCh := make(chan map[string]any, 1)
 	c.mu.Lock()
-	c.pending[requestKey] = pendingReq
+	c.pending[requestKey] = doneCh
 	c.mu.Unlock()
 
 	outgoing := make(map[string]any, len(payload)+4)
@@ -124,7 +117,7 @@ func (c *K6Client) handleRequest(payload map[string]any) map[string]any {
 		c.mu.Lock()
 		delete(c.pending, requestKey)
 		c.mu.Unlock()
-		log.Printf("warning: k6 request dispatch failed for request_id=%v last_error=%v", requestID, lastError)
+		log.Printf("warning: %s request dispatch failed for request_id=%v last_error=%v", c.clientType, requestID, lastError)
 		return map[string]any{
 			"status":     "error",
 			"error":      "dispatch_failed",
@@ -133,20 +126,20 @@ func (c *K6Client) handleRequest(payload map[string]any) map[string]any {
 		}
 	}
 
-	return <-pendingReq.doneCh
+	return <-doneCh
 }
 
-func (c *K6Client) handleResponse(payload map[string]any) map[string]any {
+func (c *Client) handleResponse(payload map[string]any) map[string]any {
 	requestID := payload["request_id"]
 	sender, _ := payload["sender"].(string)
 	if sender == "" {
 		return map[string]any{"status": "error", "error": "missing sender"}
 	}
 
-	requestKey := fmt.Sprintf("%v", requestID)
+	requestKey := toKey(requestID)
 
 	c.mu.Lock()
-	pendingReq, ok := c.pending[requestKey]
+	doneCh, ok := c.pending[requestKey]
 	if !ok {
 		c.mu.Unlock()
 		return map[string]any{"status": "already_completed"}
@@ -156,11 +149,10 @@ func (c *K6Client) handleResponse(payload map[string]any) map[string]any {
 	if c.finalResponseQuorum.Add(requestID, sender) {
 		c.mu.Lock()
 		delete(c.pending, requestKey)
-		c.completedRequests[requestKey] = struct{}{}
-		c.cond.Broadcast()
 		c.mu.Unlock()
+		c.MarkRequestCompleted(requestID)
 		select {
-		case pendingReq.doneCh <- payload:
+		case doneCh <- payload:
 		default:
 		}
 		return map[string]any{"status": "response_quorum_reached", "request_id": requestID}
@@ -169,8 +161,8 @@ func (c *K6Client) handleResponse(payload map[string]any) map[string]any {
 	return map[string]any{"status": "response_recorded", "request_id": requestID}
 }
 
-func (c *K6Client) WaitForRequestCompletion(requestID any) {
-	key := fmt.Sprintf("%v", requestID)
+func (c *Client) WaitForRequestCompletion(requestID any) {
+	key := toKey(requestID)
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -183,7 +175,7 @@ func (c *K6Client) WaitForRequestCompletion(requestID any) {
 	}
 }
 
-func (c *K6Client) WaitForNodesReady(nodeNames []string) {
+func (c *Client) WaitForNodesReady(nodeNames []string) {
 	for {
 		allReady := true
 		for _, nodeName := range nodeNames {
@@ -207,8 +199,22 @@ func (c *K6Client) WaitForNodesReady(nodeNames []string) {
 	}
 }
 
-func (c *K6Client) HandleReady(payload map[string]any) map[string]any {
+func (c *Client) HandleReady(payload map[string]any) map[string]any {
 	return map[string]any{
 		"ready": true,
 	}
+}
+
+func (c *Client) MarkRequestCompleted(requestID any) {
+	key := toKey(requestID)
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.completedRequests[key] = struct{}{}
+	c.cond.Broadcast()
+}
+
+func toKey(value any) string {
+	return fmt.Sprintf("%v", value)
 }

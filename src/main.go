@@ -38,26 +38,16 @@ func main() {
 
 	var node starter
 	switch cfg.Type {
-	case "oha_client":
+	case "client":
 		clientWorkflow := cfg.ClientWorkflow
 		if clientWorkflow == "" {
 			clientWorkflow = "default"
 		}
-		clientFn := workflow.OHAClientWorkflows[clientWorkflow]
+		clientFn := workflow.ClientWorkflows[clientWorkflow]
 		if clientFn == nil {
 			panic(fmt.Sprintf("unknown client workflow %q for node %s", clientWorkflow, *name))
 		}
-		node = nodes.NewOHAClient(*name, *host, *port, cfg.Next, readyNodes, runConfig.Params, clientFn)
-	case "k6_client":
-		clientWorkflow := cfg.ClientWorkflow
-		if clientWorkflow == "" {
-			clientWorkflow = "default"
-		}
-		clientFn := workflow.K6ClientWorkflows[clientWorkflow]
-		if clientFn == nil {
-			panic(fmt.Sprintf("unknown client workflow %q for node %s", clientWorkflow, *name))
-		}
-		node = nodes.NewK6Client(*name, *host, *port, cfg.Next, readyNodes, runConfig.Params, clientFn)
+		node = nodes.NewClient(*name, *host, *port, cfg.Next, readyNodes, runConfig.Params, clientWorkflow, clientFn)
 	case "server":
 		execWorkflow := cfg.ExecWorkflow
 		if execWorkflow == "" {

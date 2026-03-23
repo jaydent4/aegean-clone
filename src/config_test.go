@@ -19,7 +19,7 @@ func TestLoadRunConfigResolvesArchitectureSiblingToRunsDir(t *testing.T) {
 	}
 
 	architecturePath := filepath.Join(architectureDir, "basic_oha.json")
-	if err := os.WriteFile(architecturePath, []byte(`{"services":{"svc":{"type":"oha_client"}},"nodes":{"node0":{"service":"svc"}}}`), 0o644); err != nil {
+	if err := os.WriteFile(architecturePath, []byte(`{"services":{"svc":{"type":"client"}},"nodes":{"node0":{"service":"svc"}}}`), 0o644); err != nil {
 		t.Fatalf("write architecture config: %v", err)
 	}
 

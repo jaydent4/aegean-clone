@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-func K6ClientRequestLogic(c *nodes.K6Client) {
+func K6ClientRequestLogic(c *nodes.Client) {
 	spinTimeSeconds := common.MustFloat64(c.RunConfig, "spin_time_seconds")
 	k6RequestTimeout := common.MustString(c.RunConfig, "request_timeout")
 	k6CommandDeadlineSeconds := common.MustInt(c.RunConfig, "command_deadline_seconds")

@@ -17,7 +17,7 @@ import (
 
 const ohaBodyPath = "/tmp/oha-requests.ndjson"
 
-func OhaClientRequestLogic(c *nodes.OHAClient) {
+func OhaClientRequestLogic(c *nodes.Client) {
 	numRequests := common.MustInt(c.RunConfig, "num_requests")
 	spinTimeSeconds := common.MustFloat64(c.RunConfig, "spin_time_seconds")
 	ohaRequestTimeout := common.MustString(c.RunConfig, "request_timeout")
