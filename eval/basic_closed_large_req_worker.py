@@ -7,7 +7,7 @@ from plot_utils import collect_data, plot_latency, plot_throughput
 
 
 DEFAULT_RESULTS_DIR = Path(
-    "/Users/jasonliu/Documents/VSCode/aegean-clone/results/basic_closed_large_req"
+    "/Users/jasonliu/Documents/VSCode/aegean-clone/results/basic_closed_large_req_worker"
 )
 
 WORKER_DIR_RE = re.compile(r"worker_(\d+)$")
