@@ -3,9 +3,12 @@ import json
 import logging
 import os
 import glob
+import re
 import shlex
+import statistics
 import subprocess
 import time
+from datetime import datetime
 
 import yaml
 
@@ -117,13 +120,15 @@ def list_run_config_paths(runs_dir=None):
     return sorted(os.path.abspath(path) for path in run_config_paths)
 
 
-def create_results_run_dir(relative_run_config_path, results_dir="results"):
+def create_results_run_dir(relative_run_config_path, results_dir="results", timestamped=False):
     results_root = os.path.join(REPO_ROOT, results_dir)
     run_config_relpath = os.path.relpath(
         os.path.abspath(os.path.join(REPO_ROOT, relative_run_config_path)),
         os.path.join(REPO_ROOT, "experiment", "runs"),
     )
     run_dir = os.path.join(results_root, os.path.splitext(run_config_relpath)[0])
+    if timestamped:
+        run_dir = os.path.join(run_dir, datetime.now().strftime("%Y%m%d_%H%M%S"))
     os.makedirs(run_dir, exist_ok=True)
     return run_dir
 
@@ -299,10 +304,132 @@ def wait_for_nodes_ready(node_names, timeout=30.0, poll_interval=1.0):
     return False
 
 
-def run_experiment(config_path, enable_pprof=True, enable_tracing=True):
+def _parse_k6_duration(value_str, unit_str):
+    """Convert a k6 duration value+unit to seconds."""
+    v = float(value_str)
+    unit = unit_str.lower().strip()
+    if unit == "ms":
+        return v / 1000.0
+    if unit == "µs" or unit == "us":
+        return v / 1_000_000.0
+    if unit == "s":
+        return v
+    return v
+
+
+def parse_client_log(log_path):
+    text = open(log_path, "r", encoding="utf-8").read()
+    metrics = {}
+
+    # --- Try k6 format first ---
+    # http_req_duration line: avg=439.86ms min=38.12ms med=467.06ms max=783.82ms p(90)=695.11ms p(95)=722.34ms
+    k6_duration_re = re.search(
+        r"http_req_duration\.+:\s+"
+        r"avg=([0-9.]+)(ms|s|µs|us)\s+"
+        r"min=([0-9.]+)(ms|s|µs|us)\s+"
+        r"med=([0-9.]+)(ms|s|µs|us)\s+"
+        r"max=([0-9.]+)(ms|s|µs|us)\s+"
+        r"p\(90\)=([0-9.]+)(ms|s|µs|us)\s+"
+        r"p\(95\)=([0-9.]+)(ms|s|µs|us)",
+        text,
+    )
+    if k6_duration_re:
+        metrics["average_sec"] = _parse_k6_duration(k6_duration_re.group(1), k6_duration_re.group(2))
+        metrics["fastest_sec"] = _parse_k6_duration(k6_duration_re.group(3), k6_duration_re.group(4))
+        metrics["p50"] = _parse_k6_duration(k6_duration_re.group(5), k6_duration_re.group(6))
+        metrics["slowest_sec"] = _parse_k6_duration(k6_duration_re.group(7), k6_duration_re.group(8))
+        metrics["p90"] = _parse_k6_duration(k6_duration_re.group(9), k6_duration_re.group(10))
+        metrics["p95"] = _parse_k6_duration(k6_duration_re.group(11), k6_duration_re.group(12))
+
+    # http_reqs line: 5708   362.383422/s
+    k6_reqs_re = re.search(r"http_reqs\.+:\s+(\d+)\s+([0-9.]+)/s", text)
+    if k6_reqs_re:
+        metrics["total_requests"] = int(k6_reqs_re.group(1))
+        metrics["requests_sec"] = float(k6_reqs_re.group(2))
+
+    # http_req_failed line: 0.00%  0 out of 5708
+    k6_failed_re = re.search(r"http_req_failed\.+:\s+([0-9.]+)%", text)
+    if k6_failed_re:
+        metrics["success_rate"] = 100.0 - float(k6_failed_re.group(1))
+
+    # iteration_duration for additional percentiles
+    k6_iter_re = re.search(
+        r"iteration_duration\.+:\s+"
+        r"avg=([0-9.]+)(ms|s|µs|us)\s+"
+        r"min=([0-9.]+)(ms|s|µs|us)\s+"
+        r"med=([0-9.]+)(ms|s|µs|us)\s+"
+        r"max=([0-9.]+)(ms|s|µs|us)\s+"
+        r"p\(90\)=([0-9.]+)(ms|s|µs|us)\s+"
+        r"p\(95\)=([0-9.]+)(ms|s|µs|us)",
+        text,
+    )
+
+    if metrics:
+        return metrics
+
+    # --- Fallback: oha-style format ---
+    for key, pattern in [
+        ("success_rate", r"Success rate:\s+([0-9.]+)%"),
+        ("total_sec", r"Total:\s+([0-9.]+) sec"),
+        ("slowest_sec", r"Slowest:\s+([0-9.]+) sec"),
+        ("fastest_sec", r"Fastest:\s+([0-9.]+) sec"),
+        ("average_sec", r"Average:\s+([0-9.]+) sec"),
+        ("requests_sec", r"Requests/sec:\s+([0-9.]+)"),
+    ]:
+        m = re.search(pattern, text)
+        if m:
+            metrics[key] = float(m.group(1))
+
+    percentile_re = re.compile(r"^\s*([0-9.]+)%\s+in\s+([0-9.]+)\s+sec", re.MULTILINE)
+    for m in percentile_re.finditer(text):
+        pct = m.group(1)
+        label = "p" + pct.replace(".", "_").rstrip("0").rstrip("_")
+        metrics[label] = float(m.group(2))
+
+    histogram = []
+    hist_re = re.compile(r"^\s*([0-9.]+)\s+sec\s+\[(\d+)\]", re.MULTILINE)
+    for m in hist_re.finditer(text):
+        histogram.append([float(m.group(1)), int(m.group(2))])
+    if histogram:
+        metrics["histogram"] = histogram
+
+    status_codes = {}
+    status_re = re.compile(r"^\s*\[(\d+)\]\s+(\d+)\s+responses", re.MULTILINE)
+    for m in status_re.finditer(text):
+        status_codes[m.group(1)] = int(m.group(2))
+    if status_codes:
+        metrics["status_codes"] = status_codes
+
+    return metrics
+
+
+def aggregate_runs(per_run_metrics):
+    scalar_keys = set()
+    for m in per_run_metrics:
+        for k, v in m.items():
+            if isinstance(v, (int, float)):
+                scalar_keys.add(k)
+
+    aggregated = {}
+    for key in sorted(scalar_keys):
+        values = [m[key] for m in per_run_metrics if key in m]
+        if not values:
+            continue
+        aggregated[key] = {
+            "mean": round(statistics.mean(values), 4),
+            "median": round(statistics.median(values), 4),
+            "min": round(min(values), 4),
+            "max": round(max(values), 4),
+            "stdev": round(statistics.stdev(values), 4) if len(values) > 1 else 0.0,
+            "values": values,
+        }
+    return aggregated
+
+
+def run_experiment(config_path, enable_pprof=True, enable_tracing=True, timestamped=False):
     _, relative_run_config_path, architecture_path, run_config = load_run_config(config_path)
     node_names, client_names = load_experiment_topology(architecture_path)
-    run_dir = create_results_run_dir(relative_run_config_path)
+    run_dir = create_results_run_dir(relative_run_config_path, timestamped=timestamped)
     run_timeout_seconds = run_config["run_timeout_seconds"]
 
     logger.info("Experiment starting: %s", relative_run_config_path)
@@ -321,8 +448,51 @@ def run_experiment(config_path, enable_pprof=True, enable_tracing=True):
     logger.info("Run timeout reached after %.2fs", run_duration_seconds)
 
     stop_docker_nodes(node_names)
+    time.sleep(3)  # wait for ports to be released before next run
     collect_logs(run_dir, node_names, client_names, enable_pprof=enable_pprof, enable_tracing=enable_tracing)
     logger.info("Experiment complete: %s -> %s", relative_run_config_path, run_dir)
+    return run_dir, client_names
+
+
+def run_experiment_n_times(config_path, n, enable_pprof=True, enable_tracing=True):
+    logger.info("Running experiment %d times: %s", n, config_path)
+    run_dirs = []
+    per_run_metrics = []
+    client_names = []
+
+    for i in range(n):
+        logger.info("=== Run %d/%d ===", i + 1, n)
+        run_dir, client_names = run_experiment(
+            config_path, enable_pprof=enable_pprof, enable_tracing=enable_tracing,
+            timestamped=True,
+        )
+        run_dirs.append(run_dir)
+
+        for client_name in client_names:
+            log_path = os.path.join(run_dir, f"{client_name}.log")
+            if os.path.isfile(log_path):
+                metrics = parse_client_log(log_path)
+                per_run_metrics.append(metrics)
+                break
+
+    aggregated = aggregate_runs(per_run_metrics)
+
+    result = {
+        "num_runs": n,
+        "run_dirs": run_dirs,
+        "config": config_path,
+        "timestamp": datetime.now().strftime("%Y%m%d_%H%M%S"),
+        "per_run": per_run_metrics,
+        "aggregated": aggregated,
+    }
+
+    _, relative_run_config_path, _, _ = load_run_config(config_path)
+    results_run_dir = create_results_run_dir(relative_run_config_path, timestamped=False)
+    output_path = os.path.join(results_run_dir, "aggregated_results.json")
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(result, f, indent=2)
+    logger.info("Aggregated results written to %s", output_path)
+    return output_path
 
 
 def load_config_file(path):
@@ -355,7 +525,16 @@ def main():
         action="store_true",
         help="Disable tracing env injection and otel artifact collection.",
     )
+    parser.add_argument(
+        "--runs",
+        type=int,
+        default=1,
+        help="Number of times to run the experiment (default: 1). Results are aggregated into aggregated_results.json.",
+    )
     args = parser.parse_args()
+
+    enable_pprof = not args.disable_pprof
+    enable_tracing = not args.disable_tracing
 
     if args.all:
         if args.config_path:
@@ -364,21 +543,22 @@ def main():
         if not config_paths:
             parser.error("no run configs found under experiment/runs")
         for config_path in config_paths:
-            run_experiment(
-                config_path,
-                enable_pprof=not args.disable_pprof,
-                enable_tracing=not args.disable_tracing,
-            )
+            if args.runs > 1:
+                run_experiment_n_times(config_path, args.runs, enable_pprof=enable_pprof, enable_tracing=enable_tracing)
+            else:
+                run_experiment(config_path, enable_pprof=enable_pprof, enable_tracing=enable_tracing)
         return
 
     if not args.config_path:
         parser.error("config_path is required unless --all is used")
 
-    run_experiment(
-        args.config_path,
-        enable_pprof=not args.disable_pprof,
-        enable_tracing=not args.disable_tracing,
-    )
+    if args.runs > 1:
+        output_path = run_experiment_n_times(
+            args.config_path, args.runs, enable_pprof=enable_pprof, enable_tracing=enable_tracing,
+        )
+        print(f"Aggregated results: {output_path}")
+    else:
+        run_experiment(args.config_path, enable_pprof=enable_pprof, enable_tracing=enable_tracing)
 
 
 if __name__ == "__main__":
