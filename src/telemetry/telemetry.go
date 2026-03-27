@@ -20,6 +20,11 @@ const payloadCarrierKey = "_otel"
 var textMapPropagator = propagation.TraceContext{}
 
 func Init(ctx context.Context, serviceName string, attrs ...attribute.KeyValue) func(context.Context) error {
+	if os.Getenv("AEGEAN_DISABLE_TRACING") == "1" {
+		log.Printf("telemetry disabled: AEGEAN_DISABLE_TRACING=1")
+		return func(context.Context) error { return nil }
+	}
+
 	outputPath := os.Getenv("AEGEAN_OTEL_FILE_PATH")
 	if outputPath == "" {
 		outputPath = "/tmp/otel-traces.json"

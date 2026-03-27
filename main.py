@@ -128,7 +128,7 @@ def create_results_run_dir(relative_run_config_path, results_dir="results"):
     return run_dir
 
 
-def collect_logs(run_dir, node_names, client_names):
+def collect_logs(run_dir, node_names, client_names, enable_pprof=True, enable_tracing=True):
     logger.info("Collecting logs (%d nodes, %d clients)", len(node_names), len(client_names))
 
     for name in node_names:
@@ -140,13 +140,14 @@ def collect_logs(run_dir, node_names, client_names):
     block_profile_path = os.environ.get("AEGEAN_BLOCK_PROFILE_PATH", DEFAULT_REMOTE_BLOCK_PROFILE_PATH).strip() or DEFAULT_REMOTE_BLOCK_PROFILE_PATH
     mutex_profile_path = os.environ.get("AEGEAN_MUTEX_PROFILE_PATH", DEFAULT_REMOTE_MUTEX_PROFILE_PATH).strip() or DEFAULT_REMOTE_MUTEX_PROFILE_PATH
     otel_trace_path = os.environ.get("AEGEAN_OTEL_FILE_PATH", DEFAULT_REMOTE_OTEL_TRACE_PATH).strip() or DEFAULT_REMOTE_OTEL_TRACE_PATH
-    if profiled_node:
+    if enable_pprof and profiled_node:
         local_profile_path = os.path.join(run_dir, f"{profiled_node}.cpu.pprof")
         _scp(profiled_node, profile_path, local_profile_path)
         _scp(profiled_node, block_profile_path, os.path.join(run_dir, f"{profiled_node}.block.pprof"))
         _scp(profiled_node, mutex_profile_path, os.path.join(run_dir, f"{profiled_node}.mutex.pprof"))
-    for name in node_names:
-        _scp(name, otel_trace_path, os.path.join(run_dir, f"{name}.otel.json"))
+    if enable_tracing:
+        for name in node_names:
+            _scp(name, otel_trace_path, os.path.join(run_dir, f"{name}.otel.json"))
 
     logger.info("Log collection complete: %s", run_dir)
 
@@ -217,7 +218,7 @@ def build_binary(build_node):
     )
 
 
-def launch_nodes(node_names, config_path):
+def launch_nodes(node_names, config_path, enable_pprof=True, enable_tracing=True):
     logger.info("Launching %d nodes", len(node_names))
     if node_names:
         build_binary(node_names[0])
@@ -230,13 +231,17 @@ def launch_nodes(node_names, config_path):
     otel_trace_path = os.environ.get("AEGEAN_OTEL_FILE_PATH", DEFAULT_REMOTE_OTEL_TRACE_PATH).strip() or DEFAULT_REMOTE_OTEL_TRACE_PATH
     for name in node_names:
         profile_env = ""
-        if name == profiled_node:
+        if enable_pprof and name == profiled_node:
             profile_env = (
                 f"AEGEAN_CPU_PROFILE_PATH={shlex.quote(profile_path)} "
                 f"AEGEAN_BLOCK_PROFILE_PATH={shlex.quote(block_profile_path)} "
                 f"AEGEAN_MUTEX_PROFILE_PATH={shlex.quote(mutex_profile_path)} "
             )
-        telemetry_env = f"AEGEAN_OTEL_FILE_PATH={shlex.quote(otel_trace_path)} "
+        telemetry_env = ""
+        if enable_tracing:
+            telemetry_env = f"AEGEAN_OTEL_FILE_PATH={shlex.quote(otel_trace_path)} "
+        else:
+            telemetry_env = "AEGEAN_DISABLE_TRACING=1 "
         _ssh_shell(
             name,
             (
@@ -294,7 +299,7 @@ def wait_for_nodes_ready(node_names, timeout=30.0, poll_interval=1.0):
     return False
 
 
-def run_experiment(config_path):
+def run_experiment(config_path, enable_pprof=True, enable_tracing=True):
     _, relative_run_config_path, architecture_path, run_config = load_run_config(config_path)
     node_names, client_names = load_experiment_topology(architecture_path)
     run_dir = create_results_run_dir(relative_run_config_path)
@@ -303,7 +308,7 @@ def run_experiment(config_path):
     logger.info("Experiment starting: %s", relative_run_config_path)
     stop_docker_nodes(node_names)
 
-    launch_nodes(node_names, relative_run_config_path)
+    launch_nodes(node_names, relative_run_config_path, enable_pprof=enable_pprof, enable_tracing=enable_tracing)
     logger.info("Waiting for all nodes to become ready")
     all_nodes_ready = wait_for_nodes_ready(node_names, timeout=120.0, poll_interval=1.0)
     if not all_nodes_ready:
@@ -316,7 +321,7 @@ def run_experiment(config_path):
     logger.info("Run timeout reached after %.2fs", run_duration_seconds)
 
     stop_docker_nodes(node_names)
-    collect_logs(run_dir, node_names, client_names)
+    collect_logs(run_dir, node_names, client_names, enable_pprof=enable_pprof, enable_tracing=enable_tracing)
     logger.info("Experiment complete: %s -> %s", relative_run_config_path, run_dir)
 
 
@@ -340,6 +345,16 @@ def main():
         action="store_true",
         help="Run all configs under experiment/runs and experiment/runs/*",
     )
+    parser.add_argument(
+        "--disable-pprof",
+        action="store_true",
+        help="Disable pprof env injection and pprof artifact collection.",
+    )
+    parser.add_argument(
+        "--disable-tracing",
+        action="store_true",
+        help="Disable tracing env injection and otel artifact collection.",
+    )
     args = parser.parse_args()
 
     if args.all:
@@ -349,13 +364,21 @@ def main():
         if not config_paths:
             parser.error("no run configs found under experiment/runs")
         for config_path in config_paths:
-            run_experiment(config_path)
+            run_experiment(
+                config_path,
+                enable_pprof=not args.disable_pprof,
+                enable_tracing=not args.disable_tracing,
+            )
         return
 
     if not args.config_path:
         parser.error("config_path is required unless --all is used")
 
-    run_experiment(args.config_path)
+    run_experiment(
+        args.config_path,
+        enable_pprof=not args.disable_pprof,
+        enable_tracing=not args.disable_tracing,
+    )
 
 
 if __name__ == "__main__":
