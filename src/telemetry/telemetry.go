@@ -71,9 +71,15 @@ func StartSpanFromPayload(payload map[string]any, name string, attrs ...attribut
 		ctx = ExtractContext(ctx, payload)
 	}
 	ctx, span := Tracer("aegean").Start(ctx, name, trace.WithAttributes(attrs...))
+	return ctx, span
+}
+
+func StartLocalSpanFromPayload(payload map[string]any, name string, attrs ...attribute.KeyValue) (context.Context, trace.Span) {
+	ctx := context.Background()
 	if payload != nil {
-		InjectContext(ctx, payload)
+		ctx = ExtractContext(ctx, payload)
 	}
+	ctx, span := Tracer("aegean").Start(ctx, name, trace.WithAttributes(attrs...))
 	return ctx, span
 }
 

@@ -62,7 +62,7 @@ func executeFanoutBase(e *exec.Exec, request map[string]any, ndSeed int64, ndTim
 		)
 		_ = e.SetRequestContextValue(requestID, fanoutWaitSpanContextKey, waitSpan)
 
-		fanoutTargets := []string{"node4", "node5", "node6"}
+		fanoutTargets := []string{"node4"}
 		_, fanoutRPCSpan := telemetry.StartSpanFromPayload(
 			request,
 			"workflow.middle.fanout_rpc",
@@ -85,8 +85,19 @@ func executeFanoutBase(e *exec.Exec, request map[string]any, ndSeed int64, ndTim
 			telemetry.InjectContext(ctx, outgoing)
 			go func(target string, outgoing map[string]any) {
 				defer wg.Done()
+				_, sendSpan := telemetry.StartSpanFromPayload(
+					request,
+					"workflow.middle.fanout_send",
+					append(
+						telemetry.AttrsFromPayload(request),
+						attribute.String("node.name", e.Name),
+						attribute.String("fanout.target", target),
+					)...,
+				)
+				defer sendSpan.End()
 				_, err := netx.SendMessage(target, 8000, outgoing)
 				if err != nil {
+					sendSpan.SetAttributes(attribute.Bool("fanout.error", true))
 				}
 			}(target, outgoing)
 		}

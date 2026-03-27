@@ -47,17 +47,39 @@ func (s *Shim) HandleRequestMessage(payload map[string]any) map[string]any {
 	// Handle incoming client request - wait for quorum then forward
 	requestID := payload["request_id"]
 	sender, _ := payload["sender"].(string)
+	baseAttrs := append(
+		telemetry.AttrsFromPayload(payload),
+		attribute.String("node.name", s.Name),
+	)
 
 	if !s.isPrimaryBatcher {
+		_, span := telemetry.StartLocalSpanFromPayload(
+			payload,
+			"shim.request_admission",
+			append(baseAttrs, attribute.String("shim.admission_status", "ignored_non_primary"))...,
+		)
+		span.End()
 		return map[string]any{"status": "ignored_non_primary"}
 	}
 
 	if !s.requestQuorumHelper.Add(requestID, sender) {
+		_, span := telemetry.StartLocalSpanFromPayload(
+			payload,
+			"shim.request_admission",
+			append(baseAttrs, attribute.String("shim.admission_status", "waiting_for_quorum"))...,
+		)
+		span.End()
 		return map[string]any{"status": "waiting_for_quorum"}
 	}
 	if s.BatcherCh != nil {
 		s.BatcherCh <- payload
 	}
+	_, span := telemetry.StartLocalSpanFromPayload(
+		payload,
+		"shim.request_admission",
+		append(baseAttrs, attribute.String("shim.admission_status", "forwarded_to_batcher"))...,
+	)
+	span.End()
 	return map[string]any{"status": "forwarded_to_mid_execs"}
 }
 
@@ -121,7 +143,7 @@ func (s *Shim) startNestedQuorumWait(requestID any, payload map[string]any) {
 		return
 	}
 
-	_, span := telemetry.StartSpanFromPayload(
+	_, span := telemetry.StartLocalSpanFromPayload(
 		payload,
 		"shim.nested_response_quorum_wait",
 		append(

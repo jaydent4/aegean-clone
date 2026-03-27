@@ -244,7 +244,7 @@ func (s *Server) HandleReady(payload map[string]any) map[string]any {
 
 func doWithPayloadSpan[T any](payload map[string]any, name string, fn func() T, attrs ...attribute.KeyValue) T {
 	attrs = append(attrs, telemetry.AttrsFromPayload(payload)...)
-	_, span := telemetry.StartSpanFromPayload(payload, name, attrs...)
+	_, span := telemetry.StartLocalSpanFromPayload(payload, name, attrs...)
 	defer span.End()
 	return fn()
 }
