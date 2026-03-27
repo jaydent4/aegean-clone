@@ -58,34 +58,6 @@ def parse_client_log(log_path):
     if k6_failed_re:
         metrics["success_rate"] = 100.0 - float(k6_failed_re.group(1))
 
-    if metrics:
-        return metrics
-
-    for key, pattern in [
-        ("success_rate", r"Success rate:\s+([0-9.]+)%"),
-        ("total_sec", r"Total:\s+([0-9.]+) sec"),
-        ("slowest_sec", r"Slowest:\s+([0-9.]+) sec"),
-        ("fastest_sec", r"Fastest:\s+([0-9.]+) sec"),
-        ("average_sec", r"Average:\s+([0-9.]+) sec"),
-        ("requests_sec", r"Requests/sec:\s+([0-9.]+)"),
-    ]:
-        m = re.search(pattern, text)
-        if m:
-            metrics[key] = float(m.group(1))
-
-    percentile_re = re.compile(r"^\s*([0-9.]+)%\s+in\s+([0-9.]+)\s+sec", re.MULTILINE)
-    for m in percentile_re.finditer(text):
-        pct = m.group(1)
-        label = "p" + pct.replace(".", "_").rstrip("0").rstrip("_")
-        metrics[label] = float(m.group(2))
-
-    histogram = []
-    hist_re = re.compile(r"^\s*([0-9.]+)\s+sec\s+\[(\d+)\]", re.MULTILINE)
-    for m in hist_re.finditer(text):
-        histogram.append([float(m.group(1)), int(m.group(2))])
-    if histogram:
-        metrics["histogram"] = histogram
-
     return metrics
 
 
@@ -167,19 +139,14 @@ def print_summary_table(aggregated, num_runs):
     print()
 
 
-def generate_plots(per_run, aggregated, num_runs, output_dir):
+def generate_plots(per_run, num_runs, output_dir):
     run_indices = list(range(1, num_runs + 1))
 
-    # Throughput across runs
     tp_rows = [(i, m.get("requests_sec", 0)) for i, m in zip(run_indices, per_run)]
-    tp_stdevs = None
-    if "requests_sec" in aggregated:
-        tp_stdevs = [aggregated["requests_sec"]["stdev"]] * num_runs
     tp_path = os.path.join(output_dir, "throughput_across_runs.png")
     plot_throughput(tp_rows, tp_path, "Run #", f"Throughput Across Runs (n={num_runs})")
     print(f"  Wrote {tp_path}")
 
-    # Latency (p50/p90) across runs
     lat_rows = [
         (i, None, m.get("p50", 0) * 1000, m.get("p90", 0) * 1000)
         for i, m in zip(run_indices, per_run)
@@ -209,7 +176,7 @@ def main():
     print_summary_table(aggregated, num_runs)
 
     print("Generating plots...")
-    generate_plots(per_run, aggregated, num_runs, output_dir)
+    generate_plots(per_run, num_runs, output_dir)
 
     if len(args.inputs) > 1 or not args.inputs[0].endswith(".json"):
         out_json = os.path.join(output_dir, "aggregated_results.json")
