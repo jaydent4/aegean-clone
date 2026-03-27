@@ -1,0 +1,21 @@
+---
+architecture: basic_open.yaml
+
+# K6 configs
+k6_qps: 200
+duration: 15s
+k6_pre_allocated_vus: 0
+k6_max_vus: 10000
+
+# Aegean workflow configs
+spin_time_seconds: 0.005
+write_key_mod: 1000
+read_key_mod: 1000
+key_count: 1000
+value_length: 100
+
+# Run & sytem configs
+run_timeout_seconds: 20
+parallel_window_k: 4
+worker_count: 4
+gomaxprocs: 4

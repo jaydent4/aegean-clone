@@ -13,7 +13,7 @@ const (
 	supersimpleMiddleStageAwaitNested = "await_nested"
 )
 
-var supersimpleBackendTargets = []string{"node4"}
+var supersimpleBackendTargets = []string{"node4", "node5", "node6"}
 
 func ExecuteRequestMiddle(e *exec.Exec, request map[string]any, ndSeed int64, ndTimestamp float64) map[string]any {
 	_ = ndSeed

@@ -2,7 +2,7 @@
 architecture: basic_open.yaml
 
 # K6 configs
-k6_qps: 10
+k6_qps: 100
 duration: 15s
 k6_pre_allocated_vus: 0
 k6_max_vus: 10000
