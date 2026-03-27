@@ -62,7 +62,7 @@ services:
     execVerifyQuorumSize: 1
     phaseQuorumSize: 1
     expectedExecVotes: 1
-    run_config_overrides:
+    batcher_config:
       batch_timeout_ms: 11
       batch_size: 17
 nodes:
@@ -79,10 +79,10 @@ nodes:
 		t.Fatalf("load config: %v", err)
 	}
 	nodeCfg := cfgs["node4"]
-	if got := common.MustInt(nodeCfg.RunConfigOverrides, "batch_timeout_ms"); got != 11 {
+	if got := common.MustInt(nodeCfg.BatcherConfig, "batch_timeout_ms"); got != 11 {
 		t.Fatalf("batch_timeout_ms = %d, want 11", got)
 	}
-	if got := common.MustInt(nodeCfg.RunConfigOverrides, "batch_size"); got != 17 {
+	if got := common.MustInt(nodeCfg.BatcherConfig, "batch_size"); got != 17 {
 		t.Fatalf("batch_size = %d, want 17", got)
 	}
 }
@@ -100,7 +100,7 @@ func TestBuildNodeRunConfigAppliesServiceOverrides(t *testing.T) {
 	}
 	cfg := NodeConfig{
 		Service: "backend",
-		RunConfigOverrides: map[string]any{
+		BatcherConfig: map[string]any{
 			"batch_timeout_ms": 15,
 		},
 	}

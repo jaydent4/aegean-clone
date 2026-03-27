@@ -27,7 +27,7 @@ type NodeConfig struct {
 	ExecVerifyQuorumSize     int            `json:"execVerifyQuorumSize"`
 	PhaseQuorumSize          int            `json:"phaseQuorumSize"`
 	ExpectedExecVotes        int            `json:"expectedExecVotes"`
-	RunConfigOverrides       map[string]any `json:"run_config_overrides"`
+	BatcherConfig           map[string]any `json:"batcher_config"`
 }
 
 type RunConfig struct {
@@ -75,6 +75,11 @@ func loadConfig(path string) (map[string]NodeConfig, error) {
 		serviceMap, err := asObject(serviceRaw)
 		if err != nil {
 			return nil, fmt.Errorf("parse service %q: %w", serviceName, err)
+		}
+		if _, hasBatcherConfig := serviceMap["batcher_config"]; !hasBatcherConfig {
+			if legacy, hasLegacy := serviceMap["run_config_overrides"]; hasLegacy {
+				serviceMap["batcher_config"] = legacy
+			}
 		}
 
 		merged := make(map[string]any, len(serviceMap)+len(nodeMap))

@@ -22,9 +22,9 @@ services:
     execVerifyQuorumSize: 2
     phaseQuorumSize: 2
     expectedExecVotes: 3
-    run_config_overrides:
+    batcher_config:
       batch_size: 40
-      batch_timeout_ms: 20
+      batch_timeout_ms: 15
   backend:
     type: server
     clients:
@@ -42,9 +42,9 @@ services:
     execVerifyQuorumSize: 2
     phaseQuorumSize: 2
     expectedExecVotes: 3
-    run_config_overrides:
-      batch_size: 20
-      batch_timeout_ms: 10
+    batcher_config:
+      batch_size: 10
+      batch_timeout_ms: 5
 nodes:
   node0:
     service: client
