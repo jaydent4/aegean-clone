@@ -8,17 +8,14 @@ import (
 )
 
 type candidateSubmission struct {
-	requestID       string
-	response        map[string]any
-	writes          map[string]string
-	readVersions    map[string]uint64
-	snapshotVersion uint64
-	result          chan candidateResult
+	requestID string
+	response  map[string]any
+	writes    map[string]string
+	result    chan candidateResult
 }
 
 type candidateResult struct {
-	retry bool
-	err   error
+	err error
 }
 
 type PBEO struct {
@@ -41,10 +38,8 @@ type PBEO struct {
 	committedRequests map[string]Entry
 	nestedProposals   map[string]struct{}
 
-	stateMu      sync.RWMutex
-	kv           map[string]string
-	keyVersions  map[string]uint64
-	stateVersion uint64
+	stateMu sync.RWMutex
+	kv      map[string]string
 
 	commitCh        chan candidateSubmission
 	nestedResponses *nestedResponseStore
@@ -83,11 +78,6 @@ func NewPBEO(cfg Config) (*PBEO, error) {
 			initial = copyStringMap(custom)
 		}
 	}
-	keyVersions := make(map[string]uint64, len(initial))
-	for key := range initial {
-		keyVersions[key] = 0
-	}
-
 	p := &PBEO{
 		name:              cfg.Name,
 		peers:             append([]string{}, cfg.Peers...),
@@ -101,7 +91,6 @@ func NewPBEO(cfg Config) (*PBEO, error) {
 		committedRequests: make(map[string]Entry),
 		nestedProposals:   make(map[string]struct{}),
 		kv:                initial,
-		keyVersions:       keyVersions,
 		commitCh:          make(chan candidateSubmission, 1024),
 		nestedResponses:   newNestedResponseStore(),
 		contextStore:      newRequestContextStore(),
@@ -341,40 +330,32 @@ func (p *PBEO) executeUntilProposed(requestID string, request map[string]any) {
 		}
 	}()
 
-	for {
-		if _, ok := p.committedEntry(requestID); ok {
-			return
-		}
-
-		snapshot := p.snapshot()
-		tx := newTxn(p, requestID, snapshot)
-		response := p.execute(tx, cloneMapAny(request))
-		if response == nil {
-			response = map[string]any{}
-		}
-		if _, ok := response["request_id"]; !ok {
-			response["request_id"] = requestID
-		}
-
-		resultCh := make(chan candidateResult, 1)
-		submission := candidateSubmission{
-			requestID:       requestID,
-			response:        cloneMapAny(response),
-			writes:          tx.Writes(),
-			readVersions:    tx.ReadVersions(),
-			snapshotVersion: tx.SnapshotVersion(),
-			result:          resultCh,
-		}
-
-		p.commitCh <- submission
-		result := <-resultCh
-		if result.retry {
-			continue
-		}
-		if result.err != nil {
-			p.finishRequestFailure(requestID)
-		}
+	if _, ok := p.committedEntry(requestID); ok {
 		return
+	}
+
+	snapshot := p.snapshot()
+	tx := newTxn(p, requestID, snapshot)
+	response := p.execute(tx, cloneMapAny(request))
+	if response == nil {
+		response = map[string]any{}
+	}
+	if _, ok := response["request_id"]; !ok {
+		response["request_id"] = requestID
+	}
+
+	resultCh := make(chan candidateResult, 1)
+	submission := candidateSubmission{
+		requestID: requestID,
+		response:  cloneMapAny(response),
+		writes:    tx.Writes(),
+		result:    resultCh,
+	}
+
+	p.commitCh <- submission
+	result := <-resultCh
+	if result.err != nil {
+		p.finishRequestFailure(requestID)
 	}
 }
 
@@ -384,17 +365,11 @@ func (p *PBEO) runCommitSequencer() {
 			submission.result <- candidateResult{}
 			continue
 		}
-		if !p.validateCandidate(submission) {
-			submission.result <- candidateResult{retry: true}
-			continue
-		}
 
 		entry := Entry{
-			RequestID:       submission.requestID,
-			Response:        cloneMapAny(submission.response),
-			Writes:          copyStringMap(submission.writes),
-			ReadVersions:    copyUint64Map(submission.readVersions),
-			SnapshotVersion: submission.snapshotVersion,
+			RequestID: submission.requestID,
+			Response:  cloneMapAny(submission.response),
+			Writes:    copyStringMap(submission.writes),
 		}
 		if err := p.box.Propose(entry); err != nil {
 			submission.result <- candidateResult{err: err}
@@ -404,24 +379,11 @@ func (p *PBEO) runCommitSequencer() {
 	}
 }
 
-func (p *PBEO) validateCandidate(submission candidateSubmission) bool {
-	p.stateMu.RLock()
-	defer p.stateMu.RUnlock()
-	for key, observedVersion := range submission.readVersions {
-		if p.keyVersions[key] != observedVersion {
-			return false
-		}
-	}
-	return true
-}
-
 func (p *PBEO) snapshot() stateSnapshot {
 	p.stateMu.RLock()
 	defer p.stateMu.RUnlock()
 	return stateSnapshot{
-		kv:      copyStringMap(p.kv),
-		version: copyUint64Map(p.keyVersions),
-		index:   p.stateVersion,
+		kv: copyStringMap(p.kv),
 	}
 }
 
@@ -454,9 +416,7 @@ func (p *PBEO) applyCommittedEntry(committed CommittedEntry) {
 	p.stateMu.Lock()
 	for key, value := range entry.Writes {
 		p.kv[key] = value
-		p.keyVersions[key] = committed.Slot
 	}
-	p.stateVersion = committed.Slot
 	p.stateMu.Unlock()
 
 	p.contextStore.clear(entry.RequestID)
@@ -525,11 +485,9 @@ func (p *PBEO) committedEntry(requestID string) (Entry, bool) {
 
 func cloneEntry(entry Entry) Entry {
 	return Entry{
-		RequestID:       entry.RequestID,
-		Response:        cloneMapAny(entry.Response),
-		Writes:          copyStringMap(entry.Writes),
-		ReadVersions:    copyUint64Map(entry.ReadVersions),
-		SnapshotVersion: entry.SnapshotVersion,
+		RequestID: entry.RequestID,
+		Response:  cloneMapAny(entry.Response),
+		Writes:    copyStringMap(entry.Writes),
 	}
 }
 
@@ -538,109 +496,4 @@ func cloneRunConfig(src map[string]any) map[string]any {
 		return map[string]any{}
 	}
 	return cloneMapAny(src)
-}
-
-func encodeEntryPayload(entry Entry) map[string]any {
-	return map[string]any{
-		"request_id":       entry.RequestID,
-		"response":         cloneMapAny(entry.Response),
-		"writes":           stringMapToAnyMap(entry.Writes),
-		"read_versions":    uint64MapToAnyMap(entry.ReadVersions),
-		"snapshot_version": entry.SnapshotVersion,
-	}
-}
-
-func decodeEntryPayload(requestID string, payload map[string]any) Entry {
-	entry := Entry{
-		RequestID:       requestID,
-		Response:        map[string]any{},
-		Writes:          map[string]string{},
-		ReadVersions:    map[string]uint64{},
-		SnapshotVersion: decodeUint64(payload["snapshot_version"]),
-	}
-	if encodedRequestID, ok := canonicalRequestID(payload["request_id"]); ok {
-		entry.RequestID = encodedRequestID
-	}
-	if response, ok := payload["response"].(map[string]any); ok {
-		entry.Response = cloneMapAny(response)
-	}
-	entry.Writes = decodeStringMap(payload["writes"])
-	entry.ReadVersions = decodeUint64Map(payload["read_versions"])
-	return entry
-}
-
-func stringMapToAnyMap(src map[string]string) map[string]any {
-	out := make(map[string]any, len(src))
-	for key, value := range src {
-		out[key] = value
-	}
-	return out
-}
-
-func uint64MapToAnyMap(src map[string]uint64) map[string]any {
-	out := make(map[string]any, len(src))
-	for key, value := range src {
-		out[key] = value
-	}
-	return out
-}
-
-func decodeStringMap(raw any) map[string]string {
-	out := map[string]string{}
-	switch typed := raw.(type) {
-	case map[string]string:
-		return copyStringMap(typed)
-	case map[string]any:
-		for key, value := range typed {
-			out[key] = fmt.Sprintf("%v", value)
-		}
-	}
-	return out
-}
-
-func decodeUint64Map(raw any) map[string]uint64 {
-	out := map[string]uint64{}
-	switch typed := raw.(type) {
-	case map[string]uint64:
-		return copyUint64Map(typed)
-	case map[string]int:
-		for key, value := range typed {
-			if value >= 0 {
-				out[key] = uint64(value)
-			}
-		}
-	case map[string]any:
-		for key, value := range typed {
-			out[key] = decodeUint64(value)
-		}
-	}
-	return out
-}
-
-func decodeUint64(raw any) uint64 {
-	switch typed := raw.(type) {
-	case uint64:
-		return typed
-	case uint:
-		return uint64(typed)
-	case uint32:
-		return uint64(typed)
-	case int:
-		if typed >= 0 {
-			return uint64(typed)
-		}
-	case int64:
-		if typed >= 0 {
-			return uint64(typed)
-		}
-	case float64:
-		if typed >= 0 {
-			return uint64(typed)
-		}
-	case float32:
-		if typed >= 0 {
-			return uint64(typed)
-		}
-	}
-	return 0
 }

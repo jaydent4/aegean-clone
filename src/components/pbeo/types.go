@@ -13,15 +13,13 @@ const (
 	raftMessageKey  = "raft_message"
 )
 
-// Entry is the passive-replication update record committed through Raft.
-// The leader computes Response and Writes in a sandbox; replicas apply Writes
-// only after this entry appears in the committed Raft log.
+// Entry is the passive-replication update record committed through PBEO's Raft log.
+// The leader computes Response and Writes in a sandbox; replicas apply Writes only
+// after this entry appears in the committed log.
 type Entry struct {
-	RequestID       string            `json:"request_id"`
-	Response        map[string]any    `json:"response"`
-	Writes          map[string]string `json:"writes,omitempty"`
-	ReadVersions    map[string]uint64 `json:"read_versions,omitempty"`
-	SnapshotVersion uint64            `json:"snapshot_version,omitempty"`
+	RequestID string            `json:"request_id"`
+	Response  map[string]any    `json:"response"`
+	Writes    map[string]string `json:"writes,omitempty"`
 }
 
 type CommittedEntry struct {

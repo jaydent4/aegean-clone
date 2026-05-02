@@ -1,7 +1,6 @@
 package pbeo
 
 import (
-	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -200,7 +199,7 @@ func TestPBEOSandboxWritesApplyOnlyAfterLogCommit(t *testing.T) {
 	}
 }
 
-func TestPBEORetriesStaleSpeculativeRead(t *testing.T) {
+func TestPBEOCommitsPrimaryExecutionWithoutValidation(t *testing.T) {
 	box := &fakeConsensusBox{isLeader: true, leader: "node1"}
 	var component *PBEO
 	attempts := 0
@@ -208,16 +207,15 @@ func TestPBEORetriesStaleSpeculativeRead(t *testing.T) {
 	component = newTestPBEO(t, box, func(tx *Txn, request map[string]any) map[string]any {
 		attempts++
 		value := tx.ReadKV("x")
-		if attempts == 1 {
-			component.Learn(1, Entry{
-				RequestID: "other",
-				Response:  map[string]any{"request_id": "other", "status": "ok"},
-				Writes:    map[string]string{"x": "changed"},
-			})
-			box.mu.Lock()
-			box.slot = 1
-			box.mu.Unlock()
-		}
+		component.Learn(1, Entry{
+			RequestID: "other",
+			Response:  map[string]any{"request_id": "other", "status": "ok"},
+			Writes:    map[string]string{"x": "changed"},
+		})
+		box.mu.Lock()
+		box.slot = 1
+		box.mu.Unlock()
+
 		tx.WriteKV("y", value)
 		return map[string]any{
 			"request_id": request["request_id"],
@@ -236,24 +234,27 @@ func TestPBEORetriesStaleSpeculativeRead(t *testing.T) {
 
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		if component.ReadKV("y") == "changed" {
+		if component.ReadKV("y") == "initial" {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if got := component.ReadKV("y"); got != "changed" {
-		t.Fatalf("expected retry to write value from latest snapshot, got %q", got)
+	if got := component.ReadKV("x"); got != "changed" {
+		t.Fatalf("expected concurrent committed write to remain applied, got %q", got)
 	}
-	if attempts < 2 {
-		t.Fatalf("expected stale read retry, got %d attempt(s)", attempts)
+	if got := component.ReadKV("y"); got != "initial" {
+		t.Fatalf("expected original sandbox write to commit without retry, got %q", got)
+	}
+	if attempts != 1 {
+		t.Fatalf("expected no validation retry, got %d attempt(s)", attempts)
 	}
 	if len(box.proposals) != 1 {
-		t.Fatalf("expected one accepted proposal after retry, got %d", len(box.proposals))
+		t.Fatalf("expected one accepted proposal, got %d", len(box.proposals))
 	}
-	if box.proposals[0].ReadVersions["x"] != 1 {
-		t.Fatalf("expected retried proposal to read version 1, got %d", box.proposals[0].ReadVersions["x"])
+	if got := box.proposals[0].Writes["y"]; got != "initial" {
+		t.Fatalf("expected proposal to preserve original sandbox value, got %q", got)
 	}
-	if got := fmt.Sprint(box.proposals[0].Response["value"]); got != "changed" {
-		t.Fatalf("expected response from retried execution, got %q", got)
+	if got := box.proposals[0].Response["value"]; got != "initial" {
+		t.Fatalf("expected response from original execution, got %v", got)
 	}
 }

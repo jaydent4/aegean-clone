@@ -10,9 +10,7 @@ import (
 )
 
 type stateSnapshot struct {
-	kv      map[string]string
-	version map[string]uint64
-	index   uint64
+	kv map[string]string
 }
 
 // Txn is the sandbox a PBEO leader gives to application code.
@@ -24,7 +22,6 @@ type Txn struct {
 	requestID       string
 	snapshot        stateSnapshot
 	writes          map[string]string
-	readVersions    map[string]uint64
 	requestContexts *requestContextStore
 }
 
@@ -34,7 +31,6 @@ func newTxn(component *PBEO, requestID string, snapshot stateSnapshot) *Txn {
 		requestID:       requestID,
 		snapshot:        snapshot,
 		writes:          make(map[string]string),
-		readVersions:    make(map[string]uint64),
 		requestContexts: component.contextStore,
 	}
 }
@@ -47,9 +43,6 @@ func (t *Txn) ReadKV(key string) string {
 	if value, ok := t.writes[key]; ok {
 		return value
 	}
-	if _, seen := t.readVersions[key]; !seen {
-		t.readVersions[key] = t.snapshot.version[key]
-	}
 	return t.snapshot.kv[key]
 }
 
@@ -59,14 +52,6 @@ func (t *Txn) WriteKV(key, value string) {
 
 func (t *Txn) Writes() map[string]string {
 	return copyStringMap(t.writes)
-}
-
-func (t *Txn) ReadVersions() map[string]uint64 {
-	return copyUint64Map(t.readVersions)
-}
-
-func (t *Txn) SnapshotVersion() uint64 {
-	return t.snapshot.index
 }
 
 func (t *Txn) DispatchNestedRequestDirect(sourceRequest map[string]any, targets []string, outgoing map[string]any) {
@@ -258,14 +243,6 @@ func cloneMapSlice(src []map[string]any) []map[string]any {
 
 func copyStringMap(src map[string]string) map[string]string {
 	out := make(map[string]string, len(src))
-	for key, value := range src {
-		out[key] = value
-	}
-	return out
-}
-
-func copyUint64Map(src map[string]uint64) map[string]uint64 {
-	out := make(map[string]uint64, len(src))
 	for key, value := range src {
 		out[key] = value
 	}
