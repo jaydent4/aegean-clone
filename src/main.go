@@ -81,6 +81,24 @@ func main() {
 			panic(fmt.Sprintf("unknown init state workflow %q for node %s", initStateWorkflow, *name))
 		}
 		node = nodes.NewServer(*name, *host, *port, cfg.Clients, cfg.Nodes, cfg.IsPrimaryBatcher, cfg.ShimQuorumSize, cfg.VerifyResponseQuorumSize, cfg.ExecVerifyQuorumSize, cfg.PhaseQuorumSize, cfg.ExpectedExecVotes, execFn, initFn, nodeRunConfig)
+	case "pbeo_server":
+		execWorkflow := cfg.ExecWorkflow
+		if execWorkflow == "" {
+			execWorkflow = "default"
+		}
+		execFn := workflow.PBEOExecWorkflows[execWorkflow]
+		if execFn == nil {
+			panic(fmt.Sprintf("unknown pbeo exec workflow %q for node %s", execWorkflow, *name))
+		}
+		initStateWorkflow := cfg.InitStateWorkflow
+		if initStateWorkflow == "" {
+			initStateWorkflow = "default"
+		}
+		initFn := workflow.PBEOInitStateWorkflows[initStateWorkflow]
+		if initFn == nil {
+			panic(fmt.Sprintf("unknown pbeo init state workflow %q for node %s", initStateWorkflow, *name))
+		}
+		node = nodes.NewPBEOServer(*name, *host, *port, cfg.Clients, cfg.Nodes, execFn, initFn, nodeRunConfig)
 	case "unreplicated_server":
 		execWorkflow := cfg.ExecWorkflow
 		if execWorkflow == "" {

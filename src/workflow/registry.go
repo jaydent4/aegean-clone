@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"aegean/components/exec"
+	"aegean/components/pbeo"
 	"aegean/components/unreplicated"
 	"aegean/nodes"
 	aegeanworkflow "aegean/workflow/aegean"
@@ -145,6 +146,16 @@ var InitStateWorkflows = map[string]exec.InitStateFunc{
 		return socialworkflow.InitState(e)
 	},
 	"supersimple_default": supersimpleworkflow.InitState,
+}
+
+var PBEOExecWorkflows = map[string]pbeo.ExecuteRequestFunc{
+	"aegean_middle_pbeo":  aegeanworkflow.ExecuteRequestMiddlePBEO,
+	"aegean_backend_pbeo": aegeanworkflow.ExecuteRequestBackendPBEO,
+}
+
+var PBEOInitStateWorkflows = map[string]pbeo.InitStateFunc{
+	"default":             aegeanworkflow.InitStatePBEO,
+	"aegean_pbeo_default": aegeanworkflow.InitStatePBEO,
 }
 
 var UnreplicatedWorkflows = map[string]unreplicated.WorkflowFunc{
