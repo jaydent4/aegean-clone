@@ -15,8 +15,8 @@ type fakeConsensusBox struct {
 	isLeader  bool
 	leader    string
 	slot      uint64
-	onLearn   eo.LearnFunc
-	proposals []eo.Entry
+	onLearn   LearnFunc
+	proposals []Entry
 }
 
 func (f *fakeConsensusBox) IsLeader() bool {
@@ -30,12 +30,9 @@ func (f *fakeConsensusBox) Leader() (string, bool) {
 	return f.leader, true
 }
 
-func (f *fakeConsensusBox) Propose(entry eo.Entry) error {
+func (f *fakeConsensusBox) Propose(entry Entry) error {
 	f.mu.Lock()
-	f.proposals = append(f.proposals, eo.Entry{
-		RequestID: entry.RequestID,
-		Response:  cloneMapAny(entry.Response),
-	})
+	f.proposals = append(f.proposals, cloneEntry(entry))
 	f.slot++
 	slot := f.slot
 	onLearn := f.onLearn
@@ -53,8 +50,52 @@ func (f *fakeConsensusBox) HandleMessage(message raftpb.Message) error {
 
 func (f *fakeConsensusBox) Stop() {}
 
+type fakeEOConsensusBox struct {
+	mu        sync.Mutex
+	isLeader  bool
+	leader    string
+	slot      uint64
+	onLearn   eo.LearnFunc
+	proposals []eo.Entry
+}
+
+func (f *fakeEOConsensusBox) IsLeader() bool {
+	return f.isLeader
+}
+
+func (f *fakeEOConsensusBox) Leader() (string, bool) {
+	if f.leader == "" {
+		return "", false
+	}
+	return f.leader, true
+}
+
+func (f *fakeEOConsensusBox) Propose(entry eo.Entry) error {
+	f.mu.Lock()
+	f.proposals = append(f.proposals, eo.Entry{
+		RequestID: entry.RequestID,
+		Response:  cloneMapAny(entry.Response),
+	})
+	f.slot++
+	slot := f.slot
+	onLearn := f.onLearn
+	f.mu.Unlock()
+
+	if onLearn != nil {
+		onLearn(slot, entry)
+	}
+	return nil
+}
+
+func (f *fakeEOConsensusBox) HandleMessage(message raftpb.Message) error {
+	return nil
+}
+
+func (f *fakeEOConsensusBox) Stop() {}
+
 func newTestPBEO(t *testing.T, box *fakeConsensusBox, execute ExecuteRequestFunc, initState InitStateFunc, send SendFunc) *PBEO {
 	t.Helper()
+	nestedBox := &fakeEOConsensusBox{isLeader: true, leader: "node1"}
 	if send == nil {
 		send = func(peer string, payload map[string]any) error {
 			return nil
@@ -68,9 +109,13 @@ func newTestPBEO(t *testing.T, box *fakeConsensusBox, execute ExecuteRequestFunc
 		InitState: initState,
 		RunConfig: map[string]any{},
 		Send:      send,
-		BoxFactory: func(cfg eo.BoxConfig, onLearn eo.LearnFunc) (eo.ConsensusBox, error) {
+		BoxFactory: func(cfg BoxConfig, onLearn LearnFunc) (ConsensusBox, error) {
 			box.onLearn = onLearn
 			return box, nil
+		},
+		NestedBoxFactory: func(cfg eo.BoxConfig, onLearn eo.LearnFunc) (eo.ConsensusBox, error) {
+			nestedBox.onLearn = onLearn
+			return nestedBox, nil
 		},
 	})
 	if err != nil {
@@ -89,12 +134,12 @@ func TestPBEOAppliesCommittedEntryOnce(t *testing.T) {
 	}, nil)
 	defer component.Stop()
 
-	learnPBEOEntry(component, 1, Entry{
+	component.Learn(1, Entry{
 		RequestID: "r1",
 		Response:  map[string]any{"request_id": "r1", "status": "ok"},
 		Writes:    map[string]string{"x": "first"},
 	})
-	learnPBEOEntry(component, 2, Entry{
+	component.Learn(2, Entry{
 		RequestID: "r1",
 		Response:  map[string]any{"request_id": "r1", "status": "duplicate"},
 		Writes:    map[string]string{"x": "duplicate"},
@@ -164,7 +209,7 @@ func TestPBEORetriesStaleSpeculativeRead(t *testing.T) {
 		attempts++
 		value := tx.ReadKV("x")
 		if attempts == 1 {
-			learnPBEOEntry(component, 1, Entry{
+			component.Learn(1, Entry{
 				RequestID: "other",
 				Response:  map[string]any{"request_id": "other", "status": "ok"},
 				Writes:    map[string]string{"x": "changed"},
@@ -205,18 +250,10 @@ func TestPBEORetriesStaleSpeculativeRead(t *testing.T) {
 	if len(box.proposals) != 1 {
 		t.Fatalf("expected one accepted proposal after retry, got %d", len(box.proposals))
 	}
-	proposed := decodeEntryPayload(box.proposals[0].RequestID, box.proposals[0].Response)
-	if proposed.ReadVersions["x"] != 1 {
-		t.Fatalf("expected retried proposal to read version 1, got %d", proposed.ReadVersions["x"])
+	if box.proposals[0].ReadVersions["x"] != 1 {
+		t.Fatalf("expected retried proposal to read version 1, got %d", box.proposals[0].ReadVersions["x"])
 	}
-	if got := fmt.Sprint(proposed.Response["value"]); got != "changed" {
+	if got := fmt.Sprint(box.proposals[0].Response["value"]); got != "changed" {
 		t.Fatalf("expected response from retried execution, got %q", got)
 	}
-}
-
-func learnPBEOEntry(component *PBEO, slot uint64, entry Entry) {
-	component.log.Learn(slot, eo.Entry{
-		RequestID: entry.RequestID,
-		Response:  encodeEntryPayload(entry),
-	})
 }

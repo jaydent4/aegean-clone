@@ -30,6 +30,7 @@ QPS_DIR_RE = re.compile(r"qps_(\d+)$")
 SERIES_COLORS = {
     "Aegean": "#08306b",
     "Aegean+EO": "#6baed6",
+    "PBEO": "#238b45",
     "Unreplicated": "#555555",
 }
 
@@ -215,7 +216,15 @@ class SeriesSpec:
     series_dir: Path
 
 
-def collect_named_series(series_specs: Iterable[SeriesSpec]) -> dict[str, list[MetricPoint]]:
+def collect_named_series(
+    series_specs: Iterable[SeriesSpec],
+    *,
+    min_offered_qps: int | None = None,
+    max_offered_qps: int | None = None,
+    min_throughput: float | None = None,
+    max_throughput: float | None = None,
+    drop_collapse_tolerance: float | None = None,
+) -> dict[str, list[MetricPoint]]:
     series: dict[str, list[MetricPoint]] = {}
 
     for series_spec in series_specs:
@@ -223,7 +232,14 @@ def collect_named_series(series_specs: Iterable[SeriesSpec]) -> dict[str, list[M
             print(f"Skipping {series_spec.label}: missing directory {series_spec.series_dir}")
             continue
         try:
-            points = load_series_points(series_spec.series_dir)
+            points = load_series_points(
+                series_spec.series_dir,
+                min_offered_qps=min_offered_qps,
+                max_offered_qps=max_offered_qps,
+                min_throughput=min_throughput,
+                max_throughput=max_throughput,
+                drop_collapse_tolerance=drop_collapse_tolerance,
+            )
         except ValueError as exc:
             print(f"Skipping {series_spec.label}: {exc}")
             continue
@@ -240,8 +256,20 @@ def generate_comparison_plot(
     title: str,
     output_path: Path,
     series_specs: Iterable[SeriesSpec],
+    min_offered_qps: int | None = None,
+    max_offered_qps: int | None = None,
+    min_throughput: float | None = None,
+    max_throughput: float | None = None,
+    drop_collapse_tolerance: float | None = None,
 ) -> Path:
-    series = collect_named_series(series_specs)
+    series = collect_named_series(
+        series_specs,
+        min_offered_qps=min_offered_qps,
+        max_offered_qps=max_offered_qps,
+        min_throughput=min_throughput,
+        max_throughput=max_throughput,
+        drop_collapse_tolerance=drop_collapse_tolerance,
+    )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     plot_latency_vs_throughput(series, output_path, title)
     return output_path

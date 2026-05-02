@@ -4,11 +4,13 @@ import (
 	"time"
 
 	"aegean/components/eo"
+	raftpb "go.etcd.io/raft/v3/raftpb"
 )
 
 const (
-	// MessageTypeRaft identifies the shared EO/PBEO raft traffic on the wire.
-	MessageTypeRaft = eo.MessageTypeRaft
+	// MessageTypeRaft identifies PBEO's passive state-update Raft traffic.
+	MessageTypeRaft = "pbeo_raft"
+	raftMessageKey  = "raft_message"
 )
 
 // Entry is the passive-replication update record committed through Raft.
@@ -37,23 +39,46 @@ type InitStateFunc func(runConfig map[string]any) map[string]string
 type SendFunc func(peer string, payload map[string]any) error
 
 // SendRaftFunc sends a raft protocol message to another PBEO replica.
-type SendRaftFunc = eo.SendRaftFunc
+type SendRaftFunc func(peer string, message raftpb.Message) error
 
-type BoxFactory = eo.BoxFactory
+type LearnFunc func(slot uint64, entry Entry)
 
-type Config struct {
+type ConsensusBox interface {
+	IsLeader() bool
+	Leader() (string, bool)
+	Propose(entry Entry) error
+	HandleMessage(message raftpb.Message) error
+	Stop()
+}
+
+type BoxConfig struct {
 	Name            string
 	Peers           []string
-	Clients         []string
-	Execute         ExecuteRequestFunc
-	InitState       InitStateFunc
-	RunConfig       map[string]any
-	Send            SendFunc
 	SendRaft        SendRaftFunc
-	BoxFactory      BoxFactory
 	TickInterval    time.Duration
 	ElectionTick    int
 	HeartbeatTick   int
 	MaxInflightMsgs int
 	MaxSizePerMsg   uint64
+}
+
+type BoxFactory func(cfg BoxConfig, onLearn LearnFunc) (ConsensusBox, error)
+
+type Config struct {
+	Name             string
+	Peers            []string
+	Clients          []string
+	Execute          ExecuteRequestFunc
+	InitState        InitStateFunc
+	RunConfig        map[string]any
+	Send             SendFunc
+	SendRaft         SendRaftFunc
+	SendNestedRaft   eo.SendRaftFunc
+	BoxFactory       BoxFactory
+	NestedBoxFactory eo.BoxFactory
+	TickInterval     time.Duration
+	ElectionTick     int
+	HeartbeatTick    int
+	MaxInflightMsgs  int
+	MaxSizePerMsg    uint64
 }

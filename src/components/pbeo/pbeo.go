@@ -27,12 +27,19 @@ type PBEO struct {
 	clients   []string
 	execute   ExecuteRequestFunc
 	send      SendFunc
-	log       *eo.EO
+	box       ConsensusBox
+	nestedEO  *eo.EO
 	runConfig map[string]any
 
+	processMu         sync.Mutex
 	mu                sync.Mutex
+	log               map[uint64]Entry
+	learned           uint64
+	processed         uint64
+	learnedSlots      map[uint64]struct{}
 	requestAttempts   map[string]struct{}
 	committedRequests map[string]Entry
+	nestedProposals   map[string]struct{}
 
 	stateMu      sync.RWMutex
 	kv           map[string]string
@@ -61,8 +68,13 @@ func NewPBEO(cfg Config) (*PBEO, error) {
 	factory := cfg.BoxFactory
 	if factory == nil {
 		if cfg.SendRaft == nil {
-			return nil, fmt.Errorf("pbeo requires a raft sender when using the default EO consensus box")
+			return nil, fmt.Errorf("pbeo requires a raft sender when using the default consensus box")
 		}
+		factory = newRaftConsensusBox
+	}
+	nestedSendRaft := cfg.SendNestedRaft
+	if cfg.NestedBoxFactory == nil && nestedSendRaft == nil {
+		return nil, fmt.Errorf("pbeo requires a nested EO raft sender")
 	}
 
 	initial := map[string]string{}
@@ -83,8 +95,11 @@ func NewPBEO(cfg Config) (*PBEO, error) {
 		execute:           cfg.Execute,
 		send:              cfg.Send,
 		runConfig:         cloneRunConfig(cfg.RunConfig),
+		log:               make(map[uint64]Entry),
+		learnedSlots:      make(map[uint64]struct{}),
 		requestAttempts:   make(map[string]struct{}),
 		committedRequests: make(map[string]Entry),
+		nestedProposals:   make(map[string]struct{}),
 		kv:                initial,
 		keyVersions:       keyVersions,
 		commitCh:          make(chan candidateSubmission, 1024),
@@ -92,12 +107,27 @@ func NewPBEO(cfg Config) (*PBEO, error) {
 		contextStore:      newRequestContextStore(),
 	}
 
-	log, err := eo.NewEO(eo.Config{
+	box, err := factory(BoxConfig{
 		Name:            cfg.Name,
 		Peers:           append([]string{}, cfg.Peers...),
-		Commit:          p.handleCommittedEOEntry,
 		SendRaft:        cfg.SendRaft,
-		BoxFactory:      factory,
+		TickInterval:    cfg.TickInterval,
+		ElectionTick:    cfg.ElectionTick,
+		HeartbeatTick:   cfg.HeartbeatTick,
+		MaxInflightMsgs: cfg.MaxInflightMsgs,
+		MaxSizePerMsg:   cfg.MaxSizePerMsg,
+	}, p.Learn)
+	if err != nil {
+		return nil, err
+	}
+	p.box = box
+
+	nestedEO, err := eo.NewEO(eo.Config{
+		Name:            cfg.Name,
+		Peers:           append([]string{}, cfg.Peers...),
+		Commit:          p.handleCommittedNestedObservation,
+		SendRaft:        nestedSendRaft,
+		BoxFactory:      cfg.NestedBoxFactory,
 		TickInterval:    cfg.TickInterval,
 		ElectionTick:    cfg.ElectionTick,
 		HeartbeatTick:   cfg.HeartbeatTick,
@@ -105,9 +135,10 @@ func NewPBEO(cfg Config) (*PBEO, error) {
 		MaxSizePerMsg:   cfg.MaxSizePerMsg,
 	})
 	if err != nil {
+		box.Stop()
 		return nil, err
 	}
-	p.log = log
+	p.nestedEO = nestedEO
 
 	go p.runCommitSequencer()
 	return p, nil
@@ -118,31 +149,37 @@ func (p *PBEO) Name() string {
 }
 
 func (p *PBEO) IsLeader() bool {
-	return p.log.IsLeader()
+	return p.box.IsLeader()
 }
 
 func (p *PBEO) Leader() (string, bool) {
-	return p.log.Leader()
+	return p.box.Leader()
 }
 
 func (p *PBEO) Ready() bool {
-	_, ok := p.log.Leader()
-	return ok
+	_, stateOK := p.box.Leader()
+	_, nestedOK := p.nestedEO.Leader()
+	return stateOK && nestedOK
 }
 
 func (p *PBEO) Stop() {
-	if p.log != nil {
-		p.log.Stop()
+	if p.box != nil {
+		p.box.Stop()
+	}
+	if p.nestedEO != nil {
+		p.nestedEO.Stop()
 	}
 }
 
 func (p *PBEO) HandleMessage(payload map[string]any) map[string]any {
 	switch payloadType, _ := payload["type"].(string); payloadType {
 	case MessageTypeRaft:
-		return p.log.HandleRaftMessage(payload)
+		return p.HandleRaftMessage(payload)
+	case eo.MessageTypeRaft:
+		return p.nestedEO.HandleRaftMessage(payload)
 	case "response":
-		if p.BufferNestedResponse(payload) {
-			return map[string]any{"status": "buffered_nested_response", "request_id": payload["request_id"]}
+		if p.HandleNestedResponseObservation(payload) {
+			return map[string]any{"status": "proposed_nested_observation", "request_id": payload["request_id"]}
 		}
 		return map[string]any{"status": "ignored_response"}
 	default:
@@ -167,8 +204,8 @@ func (p *PBEO) HandleRequest(requestID string, request map[string]any) map[strin
 		return map[string]any{"status": "already_committed", "request_id": requestID}
 	}
 
-	if !p.log.IsLeader() {
-		leader, ok := p.log.Leader()
+	if !p.box.IsLeader() {
+		leader, ok := p.box.Leader()
 		if !ok || leader == "" {
 			return map[string]any{"status": "waiting_for_leader", "request_id": requestID}
 		}
@@ -184,6 +221,45 @@ func (p *PBEO) HandleRequest(requestID string, request map[string]any) map[strin
 
 	go p.executeUntilProposed(requestID, requestCopy)
 	return map[string]any{"status": "accepted", "request_id": requestID, "sender": p.name}
+}
+
+func (p *PBEO) HandleRaftMessage(payload map[string]any) map[string]any {
+	message, err := DecodeRaftMessage(payload)
+	if err != nil {
+		return map[string]any{"status": "invalid_raft_message", "error": err.Error()}
+	}
+	if err := p.box.HandleMessage(message); err != nil {
+		return map[string]any{"status": "raft_step_error", "error": err.Error()}
+	}
+	return map[string]any{"status": "raft_message_accepted"}
+}
+
+func (p *PBEO) HandleNestedResponseObservation(payload map[string]any) bool {
+	if payload == nil || p.nestedEO == nil || !p.nestedEO.IsLeader() {
+		return false
+	}
+	requestID, ok := canonicalRequestID(payload["request_id"])
+	if !ok {
+		return false
+	}
+
+	p.mu.Lock()
+	if _, exists := p.nestedProposals[requestID]; exists {
+		p.mu.Unlock()
+		return true
+	}
+	p.nestedProposals[requestID] = struct{}{}
+	p.mu.Unlock()
+
+	proposed := cloneMapAny(payload)
+	proposed["pbeo_nested_observation_committed"] = true
+	if err := p.nestedEO.ProposeResponsePayload(requestID, proposed); err != nil {
+		p.mu.Lock()
+		delete(p.nestedProposals, requestID)
+		p.mu.Unlock()
+		return false
+	}
+	return true
 }
 
 func (p *PBEO) BufferNestedResponse(payload map[string]any) bool {
@@ -204,12 +280,46 @@ func (p *PBEO) BufferNestedResponse(payload map[string]any) bool {
 	return p.nestedResponses.enqueue(requestID, payload)
 }
 
+func (p *PBEO) handleCommittedNestedObservation(committed eo.CommittedEntry) {
+	_ = p.BufferNestedResponse(committed.Entry.Response)
+}
+
+func (p *PBEO) Learn(slot uint64, entry Entry) {
+	p.mu.Lock()
+	if _, exists := p.learnedSlots[slot]; exists {
+		p.mu.Unlock()
+		return
+	}
+	p.learnedSlots[slot] = struct{}{}
+	p.log[slot] = cloneEntry(entry)
+	if slot > p.learned {
+		p.learned = slot
+	}
+	p.mu.Unlock()
+
+	p.Process()
+}
+
+func (p *PBEO) Process() {
+	p.processMu.Lock()
+	defer p.processMu.Unlock()
+
+	committed := p.dequeueCommittableEntries()
+	for _, entry := range committed {
+		p.applyCommittedEntry(entry)
+	}
+}
+
 func (p *PBEO) LearnedIndex() uint64 {
-	return p.log.LearnedIndex()
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.learned
 }
 
 func (p *PBEO) ProcessedIndex() uint64 {
-	return p.log.ProcessedIndex()
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.processed
 }
 
 func (p *PBEO) ReadKV(key string) string {
@@ -286,7 +396,7 @@ func (p *PBEO) runCommitSequencer() {
 			ReadVersions:    copyUint64Map(submission.readVersions),
 			SnapshotVersion: submission.snapshotVersion,
 		}
-		if err := p.log.ProposeResponsePayload(entry.RequestID, encodeEntryPayload(entry)); err != nil {
+		if err := p.box.Propose(entry); err != nil {
 			submission.result <- candidateResult{err: err}
 			continue
 		}
@@ -315,21 +425,28 @@ func (p *PBEO) snapshot() stateSnapshot {
 	}
 }
 
-func (p *PBEO) handleCommittedEOEntry(committed eo.CommittedEntry) {
-	entry := decodeEntryPayload(committed.Entry.RequestID, committed.Entry.Response)
+func (p *PBEO) dequeueCommittableEntries() []CommittedEntry {
 	p.mu.Lock()
-	if _, duplicate := p.committedRequests[entry.RequestID]; duplicate {
-		p.mu.Unlock()
-		return
-	}
-	p.committedRequests[entry.RequestID] = cloneEntry(entry)
-	delete(p.requestAttempts, entry.RequestID)
-	p.mu.Unlock()
+	defer p.mu.Unlock()
 
-	p.applyCommittedEntry(CommittedEntry{
-		Slot:  committed.Slot,
-		Entry: entry,
-	})
+	entries := make([]CommittedEntry, 0)
+	for {
+		nextSlot := p.processed + 1
+		if nextSlot > p.learned {
+			return entries
+		}
+		entry, ok := p.log[nextSlot]
+		if !ok {
+			return entries
+		}
+		p.processed = nextSlot
+		if _, duplicate := p.committedRequests[entry.RequestID]; duplicate {
+			continue
+		}
+		p.committedRequests[entry.RequestID] = cloneEntry(entry)
+		delete(p.requestAttempts, entry.RequestID)
+		entries = append(entries, CommittedEntry{Slot: nextSlot, Entry: cloneEntry(entry)})
+	}
 }
 
 func (p *PBEO) applyCommittedEntry(committed CommittedEntry) {
