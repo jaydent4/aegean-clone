@@ -80,10 +80,11 @@ func (s *Shim) HandleOutgoingResponse(payload map[string]any) map[string]any {
 	sender := s.Name
 
 	fullResponse := map[string]any{
-		"type":       "response",
-		"request_id": requestID,
-		"response":   responseData,
-		"sender":     sender,
+		"type":                   "response",
+		"request_id":             requestID,
+		"response":               responseData,
+		"sender":                 sender,
+		"shim_quorum_aggregated": true,
 	}
 	if parentRequestID, ok := payload["parent_request_id"]; ok && parentRequestID != nil {
 		fullResponse["parent_request_id"] = parentRequestID

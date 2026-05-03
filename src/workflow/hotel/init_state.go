@@ -9,6 +9,8 @@ func InitState(e workflowRuntime) map[string]string {
 	serviceName := common.MustString(e.GetRunConfig(), "service_name")
 	var state map[string]string
 	switch serviceName {
+	case "search":
+		state = map[string]string{}
 	case "geo":
 		state = initHotelGeoState(e)
 	case "profile":
@@ -32,7 +34,7 @@ func InitState(e workflowRuntime) map[string]string {
 
 func hotelServiceHasPersistentState(serviceName string) bool {
 	switch serviceName {
-	case "geo", "profile", "rate", "recommendation", "reservation", "user":
+	case "geo", "profile", "rate", "recommendation", "reservation", "search", "user":
 		return true
 	default:
 		return false

@@ -163,6 +163,9 @@ func TestShimBroadcastsResponseToClients(t *testing.T) {
 	if msg1["request_id"] != "r3" || msg2["request_id"] != "r3" {
 		t.Fatalf("expected response request_id r3, got %v and %v", msg1["request_id"], msg2["request_id"])
 	}
+	if aggregated, _ := msg1["shim_quorum_aggregated"].(bool); !aggregated {
+		t.Fatalf("expected shim_quorum_aggregated=true on outgoing response")
+	}
 }
 
 // Missing type defaults to a client request and follows quorum forwarding

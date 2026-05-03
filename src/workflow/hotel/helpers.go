@@ -35,6 +35,20 @@ func hotelRecommendationKey(hotelID string) string {
 	return "hotel:recommendation:" + hotelID
 }
 
+func hotelSearchLedgerKey(payload map[string]any) string {
+	lat, _ := hotelPayloadFloat64(payload, "lat")
+	lon, _ := hotelPayloadFloat64(payload, "lon")
+	roomNumber := hotelSearchRoomNumber(payload)
+	return strings.Join([]string{
+		"hotel:search",
+		strconv.FormatFloat(lat, 'f', 6, 64),
+		strconv.FormatFloat(lon, 'f', 6, 64),
+		hotelPayloadString(payload, "in_date"),
+		hotelPayloadString(payload, "out_date"),
+		strconv.Itoa(roomNumber),
+	}, ":")
+}
+
 func hotelUserKey(username string) string {
 	return "hotel:user:" + username
 }
@@ -285,6 +299,17 @@ func decodeHotelRecommendation(raw string) (HotelRecommendation, bool) {
 		return HotelRecommendation{}, false
 	}
 	return hotel, true
+}
+
+func decodeHotelSearchLedger(raw string) (HotelSearchLedger, bool) {
+	var ledger HotelSearchLedger
+	if raw == "" {
+		return ledger, false
+	}
+	if err := json.Unmarshal([]byte(raw), &ledger); err != nil {
+		return HotelSearchLedger{}, false
+	}
+	return ledger, true
 }
 
 func decodeHotelReservationRecord(raw string) (HotelReservationRecord, bool) {

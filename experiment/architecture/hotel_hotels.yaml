@@ -14,17 +14,29 @@ services:
     exec_workflow: hotel_frontend
     init_state_workflow: hotel_default
   search:
-    type: unreplicated_server
+    type: server
     clients:
     - node1
     nodes:
     - node4
+    - node5
+    - node6
     exec_workflow: hotel_search
     init_state_workflow: hotel_default
+    shimQuorumSize: 1
+    verifyResponseQuorumSize: 1
+    execVerifyQuorumSize: 2
+    phaseQuorumSize: 2
+    expectedExecVotes: 3
+    batcher_config:
+      batch_size: 20
+      batch_timeout_ms: 5
   geo:
     type: server
     clients:
     - node4
+    - node5
+    - node6
     nodes:
     - node7
     - node8
@@ -43,6 +55,8 @@ services:
     type: server
     clients:
     - node4
+    - node5
+    - node6
     nodes:
     - node10
     - node11
@@ -136,6 +150,13 @@ nodes:
     service: frontend
   node4:
     service: search
+    is_primary_batcher: true
+  node5:
+    service: search
+    is_primary_batcher: false
+  node6:
+    service: search
+    is_primary_batcher: false
   node7:
     service: geo
     is_primary_batcher: true

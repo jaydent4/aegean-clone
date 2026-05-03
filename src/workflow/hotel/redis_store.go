@@ -156,6 +156,8 @@ func hotelServiceStatePrefixes(serviceName string) []string {
 	switch serviceName {
 	case "geo":
 		return []string{"hotel:geo:"}
+	case "search":
+		return []string{"hotel:search:"}
 	case "profile":
 		return []string{"hotel:profile:"}
 	case "rate":

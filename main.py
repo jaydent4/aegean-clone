@@ -39,6 +39,7 @@ HOTEL_LOCAL_REDIS_SERVICES = {
     "rate",
     "recommendation",
     "reservation",
+    "search",
     "user",
 }
 
