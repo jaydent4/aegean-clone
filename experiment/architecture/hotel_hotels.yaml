@@ -4,53 +4,27 @@ services:
     type: client
     next:
     - node1
-    - node2
-    - node3
     client_workflow: hotel_k6_open_hotels_client
   frontend:
-    type: server
+    type: unreplicated_server
     clients:
     - node0
     nodes:
     - node1
-    - node2
-    - node3
     exec_workflow: hotel_frontend
     init_state_workflow: hotel_default
-    shimQuorumSize: 1
-    verifyResponseQuorumSize: 1
-    execVerifyQuorumSize: 2
-    phaseQuorumSize: 2
-    expectedExecVotes: 3
-    batcher_config:
-      batch_size: 28
-      batch_timeout_ms: 15
   search:
-    type: server
+    type: unreplicated_server
     clients:
     - node1
-    - node2
-    - node3
     nodes:
     - node4
-    - node5
-    - node6
     exec_workflow: hotel_search
     init_state_workflow: hotel_default
-    shimQuorumSize: 1
-    verifyResponseQuorumSize: 1
-    execVerifyQuorumSize: 2
-    phaseQuorumSize: 2
-    expectedExecVotes: 3
-    batcher_config:
-      batch_size: 20
-      batch_timeout_ms: 5
   geo:
     type: server
     clients:
     - node4
-    - node5
-    - node6
     nodes:
     - node7
     - node8
@@ -69,8 +43,6 @@ services:
     type: server
     clients:
     - node4
-    - node5
-    - node6
     nodes:
     - node10
     - node11
@@ -89,8 +61,6 @@ services:
     type: server
     clients:
     - node1
-    - node2
-    - node3
     nodes:
     - node13
     - node14
@@ -109,8 +79,6 @@ services:
     type: server
     clients:
     - node1
-    - node2
-    - node3
     nodes:
     - node16
     - node17
@@ -129,8 +97,6 @@ services:
     type: server
     clients:
     - node1
-    - node2
-    - node3
     nodes:
     - node19
     - node20
@@ -149,8 +115,6 @@ services:
     type: server
     clients:
     - node1
-    - node2
-    - node3
     nodes:
     - node22
     - node23
@@ -170,22 +134,8 @@ nodes:
     service: client
   node1:
     service: frontend
-    is_primary_batcher: true
-  node2:
-    service: frontend
-    is_primary_batcher: false
-  node3:
-    service: frontend
-    is_primary_batcher: false
   node4:
     service: search
-    is_primary_batcher: true
-  node5:
-    service: search
-    is_primary_batcher: false
-  node6:
-    service: search
-    is_primary_batcher: false
   node7:
     service: geo
     is_primary_batcher: true

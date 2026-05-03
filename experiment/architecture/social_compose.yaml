@@ -4,33 +4,19 @@ services:
     type: client
     next:
     - node1
-    - node2
-    - node3
     client_workflow: social_k6_open_client
   compose_post:
-    type: server
+    type: unreplicated_server
     clients:
     - node0
     nodes:
     - node1
-    - node2
-    - node3
     exec_workflow: social_compose_post
     init_state_workflow: social_default
-    shimQuorumSize: 1
-    verifyResponseQuorumSize: 1
-    execVerifyQuorumSize: 2
-    phaseQuorumSize: 2
-    expectedExecVotes: 3
-    batcher_config:
-      batch_size: 24
-      batch_timeout_ms: 30
   post_storage:
     type: server
     clients:
     - node1
-    - node2
-    - node3
     nodes:
     - node4
     - node5
@@ -49,8 +35,6 @@ services:
     type: server
     clients:
     - node1
-    - node2
-    - node3
     nodes:
     - node7
     - node8
@@ -69,8 +53,6 @@ services:
     type: server
     clients:
     - node1
-    - node2
-    - node3
     nodes:
     - node10
     - node11
@@ -110,13 +92,6 @@ nodes:
     service: client
   node1:
     service: compose_post
-    is_primary_batcher: true
-  node2:
-    service: compose_post
-    is_primary_batcher: false
-  node3:
-    service: compose_post
-    is_primary_batcher: false
   node4:
     service: post_storage
     is_primary_batcher: true
