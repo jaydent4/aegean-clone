@@ -61,10 +61,11 @@ func executeFrontendSearch(e workflowRuntime, request map[string]any, stage stri
 			return hotelErrorResponse(requestID, "failed to set frontend search stage")
 		}
 		searchRequest := hotelNewNestedRequest(requestID, "search", ndTimestamp, "search_nearby", map[string]any{
-			"lat":      normalizedPayload["lat"],
-			"lon":      normalizedPayload["lon"],
-			"in_date":  normalizedPayload["in_date"],
-			"out_date": normalizedPayload["out_date"],
+			"lat":         normalizedPayload["lat"],
+			"lon":         normalizedPayload["lon"],
+			"in_date":     normalizedPayload["in_date"],
+			"out_date":    normalizedPayload["out_date"],
+			"room_number": normalizedPayload["room_number"],
 		})
 		hotelDispatchNestedRequest(e, request, hotelSearchTargets, searchRequest)
 		return hotelBlockedForNestedResponse(requestID)

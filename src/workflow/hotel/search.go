@@ -28,18 +28,19 @@ func ExecuteRequestSearch(e workflowRuntime, request map[string]any, ndSeed int6
 
 	switch stage {
 	case "":
-		if errResponse := validateFrontendSearchPayload(requestID, payload); errResponse != nil {
+		normalizedPayload := normalizeHotelSearchPayload(payload)
+		if errResponse := validateFrontendSearchPayload(requestID, normalizedPayload); errResponse != nil {
 			return errResponse
 		}
-		if !e.SetRequestContextValue(requestID, searchPayloadContextKey, payload) {
+		if !e.SetRequestContextValue(requestID, searchPayloadContextKey, normalizedPayload) {
 			return hotelErrorResponse(requestID, "failed to initialize search context")
 		}
 		if !e.SetRequestContextValue(requestID, searchStageContextKey, searchStageAwaitGeo) {
 			return hotelErrorResponse(requestID, "failed to set search stage")
 		}
 		geoRequest := hotelNewNestedRequest(requestID, "geo", ndTimestamp, "nearby", map[string]any{
-			"lat": payload["lat"],
-			"lon": payload["lon"],
+			"lat": normalizedPayload["lat"],
+			"lon": normalizedPayload["lon"],
 		})
 		hotelDispatchNestedRequest(e, request, hotelGeoTargets, geoRequest)
 		return hotelBlockedForNestedResponse(requestID)
@@ -52,16 +53,18 @@ func ExecuteRequestSearch(e workflowRuntime, request map[string]any, ndSeed int6
 		geoPayload := hotelNestedResponsePayload(hotelSelectedNestedResponse(nestedResponses, requestID, "geo"))
 		hotelIDs := hotelPayloadStringSlice(geoPayload, "hotel_ids")
 		if len(hotelIDs) == 0 {
+			contextPayload := hotelSearchContextPayload(e, requestID, payload)
+			ledger := hotelUpdateSearchLedger(e, contextPayload, []string{}, ndTimestamp)
 			e.ClearRequestContext(requestID)
 			return hotelAttachParentRequestID(request, map[string]any{
-				"request_id": requestID,
-				"status":     "ok",
-				"hotel_ids":  []string{},
+				"request_id":   requestID,
+				"status":       "ok",
+				"hotel_ids":    []string{},
+				"search_count": ledger.Count,
 			})
 		}
 
-		contextPayloadAny, _ := e.GetRequestContextValue(requestID, searchPayloadContextKey)
-		contextPayload, _ := contextPayloadAny.(map[string]any)
+		contextPayload := hotelSearchContextPayload(e, requestID, payload)
 		if !e.SetRequestContextValue(requestID, searchStageContextKey, searchStageAwaitRate) {
 			return hotelErrorResponse(requestID, "failed to advance search stage")
 		}
@@ -80,13 +83,50 @@ func ExecuteRequestSearch(e workflowRuntime, request map[string]any, ndSeed int6
 		}
 		ratePayload := hotelNestedResponsePayload(hotelSelectedNestedResponse(nestedResponses, requestID, "rate"))
 		hotelIDs := hotelUniqueStable(hotelPayloadStringSlice(ratePayload, "hotel_ids"))
+		contextPayload := hotelSearchContextPayload(e, requestID, payload)
+		ledger := hotelUpdateSearchLedger(e, contextPayload, hotelIDs, ndTimestamp)
 		e.ClearRequestContext(requestID)
 		return hotelAttachParentRequestID(request, map[string]any{
-			"request_id": requestID,
-			"status":     "ok",
-			"hotel_ids":  hotelIDs,
+			"request_id":   requestID,
+			"status":       "ok",
+			"hotel_ids":    hotelIDs,
+			"search_count": ledger.Count,
 		})
 	default:
 		return hotelErrorResponse(requestID, "unknown search stage: "+stage)
 	}
+}
+
+func normalizeHotelSearchPayload(payload map[string]any) map[string]any {
+	normalized := copyHotelPayload(payload)
+	if _, ok := hotelPayloadInt(normalized, "room_number"); !ok {
+		normalized["room_number"] = 1
+	}
+	return normalized
+}
+
+func hotelSearchRoomNumber(payload map[string]any) int {
+	roomNumber, ok := hotelPayloadInt(payload, "room_number")
+	if !ok || roomNumber <= 0 {
+		return 1
+	}
+	return roomNumber
+}
+
+func hotelSearchContextPayload(e workflowRuntime, requestID any, fallback map[string]any) map[string]any {
+	contextPayloadAny, _ := e.GetRequestContextValue(requestID, searchPayloadContextKey)
+	if contextPayload, ok := contextPayloadAny.(map[string]any); ok && contextPayload != nil {
+		return contextPayload
+	}
+	return normalizeHotelSearchPayload(fallback)
+}
+
+func hotelUpdateSearchLedger(e workflowRuntime, payload map[string]any, hotelIDs []string, ndTimestamp float64) HotelSearchLedger {
+	key := hotelSearchLedgerKey(payload)
+	ledger, _ := decodeHotelSearchLedger(hotelReadKV(e, key))
+	ledger.Count++
+	ledger.LastSeenMicros = hotelTimestampMicros(ndTimestamp)
+	ledger.LastHotelIDs = append([]string{}, hotelIDs...)
+	hotelWriteKV(e, key, encodeJSON(ledger))
+	return ledger
 }

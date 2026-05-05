@@ -49,6 +49,12 @@ type HotelRecommendation struct {
 	Price   float64 `json:"price"`
 }
 
+type HotelSearchLedger struct {
+	Count          int      `json:"count"`
+	LastSeenMicros int64    `json:"last_seen_micros"`
+	LastHotelIDs   []string `json:"last_hotel_ids"`
+}
+
 type HotelReservationRecord struct {
 	RequestID       string `json:"request_id"`
 	HotelID         string `json:"hotel_id"`
