@@ -18,7 +18,7 @@ value_length: 50000
 nested_use_eo: true
 aegean_nested_use_eo: true
 eo_tick_interval_ms: 10
-eo_election_tick: 10
+eo_election_tick: 1000
 eo_heartbeat_tick: 1
 
 # Run & sytem configs
