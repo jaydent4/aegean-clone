@@ -12,7 +12,7 @@ spin_time_seconds: 0.005
 write_key_mod: 10
 read_key_mod: 10
 key_count: 10
-value_length: 500000
+value_length: 50000
 
 # Run & sytem configs
 run_timeout_seconds: 20
