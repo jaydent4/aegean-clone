@@ -6,6 +6,7 @@ What improved system performance
 5. Disabling OpenTelemtry/lots of logging during test time
 6. Having middle service fan out to only the primary batcher of the backend service
 7. If you have a mac, have it be charging
+8. If request sizes are large, increase docker resources
 
 To use distributed:
 1. Updated distributed_nodes
