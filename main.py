@@ -373,7 +373,15 @@ def node_local_redis_env(run_config, service_name):
     return needs_local_redis, " ".join(env_parts)
 
 
-def launch_nodes(node_names, node_services, config_path, run_config, enable_pprof=False, enable_tracing=False):
+def launch_nodes(
+    node_names,
+    node_services,
+    config_path,
+    run_config,
+    enable_pprof=False,
+    enable_tracing=False,
+    enable_logging=False,
+):
     logger.info("Launching %d nodes", len(node_names))
     if node_names:
         ensure_binaries_ready(node_names)
@@ -398,6 +406,7 @@ def launch_nodes(node_names, node_services, config_path, run_config, enable_ppro
             telemetry_env = f"AEGEAN_OTEL_FILE_PATH={shlex.quote(otel_trace_path)} "
         else:
             telemetry_env = "AEGEAN_DISABLE_TRACING=1 "
+        logging_env = f"AEGEAN_ENABLE_LOGGING={'1' if enable_logging else '0'} "
         redis_needed, redis_env = node_local_redis_env(run_config, service_name)
         redis_setup = (
             "pkill -TERM -x redis-server || true; "
@@ -423,7 +432,8 @@ def launch_nodes(node_names, node_services, config_path, run_config, enable_ppro
                 "export GOMODCACHE=/app/.gomodcache; "
                 "export GOCACHE=/tmp/go-build; "
                 f"{redis_setup}"
-                f"nohup env {telemetry_env}{profile_env}{redis_env_prefix}{shlex.quote(REMOTE_BINARY_PATH)} --name {shlex.quote(name)} "
+                f"nohup env {logging_env}{telemetry_env}{profile_env}{redis_env_prefix}"
+                f"{shlex.quote(REMOTE_BINARY_PATH)} --name {shlex.quote(name)} "
                 "--host 0.0.0.0 "
                 "--port 8000 "
                 f"--config {remote_config_path} "
@@ -432,6 +442,7 @@ def launch_nodes(node_names, node_services, config_path, run_config, enable_ppro
         )
         if result.returncode != 0:
             raise RuntimeError(f"failed to launch node {name}")
+
 
 def stop_docker_nodes(node_names):
     logger.info("Stopping %d nodes", len(node_names))
@@ -631,7 +642,13 @@ def aggregate_runs(per_run_metrics):
     return aggregated
 
 
-def run_experiment(config_path, enable_pprof=False, enable_tracing=False, timestamped=False):
+def run_experiment(
+    config_path,
+    enable_pprof=False,
+    enable_tracing=False,
+    enable_logging=False,
+    timestamped=False,
+):
     _, relative_run_config_path, architecture_path, run_config = load_run_config(config_path)
     node_names, client_names, node_services = load_experiment_topology(architecture_path)
     run_dir = create_results_run_dir(relative_run_config_path, timestamped=timestamped)
@@ -647,6 +664,7 @@ def run_experiment(config_path, enable_pprof=False, enable_tracing=False, timest
         run_config,
         enable_pprof=enable_pprof,
         enable_tracing=enable_tracing,
+        enable_logging=enable_logging,
     )
     logger.info("Waiting for all nodes to become ready")
     all_nodes_ready = wait_for_nodes_ready(node_names, timeout=120.0, poll_interval=1.0)
@@ -687,7 +705,13 @@ def run_experiment(config_path, enable_pprof=False, enable_tracing=False, timest
     return run_dir, client_names
 
 
-def run_experiment_n_times(config_path, n, enable_pprof=False, enable_tracing=False):
+def run_experiment_n_times(
+    config_path,
+    n,
+    enable_pprof=False,
+    enable_tracing=False,
+    enable_logging=False,
+):
     logger.info("Running experiment %d times: %s", n, config_path)
     run_dirs = []
     per_run_metrics = []
@@ -696,7 +720,10 @@ def run_experiment_n_times(config_path, n, enable_pprof=False, enable_tracing=Fa
     for i in range(n):
         logger.info("=== Run %d/%d ===", i + 1, n)
         run_dir, client_names = run_experiment(
-            config_path, enable_pprof=enable_pprof, enable_tracing=enable_tracing,
+            config_path,
+            enable_pprof=enable_pprof,
+            enable_tracing=enable_tracing,
+            enable_logging=enable_logging,
             timestamped=True,
         )
         run_dirs.append(run_dir)
@@ -759,6 +786,11 @@ def main():
         help="Enable tracing env injection and otel artifact collection.",
     )
     parser.add_argument(
+        "--enable-logging",
+        action="store_true",
+        help="Enable Aegean node logs and Raft module logs. Disabled by default.",
+    )
+    parser.add_argument(
         "--dir",
         dest="config_dir",
         help="Run every config YAML or JSON file under the provided directory recursively.",
@@ -777,6 +809,7 @@ def main():
 
     enable_pprof = args.enable_pprof
     enable_tracing = args.enable_tracing
+    enable_logging = args.enable_logging
     started_at = time.monotonic()
     completed_items = []
 
@@ -791,11 +824,20 @@ def main():
         for config_path in config_paths:
             if args.runs > 1:
                 output_path = run_experiment_n_times(
-                    config_path, args.runs, enable_pprof=enable_pprof, enable_tracing=enable_tracing
+                    config_path,
+                    args.runs,
+                    enable_pprof=enable_pprof,
+                    enable_tracing=enable_tracing,
+                    enable_logging=enable_logging,
                 )
                 completed_items.append(output_path)
             else:
-                run_dir, _ = run_experiment(config_path, enable_pprof=enable_pprof, enable_tracing=enable_tracing)
+                run_dir, _ = run_experiment(
+                    config_path,
+                    enable_pprof=enable_pprof,
+                    enable_tracing=enable_tracing,
+                    enable_logging=enable_logging,
+                )
                 completed_items.append(run_dir)
         if args.email:
             send_run_complete_email(args.email, completed_items, started_at)
@@ -813,11 +855,20 @@ def main():
         for config_path in config_paths:
             if args.runs > 1:
                 output_path = run_experiment_n_times(
-                    config_path, args.runs, enable_pprof=enable_pprof, enable_tracing=enable_tracing
+                    config_path,
+                    args.runs,
+                    enable_pprof=enable_pprof,
+                    enable_tracing=enable_tracing,
+                    enable_logging=enable_logging,
                 )
                 completed_items.append(output_path)
             else:
-                run_dir, _ = run_experiment(config_path, enable_pprof=enable_pprof, enable_tracing=enable_tracing)
+                run_dir, _ = run_experiment(
+                    config_path,
+                    enable_pprof=enable_pprof,
+                    enable_tracing=enable_tracing,
+                    enable_logging=enable_logging,
+                )
                 completed_items.append(run_dir)
         if args.email:
             send_run_complete_email(args.email, completed_items, started_at)
@@ -828,12 +879,21 @@ def main():
 
     if args.runs > 1:
         output_path = run_experiment_n_times(
-            args.config_path, args.runs, enable_pprof=enable_pprof, enable_tracing=enable_tracing,
+            args.config_path,
+            args.runs,
+            enable_pprof=enable_pprof,
+            enable_tracing=enable_tracing,
+            enable_logging=enable_logging,
         )
         completed_items.append(output_path)
         print(f"Aggregated results: {output_path}")
     else:
-        run_dir, _ = run_experiment(args.config_path, enable_pprof=enable_pprof, enable_tracing=enable_tracing)
+        run_dir, _ = run_experiment(
+            args.config_path,
+            enable_pprof=enable_pprof,
+            enable_tracing=enable_tracing,
+            enable_logging=enable_logging,
+        )
         completed_items.append(run_dir)
 
     if args.email:

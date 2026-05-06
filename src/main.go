@@ -13,6 +13,8 @@ import (
 )
 
 func main() {
+	configureLoggingFromEnv()
+
 	stopProfiles := startProfilingFromEnv()
 	installSignalCleanup(stopProfiles)
 	defer stopProfiles()
