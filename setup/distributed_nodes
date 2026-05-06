@@ -1,7 +1,7 @@
-node0 amd133.utah.cloudlab.us
-node1 amd170.utah.cloudlab.us
-node2 amd169.utah.cloudlab.us
-node3 amd178.utah.cloudlab.us
-node4 amd164.utah.cloudlab.us
-node5 amd155.utah.cloudlab.us
-node6 amd174.utah.cloudlab.us
+node0 apt149.apt.emulab.net
+node1 apt132.apt.emulab.net
+node2 apt164.apt.emulab.net
+node3 apt136.apt.emulab.net
+node4 apt146.apt.emulab.net
+node5 apt145.apt.emulab.net
+node6 apt156.apt.emulab.net
