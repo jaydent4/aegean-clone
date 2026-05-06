@@ -76,7 +76,7 @@ func (e *Exec) flushNextVerify() bool {
 			shortHash(pending.merkleRoot),
 			shortHash(token),
 			len(pending.outputs),
-			pending.outputs,
+			truncateLogValue(pending.outputs),
 			e.Verifiers,
 		)
 		if logExecStateDetails {
@@ -85,7 +85,7 @@ func (e *Exec) flushNextVerify() bool {
 				e.Name,
 				seq,
 				view,
-				pending.state,
+				truncateLogStringMap(pending.state),
 			)
 		}
 

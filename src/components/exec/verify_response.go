@@ -115,7 +115,7 @@ func (e *Exec) handleVerifyResponse(payload map[string]any) map[string]any {
 				"%s: verifier decision state seq_num=%d decision=rollback state=%v",
 				e.Name,
 				seqNum,
-				decisionState,
+				truncateLogStringMap(decisionState),
 			)
 		}
 		if e.rollbackTo(seqNum, agreedToken) {
@@ -151,7 +151,7 @@ func (e *Exec) handleVerifyResponse(payload map[string]any) map[string]any {
 					"%s: verifier decision state seq_num=%d decision=state_transfer reason=rollback_failed state=%v",
 					e.Name,
 					seqNum,
-					e.stableStateSnapshotForLog(),
+					truncateLogStringMap(e.stableStateSnapshotForLog()),
 				)
 			}
 			e.requestStateTransferWithRetry(seqNum, 0, 10*time.Millisecond)
@@ -187,7 +187,7 @@ func (e *Exec) handleVerifyResponse(payload map[string]any) map[string]any {
 				"%s: verifier decision state seq_num=%d decision=state_transfer reason=token_mismatch state=%v",
 				e.Name,
 				seqNum,
-				common.CopyStringMap(pending.state),
+				truncateLogStringMap(common.CopyStringMap(pending.state)),
 			)
 		}
 		e.mu.Lock()
@@ -215,7 +215,7 @@ func (e *Exec) handleVerifyResponse(payload map[string]any) map[string]any {
 			"%s: verifier decision state seq_num=%d decision=commit state=%v",
 			e.Name,
 			seqNum,
-			common.CopyStringMap(pending.state),
+			truncateLogStringMap(common.CopyStringMap(pending.state)),
 		)
 	}
 	e.finalizeCommit(seqNum, pending, agreedToken)
