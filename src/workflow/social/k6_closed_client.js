@@ -13,6 +13,7 @@ function makePostText(requestIdx) {
 }
 
 export const options = {
+  discardResponseBodies: true,
   scenarios: {
     default: {
       executor: 'constant-vus',

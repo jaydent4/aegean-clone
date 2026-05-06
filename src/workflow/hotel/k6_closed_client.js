@@ -5,6 +5,7 @@ const userCount = Number(__ENV.HOTEL_USER_COUNT || 501);
 const hotelCount = Number(__ENV.HOTEL_HOTEL_COUNT || 80);
 
 export const options = {
+  discardResponseBodies: true,
   scenarios: {
     default: {
       executor: 'constant-vus',

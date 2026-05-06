@@ -7,6 +7,7 @@ const lonBase = Number(__ENV.HOTEL_LON_BASE || -122.4071);
 const requirements = ['dis', 'rate', 'price'];
 
 export const options = {
+  discardResponseBodies: true,
   scenarios: {
     default: {
       executor: 'constant-arrival-rate',

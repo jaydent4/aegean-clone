@@ -1,6 +1,7 @@
 import http from 'k6/http';
 
 export const options = {
+  discardResponseBodies: true,
   scenarios: {
     default: {
       executor: 'constant-vus',

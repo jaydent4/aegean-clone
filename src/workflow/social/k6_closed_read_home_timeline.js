@@ -4,6 +4,7 @@ import exec from 'k6/execution';
 const userCount = Number(__ENV.SOCIAL_USER_COUNT || 32);
 
 export const options = {
+  discardResponseBodies: true,
   scenarios: {
     default: {
       executor: 'constant-vus',

@@ -5,6 +5,7 @@ const latBase = Number(__ENV.HOTEL_LAT_BASE || 37.7867);
 const lonBase = Number(__ENV.HOTEL_LON_BASE || -122.4071);
 
 export const options = {
+  discardResponseBodies: true,
   scenarios: {
     default: {
       executor: 'constant-vus',
