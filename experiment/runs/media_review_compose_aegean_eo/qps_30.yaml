@@ -27,6 +27,6 @@ eo_heartbeat_tick: 1
 
 # Run & system configs
 run_timeout_seconds: 50
-parallel_window_k: 8
+parallel_window_k: 16
 worker_count: 8
-gomaxprocs: 4
+gomaxprocs: 32

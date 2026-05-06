@@ -27,6 +27,6 @@ hotel_redis_addr: 127.0.0.1:6379
 
 # Run & system configs
 run_timeout_seconds: 20
-parallel_window_k: 8
+parallel_window_k: 16
 worker_count: 8
-gomaxprocs: 4
+gomaxprocs: 32

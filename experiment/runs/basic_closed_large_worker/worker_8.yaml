@@ -14,6 +14,6 @@ value_length: 100
 
 # Run & system configs
 run_timeout_seconds: 20
-parallel_window_k: 4
+parallel_window_k: 16
 worker_count: 8
-gomaxprocs: 4
+gomaxprocs: 32
