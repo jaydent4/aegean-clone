@@ -34,6 +34,11 @@ type stepRequest struct {
 	enqueuedAt time.Time
 }
 
+type asyncLearnRequest struct {
+	slot  uint64
+	entry Entry
+}
+
 type drainReadyStats struct {
 	readyBatches      int
 	entries           int
@@ -76,11 +81,19 @@ type raftConsensusBox struct {
 	proposals       chan proposalRequest
 	prioritySteps   chan stepRequest
 	backgroundSteps chan stepRequest
+	sendQueues      map[uint64]chan raftpb.Message
+	learnQueue      chan asyncLearnRequest
+	unreachable     chan uint64
 	spans           map[string]trace.Span
 	stopOnce        sync.Once
 	stopCh          chan struct{}
 	doneCh          chan struct{}
 }
+
+const (
+	raftAsyncSendQueueSize  = 1024
+	raftAsyncLearnQueueSize = 4096
+)
 
 func newRaftConsensusBox(cfg BoxConfig, onLearn LearnFunc) (ConsensusBox, error) {
 	peerIDs, peers, selfID, err := buildPeerIDs(cfg.Name, cfg.Peers)
@@ -151,11 +164,23 @@ func newRaftConsensusBox(cfg BoxConfig, onLearn LearnFunc) (ConsensusBox, error)
 		proposals:       make(chan proposalRequest),
 		prioritySteps:   make(chan stepRequest, 1024),
 		backgroundSteps: make(chan stepRequest, 1024),
+		sendQueues:      make(map[uint64]chan raftpb.Message),
+		learnQueue:      make(chan asyncLearnRequest, raftAsyncLearnQueueSize),
+		unreachable:     make(chan uint64, 1024),
 		spans:           make(map[string]trace.Span),
 		stopCh:          make(chan struct{}),
 		doneCh:          make(chan struct{}),
 	}
 
+	for id := range peers {
+		if id == selfID {
+			continue
+		}
+		queue := make(chan raftpb.Message, raftAsyncSendQueueSize)
+		box.sendQueues[id] = queue
+		go box.runSendWorker(id, queue)
+	}
+	go box.runLearnWorker()
 	go box.run(rawNode, storage, tickInterval)
 	return box, nil
 }
@@ -334,6 +359,65 @@ func (b *raftConsensusBox) Stop() {
 	})
 }
 
+func (b *raftConsensusBox) runSendWorker(peerID uint64, queue <-chan raftpb.Message) {
+	peer := b.peers[peerID]
+	for {
+		select {
+		case <-b.stopCh:
+			return
+		case message := <-queue:
+			_, span := telemetry.Tracer("aegean").Start(
+				context.Background(),
+				"pbeo.raft.async_send_message",
+				trace.WithAttributes(
+					attribute.String("node.name", b.name),
+					attribute.Int64("raft.node_id", int64(b.selfID)),
+					attribute.String("raft.peer", peer),
+					attribute.Int64("raft.message.to", int64(message.To)),
+					attribute.Int64("raft.message.from", int64(message.From)),
+					attribute.Int64("raft.message.term", int64(message.Term)),
+					attribute.String("raft.message.type", message.Type.String()),
+					attribute.Int("raft.message.entries", len(message.Entries)),
+					attribute.Int("raft.message.bytes", message.Size()),
+					attribute.Int("pbeo.raft.async_send_queue_depth_on_dequeue", len(queue)),
+				),
+			)
+			if err := b.send(peer, message); err != nil {
+				span.RecordError(err)
+				span.SetAttributes(attribute.Bool("pbeo.raft.send_error", true))
+				select {
+				case b.unreachable <- peerID:
+				case <-b.stopCh:
+				}
+			}
+			span.End()
+		}
+	}
+}
+
+func (b *raftConsensusBox) runLearnWorker() {
+	for {
+		select {
+		case <-b.stopCh:
+			return
+		case request := <-b.learnQueue:
+			_, span := telemetry.StartSpanFromPayload(
+				request.entry.Response,
+				"pbeo.raft.async_learn_committed",
+				append(
+					b.entryTraceAttrs(request.entry),
+					attribute.Int64("pbeo.raft.commit_slot", int64(request.slot)),
+					attribute.Int("pbeo.raft.async_learn_queue_depth_on_dequeue", len(b.learnQueue)),
+				)...,
+			)
+			if b.learn != nil {
+				b.learn(request.slot, request.entry)
+			}
+			span.End()
+		}
+	}
+}
+
 func (b *raftConsensusBox) run(rawNode *raft.RawNode, storage *raft.MemoryStorage, tickInterval time.Duration) {
 	defer b.endOpenRequestTraces("box_stopped")
 	defer close(b.doneCh)
@@ -462,6 +546,15 @@ func (b *raftConsensusBox) run(rawNode *raft.RawNode, storage *raft.MemoryStorag
 			resultSendSpan.End()
 			proposalIterationSpan.SetAttributes(attribute.Int("pbeo.raft.proposal_queue_depth_after_iteration", len(b.proposals)))
 			proposalIterationSpan.End()
+			iterationSpan.End()
+		case peerID := <-b.unreachable:
+			b.annotateRunIterationTrace(
+				iterationSpan,
+				"report_unreachable",
+				attribute.Int64("raft.message.to", int64(peerID)),
+			)
+			rawNode.ReportUnreachable(peerID)
+			b.drainReady(rawNode, storage)
 			iterationSpan.End()
 		case request := <-b.prioritySteps:
 			b.processStep(rawNode, storage, request, iterationSpan, "step_priority")
@@ -614,15 +707,25 @@ func (b *raftConsensusBox) drainReady(rawNode *raft.RawNode, storage *raft.Memor
 					attribute.String("raft.message.type", message.Type.String()),
 					attribute.Int("raft.message.entries", len(message.Entries)),
 					attribute.Int("raft.message.bytes", messageBytes),
+					attribute.Int("pbeo.raft.async_send_queue_depth_before_enqueue", len(b.sendQueues[message.To])),
 				),
 			)
-			if err := b.send(peer, message); err != nil {
-				stats.unreachablePeers++
-				messageSpan.RecordError(err)
+			queue := b.sendQueues[message.To]
+			if queue == nil {
 				messageSpan.SetAttributes(attribute.Bool("pbeo.raft.send_error", true))
 				messageSpan.End()
-				rawNode.ReportUnreachable(message.To)
 				continue
+			}
+			select {
+			case <-b.stopCh:
+				messageSpan.SetAttributes(attribute.String("pbeo.raft.async_send_enqueue_result", "stopped"))
+				messageSpan.End()
+				return
+			case queue <- message:
+				messageSpan.SetAttributes(
+					attribute.String("pbeo.raft.async_send_enqueue_result", "enqueued"),
+					attribute.Int("pbeo.raft.async_send_queue_depth_after_enqueue", len(queue)),
+				)
 			}
 			stats.sentMessages++
 			stats.sentMessageBytes += messageBytes
@@ -811,9 +914,26 @@ func (b *raftConsensusBox) learnCommittedEntry(rawNode *raft.RawNode, entry raft
 		}
 		b.learnedSlot++
 		b.finishCommittedRequestTrace(b.learnedSlot, value)
-		if b.learn != nil {
-			b.learn(b.learnedSlot, value)
+		_, enqueueSpan := telemetry.StartSpanFromPayload(
+			value.Response,
+			"pbeo.raft.async_learn_enqueue",
+			append(
+				b.entryTraceAttrs(value),
+				attribute.Int64("pbeo.raft.commit_slot", int64(b.learnedSlot)),
+				attribute.Int("pbeo.raft.async_learn_queue_depth_before_enqueue", len(b.learnQueue)),
+			)...,
+		)
+		request := asyncLearnRequest{slot: b.learnedSlot, entry: cloneEntry(value)}
+		select {
+		case <-b.stopCh:
+			enqueueSpan.SetAttributes(attribute.String("pbeo.raft.async_learn_enqueue_result", "stopped"))
+		case b.learnQueue <- request:
+			enqueueSpan.SetAttributes(
+				attribute.String("pbeo.raft.async_learn_enqueue_result", "enqueued"),
+				attribute.Int("pbeo.raft.async_learn_queue_depth_after_enqueue", len(b.learnQueue)),
+			)
 		}
+		enqueueSpan.End()
 	}
 }
 
