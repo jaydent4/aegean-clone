@@ -5,6 +5,7 @@ from pathlib import Path
 import shlex
 import subprocess
 import sys
+import tarfile
 
 
 REPO_URL = "https://github.com/ucla-progsoftsys/aegean-clone.git"
@@ -85,44 +86,83 @@ def run_host_git(host: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def run_host_upload(host: str) -> subprocess.CompletedProcess[str]:
-    tar_proc = subprocess.Popen(
-        ["tar", "-cf", "-", "."],
+def list_upload_paths() -> subprocess.CompletedProcess[list[Path]]:
+    result = subprocess.run(
+        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
         cwd=REPO_ROOT,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        return subprocess.CompletedProcess(
+            result.args,
+            result.returncode,
+            [],
+            result.stderr.decode(),
+        )
+    paths = [
+        Path(raw.decode())
+        for raw in result.stdout.split(b"\0")
+        if raw
+    ]
+    return subprocess.CompletedProcess(result.args, 0, paths, "")
+
+
+def run_host_upload(host: str) -> subprocess.CompletedProcess[str]:
+    upload_paths = list_upload_paths()
+    if upload_paths.returncode != 0:
+        return subprocess.CompletedProcess(
+            upload_paths.args,
+            upload_paths.returncode,
+            "",
+            upload_paths.stderr,
+        )
+
+    ssh_proc = subprocess.Popen(
+        [
+            "ssh",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=10",
+            host,
+            "bash",
+            "-lc",
+            build_upload_command(),
+        ],
+        stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        text=False,
     )
+    tar_error = ""
     try:
-        ssh_proc = subprocess.run(
-            [
-                "ssh",
-                "-o",
-                "BatchMode=yes",
-                "-o",
-                "ConnectTimeout=10",
-                host,
-                "bash",
-                "-lc",
-                build_upload_command(),
-            ],
-            stdin=tar_proc.stdout,
-            capture_output=True,
-        )
+        assert ssh_proc.stdin is not None
+        with tarfile.open(fileobj=ssh_proc.stdin, mode="w|") as archive:
+            for rel_path in upload_paths.stdout:
+                archive.add(REPO_ROOT / rel_path, arcname=rel_path)
+    except (BrokenPipeError, OSError, tarfile.TarError) as exc:
+        tar_error = f"local tar creation failed: {exc}\n"
     finally:
-        if tar_proc.stdout is not None:
-            tar_proc.stdout.close()
-    tar_stderr = tar_proc.communicate()[1]
-    if tar_proc.returncode != 0:
-        stderr = tar_stderr.decode() if tar_stderr else "local tar command failed"
-        if "ssh_proc" in locals() and ssh_proc.stderr:
-            stderr = stderr + ssh_proc.stderr.decode()
-        return subprocess.CompletedProcess(ssh_proc.args if "ssh_proc" in locals() else ["ssh", host], 1, "", stderr)
+        if ssh_proc.stdin is not None:
+            try:
+                ssh_proc.stdin.close()
+            except BrokenPipeError as exc:
+                if not tar_error:
+                    tar_error = f"local tar creation failed: {exc}\n"
+            ssh_proc.stdin = None
+
+    stdout, stderr = ssh_proc.communicate()
+    if tar_error:
+        return subprocess.CompletedProcess(
+            ssh_proc.args,
+            1,
+            stdout.decode(),
+            tar_error + stderr.decode(),
+        )
     return subprocess.CompletedProcess(
         ssh_proc.args,
         ssh_proc.returncode,
-        ssh_proc.stdout.decode(),
-        ((tar_stderr.decode() if tar_stderr else "") + ssh_proc.stderr.decode()),
+        stdout.decode(),
+        stderr.decode(),
     )
 
 
