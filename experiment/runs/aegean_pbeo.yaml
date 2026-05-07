@@ -2,7 +2,7 @@
 architecture: aegean_pbeo.yaml
 
 # K6 configs
-k6_qps: 100
+k6_qps: 200
 duration: 15s
 k6_pre_allocated_vus: 0
 k6_max_vus: 10000
