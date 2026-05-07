@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"aegean/components/eo"
 	"aegean/telemetry"
@@ -18,6 +19,7 @@ type candidateSubmission struct {
 	writes    map[string]string
 	result    chan candidateResult
 	queueSpan trace.Span
+	enqueued  time.Time
 }
 
 type candidateResult struct {
@@ -47,6 +49,7 @@ type PBEO struct {
 	stateMu           sync.RWMutex
 	kv                map[string]string
 	executingRequests atomic.Int64
+	commitSequence    atomic.Uint64
 
 	commitCh        chan candidateSubmission
 	nestedResponses *nestedResponseStore
@@ -406,10 +409,45 @@ func (p *PBEO) executeUntilProposed(requestID string, request map[string]any) {
 		writes:    tx.Writes(),
 		result:    resultCh,
 		queueSpan: queueSpan,
+		enqueued:  time.Now(),
 	}
 
+	_, sendSpan := telemetry.StartSpanFromPayload(
+		response,
+		"pbeo.commit_channel_send",
+		append(
+			telemetry.AttrsFromPayload(response),
+			attribute.String("node.name", p.name),
+			attribute.String("request.id", requestID),
+			attribute.Int("pbeo.commit_queue_depth_before_send", len(p.commitCh)),
+			attribute.Int("pbeo.commit_queue_capacity", cap(p.commitCh)),
+			attribute.Int("pbeo.write_count", len(tx.Writes())),
+			attribute.Int("pbeo.write_bytes", stringMapBytes(tx.Writes())),
+		)...,
+	)
 	p.commitCh <- submission
+	sendSpan.SetAttributes(attribute.Int("pbeo.commit_queue_depth_after_send", len(p.commitCh)))
+	sendSpan.End()
+
+	_, resultWaitSpan := telemetry.StartSpanFromPayload(
+		response,
+		"pbeo.commit_result_wait",
+		append(
+			telemetry.AttrsFromPayload(response),
+			attribute.String("node.name", p.name),
+			attribute.String("request.id", requestID),
+			attribute.Int("pbeo.commit_queue_depth_after_enqueue", len(p.commitCh)),
+			attribute.Int("pbeo.commit_queue_capacity", cap(p.commitCh)),
+			attribute.Int("pbeo.write_count", len(tx.Writes())),
+			attribute.Int("pbeo.write_bytes", stringMapBytes(tx.Writes())),
+		)...,
+	)
 	result := <-resultCh
+	resultWaitSpan.SetAttributes(attribute.Int("pbeo.commit_queue_depth_after_result", len(p.commitCh)))
+	if result.err != nil {
+		resultWaitSpan.RecordError(result.err)
+	}
+	resultWaitSpan.End()
 	if result.err != nil {
 		p.finishRequestFailure(requestID)
 	}
@@ -417,11 +455,52 @@ func (p *PBEO) executeUntilProposed(requestID string, request map[string]any) {
 
 func (p *PBEO) runCommitSequencer() {
 	for submission := range p.commitCh {
+		seq := p.commitSequence.Add(1)
+		queueDepthOnDequeue := len(p.commitCh)
+		queueWait := time.Since(submission.enqueued)
 		if submission.queueSpan != nil {
-			submission.queueSpan.SetAttributes(attribute.Int("pbeo.commit_queue_depth_on_dequeue", len(p.commitCh)))
+			submission.queueSpan.SetAttributes(
+				attribute.Int("pbeo.commit_queue_depth_on_dequeue", queueDepthOnDequeue),
+				attribute.Int64("pbeo.commit_sequence", int64(seq)),
+				attribute.Int64("pbeo.commit_queue_wait_us", queueWait.Microseconds()),
+			)
 			submission.queueSpan.End()
 		}
+		_, sequencerSpan := telemetry.StartSpanFromPayload(
+			submission.response,
+			"pbeo.commit_sequencer.item",
+			append(
+				telemetry.AttrsFromPayload(submission.response),
+				attribute.String("node.name", p.name),
+				attribute.String("request.id", submission.requestID),
+				attribute.Int64("pbeo.commit_sequence", int64(seq)),
+				attribute.Int("pbeo.commit_queue_depth_on_dequeue", queueDepthOnDequeue),
+				attribute.Int64("pbeo.commit_queue_wait_us", queueWait.Microseconds()),
+				attribute.Int("pbeo.commit_queue_capacity", cap(p.commitCh)),
+				attribute.Int("pbeo.write_count", len(submission.writes)),
+				attribute.Int("pbeo.write_bytes", stringMapBytes(submission.writes)),
+			)...,
+		)
+		_, iterationSpan := telemetry.StartSpanFromPayload(
+			submission.response,
+			"pbeo.commit_sequencer.iteration",
+			append(
+				telemetry.AttrsFromPayload(submission.response),
+				attribute.String("node.name", p.name),
+				attribute.String("request.id", submission.requestID),
+				attribute.Int64("pbeo.commit_sequence", int64(seq)),
+				attribute.Int("pbeo.commit_queue_depth_on_dequeue", queueDepthOnDequeue),
+				attribute.Int64("pbeo.commit_queue_wait_us", queueWait.Microseconds()),
+				attribute.Int("pbeo.commit_queue_capacity", cap(p.commitCh)),
+				attribute.Int("pbeo.write_count", len(submission.writes)),
+				attribute.Int("pbeo.write_bytes", stringMapBytes(submission.writes)),
+			)...,
+		)
 		if _, ok := p.committedEntry(submission.requestID); ok {
+			sequencerSpan.SetAttributes(attribute.Bool("pbeo.commit_duplicate", true))
+			sequencerSpan.End()
+			iterationSpan.SetAttributes(attribute.Bool("pbeo.commit_duplicate", true))
+			iterationSpan.End()
 			submission.result <- candidateResult{}
 			continue
 		}
@@ -446,11 +525,26 @@ func (p *PBEO) runCommitSequencer() {
 		if err := p.box.Propose(entry); err != nil {
 			proposeSpan.RecordError(err)
 			proposeSpan.End()
+			sequencerSpan.RecordError(err)
+			sequencerSpan.End()
+			iterationSpan.RecordError(err)
+			iterationSpan.End()
 			submission.result <- candidateResult{err: err}
 			continue
 		}
 		proposeSpan.End()
+		sequencerSpan.SetAttributes(
+			attribute.Bool("pbeo.commit_duplicate", false),
+			attribute.Int("pbeo.commit_queue_depth_after_propose", len(p.commitCh)),
+		)
+		sequencerSpan.End()
+		iterationSpan.SetAttributes(
+			attribute.Bool("pbeo.commit_duplicate", false),
+			attribute.Int("pbeo.commit_queue_depth_after_propose", len(p.commitCh)),
+		)
 		submission.result <- candidateResult{}
+		iterationSpan.SetAttributes(attribute.Int("pbeo.commit_queue_depth_after_result_send", len(p.commitCh)))
+		iterationSpan.End()
 	}
 }
 

@@ -23,6 +23,7 @@ type proposalRequest struct {
 	entry      Entry
 	result     chan error
 	span       trace.Span
+	callSpan   trace.Span
 	enqueuedAt time.Time
 	payloadLen int
 }
@@ -175,11 +176,20 @@ func (b *raftConsensusBox) Leader() (string, bool) {
 func (b *raftConsensusBox) Propose(entry Entry) error {
 	result := make(chan error, 1)
 	span := b.startRequestTrace(entry)
+	_, callSpan := telemetry.StartSpanFromPayload(
+		entry.Response,
+		"pbeo.raft.propose_call",
+		append(
+			b.entryTraceAttrs(entry),
+			attribute.Int("pbeo.raft.proposals_queued_on_call", len(b.proposals)),
+		)...,
+	)
 	payloadLen := entryWireSize(entry)
 	request := proposalRequest{
 		entry:      entry,
 		result:     result,
 		span:       span,
+		callSpan:   callSpan,
 		enqueuedAt: time.Now(),
 		payloadLen: payloadLen,
 	}
@@ -189,9 +199,26 @@ func (b *raftConsensusBox) Propose(entry Entry) error {
 			attribute.Int("pbeo.raft.proposal_payload_bytes", payloadLen),
 		)
 	}
+	callSpan.SetAttributes(
+		attribute.Int("pbeo.raft.proposal_queue_depth_on_enqueue", len(b.proposals)),
+		attribute.Int("pbeo.raft.proposal_payload_bytes", payloadLen),
+	)
 
+	_, sendSpan := telemetry.StartSpanFromPayload(
+		entry.Response,
+		"pbeo.raft.propose_channel_send",
+		append(
+			b.entryTraceAttrs(entry),
+			attribute.Int("pbeo.raft.proposal_queue_depth_before_send", len(b.proposals)),
+			attribute.Int("pbeo.raft.proposal_payload_bytes", payloadLen),
+		)...,
+	)
 	select {
 	case <-b.doneCh:
+		sendSpan.SetAttributes(attribute.String("pbeo.raft.propose_channel_send_result", "stopped_before_enqueue"))
+		sendSpan.End()
+		callSpan.SetAttributes(attribute.String("pbeo.raft.propose_result", "stopped_before_enqueue"))
+		callSpan.End()
 		endRequestTrace(span, "stopped_before_enqueue")
 		return errConsensusBoxStopped
 	case b.proposals <- request:
@@ -199,12 +226,42 @@ func (b *raftConsensusBox) Propose(entry Entry) error {
 		if span != nil {
 			span.SetAttributes(attribute.Int("pbeo.raft.proposal_queue_depth_after_enqueue", len(b.proposals)))
 		}
+		sendSpan.SetAttributes(
+			attribute.String("pbeo.raft.propose_channel_send_result", "enqueued"),
+			attribute.Int("pbeo.raft.proposal_queue_depth_after_send", len(b.proposals)),
+		)
+		sendSpan.End()
+		callSpan.SetAttributes(attribute.Int("pbeo.raft.proposal_queue_depth_after_enqueue", len(b.proposals)))
 	}
 
+	_, waitSpan := telemetry.StartSpanFromPayload(
+		entry.Response,
+		"pbeo.raft.propose_result_wait",
+		append(
+			b.entryTraceAttrs(entry),
+			attribute.Int("pbeo.raft.proposal_queue_depth_after_enqueue", len(b.proposals)),
+			attribute.Int("pbeo.raft.proposal_payload_bytes", payloadLen),
+		)...,
+	)
 	select {
 	case <-b.doneCh:
+		waitSpan.SetAttributes(attribute.String("pbeo.raft.propose_result", "stopped"))
+		waitSpan.End()
+		callSpan.SetAttributes(attribute.String("pbeo.raft.propose_result", "stopped"))
+		callSpan.End()
 		return errConsensusBoxStopped
 	case err := <-result:
+		if err != nil {
+			waitSpan.RecordError(err)
+			callSpan.RecordError(err)
+			waitSpan.SetAttributes(attribute.String("pbeo.raft.propose_result", "error"))
+			callSpan.SetAttributes(attribute.String("pbeo.raft.propose_result", "error"))
+		} else {
+			waitSpan.SetAttributes(attribute.String("pbeo.raft.propose_result", "ok"))
+			callSpan.SetAttributes(attribute.String("pbeo.raft.propose_result", "ok"))
+		}
+		waitSpan.End()
+		callSpan.End()
 		return err
 	}
 }
@@ -309,6 +366,16 @@ func (b *raftConsensusBox) run(rawNode *raft.RawNode, storage *raft.MemoryStorag
 			iterationSpan.End()
 		case request := <-b.proposals:
 			proposalQueueWait := time.Since(request.enqueuedAt)
+			_, proposalIterationSpan := telemetry.StartSpanFromPayload(
+				request.entry.Response,
+				"pbeo.raft.proposal_iteration",
+				append(
+					b.entryTraceAttrs(request.entry),
+					attribute.Int64("pbeo.raft.proposal_queue_wait_us", proposalQueueWait.Microseconds()),
+					attribute.Int("pbeo.raft.proposal_queue_depth_on_dequeue", len(b.proposals)),
+					attribute.Int("pbeo.raft.proposal_payload_bytes", request.payloadLen),
+				)...,
+			)
 			b.annotateRunIterationTrace(
 				iterationSpan,
 				"proposal",
@@ -321,24 +388,80 @@ func (b *raftConsensusBox) run(rawNode *raft.RawNode, storage *raft.MemoryStorag
 					attribute.Int("pbeo.raft.proposal_queue_depth_on_dequeue", len(b.proposals)),
 				)
 			}
+			if request.callSpan != nil {
+				request.callSpan.SetAttributes(
+					attribute.Int64("pbeo.raft.proposal_queue_wait_us", proposalQueueWait.Microseconds()),
+					attribute.Int("pbeo.raft.proposal_queue_depth_on_dequeue", len(b.proposals)),
+				)
+			}
 			b.rememberRequestTrace(request.entry, request.span)
+			_, marshalSpan := telemetry.StartSpanFromPayload(
+				request.entry.Response,
+				"pbeo.raft.proposal_marshal",
+				append(
+					b.entryTraceAttrs(request.entry),
+					attribute.Int("pbeo.raft.proposal_payload_bytes_estimate", request.payloadLen),
+				)...,
+			)
 			data, err := json.Marshal(request.entry)
+			if err != nil {
+				marshalSpan.RecordError(err)
+			}
+			marshalSpan.SetAttributes(attribute.Int("pbeo.raft.proposal_marshal_bytes", len(data)))
+			marshalSpan.End()
 			if err == nil {
 				if request.span != nil {
 					request.span.SetAttributes(attribute.Int("pbeo.raft.proposal_marshal_bytes", len(data)))
 				}
 				addRequestTraceEvent(request.span, "propose")
+				_, rawProposeSpan := telemetry.StartSpanFromPayload(
+					request.entry.Response,
+					"pbeo.raft.raw_node_propose",
+					append(
+						b.entryTraceAttrs(request.entry),
+						attribute.Int("pbeo.raft.proposal_marshal_bytes", len(data)),
+					)...,
+				)
 				err = rawNode.Propose(data)
 				if err != nil {
+					rawProposeSpan.RecordError(err)
 					endRequestTrace(request.span, "propose_error")
 					b.forgetRequestTrace(request.entry)
 				}
+				rawProposeSpan.End()
+				_, drainSpan := telemetry.StartSpanFromPayload(
+					request.entry.Response,
+					"pbeo.raft.proposal_drain_ready",
+					append(
+						b.entryTraceAttrs(request.entry),
+						attribute.Int("pbeo.raft.proposal_marshal_bytes", len(data)),
+					)...,
+				)
 				b.drainReady(rawNode, storage)
+				drainSpan.End()
 			} else {
 				endRequestTrace(request.span, "marshal_error")
 				b.forgetRequestTrace(request.entry)
 			}
+			if err != nil {
+				proposalIterationSpan.RecordError(err)
+			}
+			_, resultSendSpan := telemetry.StartSpanFromPayload(
+				request.entry.Response,
+				"pbeo.raft.proposal_result_send",
+				append(
+					b.entryTraceAttrs(request.entry),
+					attribute.Int("pbeo.raft.proposal_queue_depth_before_result_send", len(b.proposals)),
+				)...,
+			)
 			request.result <- err
+			if err != nil {
+				resultSendSpan.RecordError(err)
+			}
+			resultSendSpan.SetAttributes(attribute.Int("pbeo.raft.proposal_queue_depth_after_result_send", len(b.proposals)))
+			resultSendSpan.End()
+			proposalIterationSpan.SetAttributes(attribute.Int("pbeo.raft.proposal_queue_depth_after_iteration", len(b.proposals)))
+			proposalIterationSpan.End()
 			iterationSpan.End()
 		case request := <-b.prioritySteps:
 			b.processStep(rawNode, storage, request, iterationSpan, "step_priority")
