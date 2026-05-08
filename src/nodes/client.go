@@ -63,13 +63,6 @@ func (c *Client) Start() {
 }
 
 func (c *Client) HandleMessage(payload map[string]any) map[string]any {
-	_, span := telemetry.StartSpanFromPayload(
-		payload,
-		"client.handle_message",
-		append(telemetry.AttrsFromPayload(payload), attribute.String("node.name", c.Name))...,
-	)
-	defer span.End()
-
 	msgType, _ := payload["type"].(string)
 	if msgType == "response" {
 		return c.handleResponse(payload)
@@ -87,6 +80,8 @@ func (c *Client) handleRequest(payload map[string]any) map[string]any {
 
 	requestID := atomic.AddUint64(&c.requestSeq, 1)
 	requestKey := toKey(requestID)
+
+	span.SetAttributes(attribute.String("request.id", requestKey))
 
 	doneCh := make(chan map[string]any, 1)
 	c.mu.Lock()

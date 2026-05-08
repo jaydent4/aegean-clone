@@ -80,21 +80,7 @@ func (t *Txn) GetNestedResponses(requestID any) ([]map[string]any, bool) {
 	if !ok {
 		return nil, false
 	}
-	_, span := telemetry.Tracer("aegean").Start(
-		context.Background(),
-		"pbeo.nested_response.get",
-		trace.WithAttributes(
-			attribute.String("node.name", t.pbeo.name),
-			attribute.String("request.id", canonicalID),
-		),
-	)
-	responses, found := t.pbeo.nestedResponses.get(canonicalID)
-	span.SetAttributes(
-		attribute.Bool("pbeo.nested_response.found", found),
-		attribute.Int("pbeo.nested_response.count", len(responses)),
-	)
-	span.End()
-	return responses, found
+	return t.pbeo.nestedResponses.get(canonicalID)
 }
 
 func (t *Txn) WaitForNestedResponse(requestID any) ([]map[string]any, bool) {
@@ -165,77 +151,36 @@ func newNestedResponseStore() *nestedResponseStore {
 }
 
 func (s *nestedResponseStore) enqueue(requestID string, payload map[string]any) bool {
-	_, span := telemetry.Tracer("aegean").Start(
-		context.Background(),
-		"pbeo.nested_response.enqueue_store",
-		trace.WithAttributes(attribute.String("request.id", requestID)),
-	)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.responses[requestID] = append(s.responses[requestID], cloneMapAny(payload))
-	count := len(s.responses[requestID])
 	s.cond.Broadcast()
-	span.SetAttributes(attribute.Int("pbeo.nested_response.count", count))
-	span.End()
 	return true
 }
 
 func (s *nestedResponseStore) get(requestID string) ([]map[string]any, bool) {
-	_, span := telemetry.Tracer("aegean").Start(
-		context.Background(),
-		"pbeo.nested_response.get_store",
-		trace.WithAttributes(attribute.String("request.id", requestID)),
-	)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	queue := s.responses[requestID]
 	if len(queue) == 0 {
-		span.SetAttributes(attribute.Bool("pbeo.nested_response.found", false))
-		span.End()
 		return nil, false
 	}
-	span.SetAttributes(
-		attribute.Bool("pbeo.nested_response.found", true),
-		attribute.Int("pbeo.nested_response.count", len(queue)),
-	)
-	span.End()
 	return cloneMapSlice(queue), true
 }
 
 func (s *nestedResponseStore) wait(requestID string) []map[string]any {
-	_, span := telemetry.Tracer("aegean").Start(
-		context.Background(),
-		"pbeo.nested_response.wait_store",
-		trace.WithAttributes(attribute.String("request.id", requestID)),
-	)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	waitCount := 0
 	for len(s.responses[requestID]) == 0 {
-		waitCount++
 		s.cond.Wait()
 	}
-	responses := cloneMapSlice(s.responses[requestID])
-	span.SetAttributes(
-		attribute.Int("pbeo.nested_response.wait_count", waitCount),
-		attribute.Int("pbeo.nested_response.count", len(responses)),
-	)
-	span.End()
-	return responses
+	return cloneMapSlice(s.responses[requestID])
 }
 
 func (s *nestedResponseStore) clear(requestID string) {
-	_, span := telemetry.Tracer("aegean").Start(
-		context.Background(),
-		"pbeo.nested_response.clear_store",
-		trace.WithAttributes(attribute.String("request.id", requestID)),
-	)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	count := len(s.responses[requestID])
 	delete(s.responses, requestID)
-	span.SetAttributes(attribute.Int("pbeo.nested_response.cleared_count", count))
-	span.End()
 }
 
 type requestContextStore struct {
