@@ -6,7 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"aegean/components/eo"
+	"aegean/eo"
 	"aegean/telemetry"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"

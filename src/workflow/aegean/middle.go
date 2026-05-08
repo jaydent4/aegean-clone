@@ -1,8 +1,8 @@
 package aegeanworkflow
 
 import (
+	"aegean/aegean/exec"
 	"aegean/common"
-	"aegean/components/exec"
 	"aegean/telemetry"
 
 	"go.opentelemetry.io/otel/attribute"

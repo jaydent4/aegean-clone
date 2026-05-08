@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"aegean/components/exec"
+	"aegean/aegean/exec"
 )
 
 func InitState(e *exec.Exec) map[string]string {

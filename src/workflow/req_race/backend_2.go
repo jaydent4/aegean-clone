@@ -1,7 +1,7 @@
 package reqraceworkflow
 
 import (
-	"aegean/components/exec"
+	"aegean/aegean/exec"
 )
 
 // ExecuteRequestBackend2 returns a fixed backend-specific value

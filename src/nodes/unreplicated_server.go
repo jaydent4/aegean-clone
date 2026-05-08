@@ -1,7 +1,7 @@
 package nodes
 
 import (
-	"aegean/components/unreplicated"
+	"aegean/aegean/unreplicated"
 	netx "aegean/net"
 	"aegean/telemetry"
 )

@@ -1,6 +1,6 @@
 package supersimpleworkflow
 
-import "aegean/components/exec"
+import "aegean/aegean/exec"
 
 func ExecuteRequestServer(e *exec.Exec, request map[string]any, ndSeed int64, ndTimestamp float64) map[string]any {
 	_ = e

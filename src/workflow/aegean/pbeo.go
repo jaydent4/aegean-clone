@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"aegean/common"
-	"aegean/components/pbeo"
+	"aegean/pbeo"
 )
 
 var pbeoBackendTargets = []string{"node4", "node5", "node6"}

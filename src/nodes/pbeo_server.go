@@ -2,9 +2,9 @@ package nodes
 
 import (
 	"aegean/common"
-	"aegean/components/eo"
-	"aegean/components/pbeo"
+	"aegean/eo"
 	netx "aegean/net"
+	"aegean/pbeo"
 	"runtime"
 	"time"
 

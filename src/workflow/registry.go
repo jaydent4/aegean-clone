@@ -1,10 +1,10 @@
 package workflow
 
 import (
-	"aegean/components/exec"
-	"aegean/components/pbeo"
-	"aegean/components/unreplicated"
+	"aegean/aegean/exec"
+	"aegean/aegean/unreplicated"
 	"aegean/nodes"
+	"aegean/pbeo"
 	aegeanworkflow "aegean/workflow/aegean"
 	externalsrvworkflow "aegean/workflow/external_srv"
 	hotelworkflow "aegean/workflow/hotel"

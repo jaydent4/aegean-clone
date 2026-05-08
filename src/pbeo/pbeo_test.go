@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"aegean/components/eo"
+	"aegean/eo"
 	raftpb "go.etcd.io/raft/v3/raftpb"
 )
 

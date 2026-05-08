@@ -1,6 +1,6 @@
 package mediaworkflow
 
-import "aegean/components/unreplicated"
+import "aegean/aegean/unreplicated"
 
 func InitStateDirect(e *unreplicated.Engine) map[string]string {
 	return InitState(e)

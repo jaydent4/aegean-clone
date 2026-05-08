@@ -1,8 +1,8 @@
 package reqraceworkflow
 
 import (
+	"aegean/aegean/exec"
 	"aegean/common"
-	"aegean/components/exec"
 	"fmt"
 )
 

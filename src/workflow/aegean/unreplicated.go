@@ -1,7 +1,7 @@
 package aegeanworkflow
 
 import (
-	"aegean/components/unreplicated"
+	"aegean/aegean/unreplicated"
 	"strconv"
 	"strings"
 	"time"

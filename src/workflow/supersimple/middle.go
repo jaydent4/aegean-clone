@@ -1,8 +1,8 @@
 package supersimpleworkflow
 
 import (
+	"aegean/aegean/exec"
 	"aegean/common"
-	"aegean/components/exec"
 	"math/rand/v2"
 )
 

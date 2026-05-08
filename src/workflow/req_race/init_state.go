@@ -1,6 +1,6 @@
 package reqraceworkflow
 
-import "aegean/components/exec"
+import "aegean/aegean/exec"
 
 func InitState(e *exec.Exec) map[string]string {
 	_ = e

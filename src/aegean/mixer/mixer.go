@@ -1,8 +1,8 @@
 package mixer
 
 import (
+	mixerkeys "aegean/aegean/mixer/keys"
 	"aegean/common"
-	mixerkeys "aegean/components/mixer/keys"
 	"aegean/telemetry"
 	"context"
 )

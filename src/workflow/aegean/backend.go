@@ -5,8 +5,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"aegean/aegean/exec"
 	"aegean/common"
-	"aegean/components/exec"
 )
 
 var divNodeCounters sync.Map

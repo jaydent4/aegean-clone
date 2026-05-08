@@ -1,13 +1,13 @@
 package nodes
 
 import (
+	"aegean/aegean/batcher"
+	"aegean/aegean/exec"
+	"aegean/aegean/mixer"
+	"aegean/aegean/shim"
+	"aegean/aegean/verifier"
 	"aegean/common"
-	"aegean/components/batcher"
-	"aegean/components/eo"
-	"aegean/components/exec"
-	"aegean/components/mixer"
-	"aegean/components/shim"
-	"aegean/components/verifier"
+	"aegean/eo"
 	netx "aegean/net"
 	"math/rand/v2"
 	"runtime"
