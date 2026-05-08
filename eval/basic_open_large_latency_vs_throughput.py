@@ -12,7 +12,7 @@ from latency_vs_throughput_utils import (
 
 
 WORKLOAD_NAME = "basic_open_large"
-DEFAULT_MIN_QPS = 250
+DEFAULT_MIN_QPS = 100
 DEFAULT_MAX_QPS = 400
 
 
@@ -30,8 +30,8 @@ def main() -> None:
         title="Basic Open Large Latency vs Realized Throughput",
         output_path=args.results_root / WORKLOAD_NAME / args.filename,
         series_specs=[
-            SeriesSpec("Aegean", args.results_root / WORKLOAD_NAME),
-            SeriesSpec("Aegean+EO", args.results_root / f"{WORKLOAD_NAME}_eo"),
+            SeriesSpec("Aegean", args.results_root / f"{WORKLOAD_NAME}_aegean"),
+            SeriesSpec("Aegean+EO", args.results_root / f"{WORKLOAD_NAME}_aegaen_eo"),
             SeriesSpec("PBEO", args.results_root / f"{WORKLOAD_NAME}_pbeo"),
             SeriesSpec("Unreplicated", args.results_root / f"{WORKLOAD_NAME}_unreplicated"),
         ],
