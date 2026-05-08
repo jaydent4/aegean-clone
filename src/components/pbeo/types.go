@@ -11,6 +11,7 @@ const (
 	// MessageTypeRaft identifies PBEO's passive state-update Raft traffic.
 	MessageTypeRaft = "pbeo_raft"
 	raftMessageKey  = "raft_message"
+	raftMessagesKey = "raft_messages"
 )
 
 // Entry is the passive-replication update record committed through PBEO's Raft log.
@@ -38,6 +39,7 @@ type SendFunc func(peer string, payload map[string]any) error
 
 // SendRaftFunc sends a raft protocol message to another PBEO replica.
 type SendRaftFunc func(peer string, message raftpb.Message) error
+type SendRaftBatchFunc func(peer string, messages []raftpb.Message) error
 
 type LearnFunc func(slot uint64, entry Entry)
 
@@ -53,6 +55,7 @@ type BoxConfig struct {
 	Name            string
 	Peers           []string
 	SendRaft        SendRaftFunc
+	SendRaftBatch   SendRaftBatchFunc
 	TickInterval    time.Duration
 	ElectionTick    int
 	HeartbeatTick   int
@@ -71,6 +74,7 @@ type Config struct {
 	RunConfig        map[string]any
 	Send             SendFunc
 	SendRaft         SendRaftFunc
+	SendRaftBatch    SendRaftBatchFunc
 	SendNestedRaft   eo.SendRaftFunc
 	BoxFactory       BoxFactory
 	NestedBoxFactory eo.BoxFactory

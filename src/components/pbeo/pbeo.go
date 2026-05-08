@@ -25,6 +25,10 @@ type candidateResult struct {
 	err error
 }
 
+type asyncConsensusBox interface {
+	ProposeAsync(entry Entry) error
+}
+
 type committedResponseTask struct {
 	entry    Entry
 	enqueued time.Time
@@ -126,6 +130,7 @@ func NewPBEO(cfg Config) (*PBEO, error) {
 		Name:            cfg.Name,
 		Peers:           append([]string{}, cfg.Peers...),
 		SendRaft:        cfg.SendRaft,
+		SendRaftBatch:   cfg.SendRaftBatch,
 		TickInterval:    cfg.TickInterval,
 		ElectionTick:    cfg.ElectionTick,
 		HeartbeatTick:   cfg.HeartbeatTick,
@@ -246,14 +251,16 @@ func (p *PBEO) HandleRequest(requestID string, request map[string]any) map[strin
 }
 
 func (p *PBEO) HandleRaftMessage(payload map[string]any) map[string]any {
-	message, err := DecodeRaftMessage(payload)
+	messages, err := DecodeRaftMessages(payload)
 	if err != nil {
 		return map[string]any{"status": "invalid_raft_message", "error": err.Error()}
 	}
-	if err := p.box.HandleMessage(message); err != nil {
-		return map[string]any{"status": "raft_step_error", "error": err.Error()}
+	for _, message := range messages {
+		if err := p.box.HandleMessage(message); err != nil {
+			return map[string]any{"status": "raft_step_error", "error": err.Error()}
+		}
 	}
-	return map[string]any{"status": "raft_message_accepted"}
+	return map[string]any{"status": "raft_message_accepted", "count": len(messages)}
 }
 
 func (p *PBEO) HandleNestedResponseObservation(payload map[string]any) bool {
@@ -438,6 +445,18 @@ func (p *PBEO) runCommitSequencer() {
 		seq := p.commitSequence.Add(1)
 		queueDepthOnDequeue := len(p.commitCh)
 		queueWait := time.Since(submission.enqueued)
+		_, iterationSpan := telemetry.StartSpanFromPayload(
+			submission.response,
+			"pbeo.commit_sequencer_iteration",
+			append(
+				telemetry.AttrsFromPayload(submission.response),
+				attribute.String("node.name", p.name),
+				attribute.String("request.id", submission.requestID),
+				attribute.Int("pbeo.commit_queue_depth_on_dequeue", queueDepthOnDequeue),
+				attribute.Int64("pbeo.commit_sequence", int64(seq)),
+				attribute.Int64("pbeo.commit_queue_wait_us", queueWait.Microseconds()),
+			)...,
+		)
 		if submission.queueSpan != nil {
 			submission.queueSpan.SetAttributes(
 				attribute.Int("pbeo.commit_queue_depth_on_dequeue", queueDepthOnDequeue),
@@ -448,6 +467,7 @@ func (p *PBEO) runCommitSequencer() {
 		}
 		if _, ok := p.committedEntry(submission.requestID); ok {
 			submission.result <- candidateResult{}
+			endPBEOTrace(iterationSpan, "already_committed")
 			continue
 		}
 
@@ -456,12 +476,26 @@ func (p *PBEO) runCommitSequencer() {
 			Response:  cloneMapAny(submission.response),
 			Writes:    copyStringMap(submission.writes),
 		}
-		if err := p.box.Propose(entry); err != nil {
+		proposeStart := time.Now()
+		err := p.proposeCommitEntry(entry)
+		if err != nil {
+			iterationSpan.SetAttributes(attribute.Int64("pbeo.commit_sequencer_propose_us", time.Since(proposeStart).Microseconds()))
+			iterationSpan.RecordError(err)
 			submission.result <- candidateResult{err: err}
+			endPBEOTrace(iterationSpan, "propose_error")
 			continue
 		}
+		iterationSpan.SetAttributes(attribute.Int64("pbeo.commit_sequencer_propose_us", time.Since(proposeStart).Microseconds()))
 		submission.result <- candidateResult{}
+		endPBEOTrace(iterationSpan, "proposed")
 	}
+}
+
+func (p *PBEO) proposeCommitEntry(entry Entry) error {
+	if box, ok := p.box.(asyncConsensusBox); ok {
+		return box.ProposeAsync(entry)
+	}
+	return p.box.Propose(entry)
 }
 
 func stringMapBytes(values map[string]string) int {

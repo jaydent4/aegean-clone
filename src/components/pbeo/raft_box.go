@@ -66,12 +66,13 @@ type drainReadyStats struct {
 }
 
 type raftConsensusBox struct {
-	name    string
-	selfID  uint64
-	peerIDs map[string]uint64
-	peers   map[uint64]string
-	send    SendRaftFunc
-	learn   LearnFunc
+	name      string
+	selfID    uint64
+	peerIDs   map[string]uint64
+	peers     map[uint64]string
+	send      SendRaftFunc
+	sendBatch SendRaftBatchFunc
+	learn     LearnFunc
 
 	leaderID    atomic.Uint64
 	learnedSlot uint64
@@ -94,6 +95,7 @@ type raftConsensusBox struct {
 const (
 	raftAsyncSendQueueSize  = 1024
 	raftAsyncLearnQueueSize = 4096
+	raftSendBatchSize       = 64
 )
 
 func newRaftConsensusBox(cfg BoxConfig, onLearn LearnFunc) (ConsensusBox, error) {
@@ -103,6 +105,17 @@ func newRaftConsensusBox(cfg BoxConfig, onLearn LearnFunc) (ConsensusBox, error)
 	}
 	if cfg.SendRaft == nil {
 		return nil, fmt.Errorf("pbeo raft consensus box requires a SendRaft callback")
+	}
+	sendBatch := cfg.SendRaftBatch
+	if sendBatch == nil {
+		sendBatch = func(peer string, messages []raftpb.Message) error {
+			for _, message := range messages {
+				if err := cfg.SendRaft(peer, message); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
 	}
 
 	tickInterval := cfg.TickInterval
@@ -161,6 +174,7 @@ func newRaftConsensusBox(cfg BoxConfig, onLearn LearnFunc) (ConsensusBox, error)
 		peerIDs:         peerIDs,
 		peers:           peers,
 		send:            cfg.SendRaft,
+		sendBatch:       sendBatch,
 		learn:           onLearn,
 		proposals:       make(chan proposalRequest),
 		prioritySteps:   make(chan stepRequest, 1024),
@@ -235,6 +249,25 @@ func (b *raftConsensusBox) Propose(entry Entry) error {
 	}
 }
 
+func (b *raftConsensusBox) ProposeAsync(entry Entry) error {
+	span := b.startRequestTrace(entry)
+	request := proposalRequest{
+		entry: entry,
+		span:  span,
+	}
+	channelSpan := b.startProposeChannelSendTrace(entry)
+	select {
+	case <-b.doneCh:
+		endRequestTrace(channelSpan, "stopped_before_enqueue")
+		endRequestTrace(span, "stopped_before_enqueue")
+		return errConsensusBoxStopped
+	case b.proposals <- request:
+		endRequestTrace(channelSpan, "proposal_enqueued")
+		addRequestTraceEvent(span, "proposal_enqueued")
+		return nil
+	}
+}
+
 func (b *raftConsensusBox) HandleMessage(message raftpb.Message) error {
 	request := stepRequest{message: message}
 	queue := b.stepQueue(message)
@@ -277,7 +310,17 @@ func (b *raftConsensusBox) runSendWorker(peerID uint64, queue <-chan raftpb.Mess
 		case <-b.stopCh:
 			return
 		case message := <-queue:
-			if err := b.send(peer, message); err != nil {
+			messages := []raftpb.Message{message}
+		drain:
+			for len(messages) < raftSendBatchSize {
+				select {
+				case next := <-queue:
+					messages = append(messages, next)
+				default:
+					break drain
+				}
+			}
+			if err := b.sendBatch(peer, messages); err != nil {
 				select {
 				case b.unreachable <- peerID:
 				case <-b.stopCh:
@@ -353,7 +396,9 @@ func (b *raftConsensusBox) run(rawNode *raft.RawNode, storage *raft.MemoryStorag
 				endRequestTrace(request.span, "marshal_error")
 				b.forgetRequestTrace(request.entry)
 			}
-			request.result <- err
+			if request.result != nil {
+				request.result <- err
+			}
 			if err != nil && proposalSpan != nil {
 				proposalSpan.RecordError(err)
 			}

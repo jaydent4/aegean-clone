@@ -52,6 +52,14 @@ func NewPBEOServer(
 			_, err = netx.SendMessage(peer, 8000, payload)
 			return err
 		},
+		SendRaftBatch: func(peer string, messages []raftpb.Message) error {
+			payload, err := pbeo.EncodeRaftMessages(messages)
+			if err != nil {
+				return err
+			}
+			_, err = netx.SendMessage(peer, 8000, payload)
+			return err
+		},
 		SendNestedRaft: func(peer string, message raftpb.Message) error {
 			payload, err := eo.EncodeRaftMessage(message)
 			if err != nil {
