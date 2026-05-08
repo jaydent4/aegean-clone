@@ -25,6 +25,11 @@ type candidateResult struct {
 	err error
 }
 
+type committedResponseTask struct {
+	entry    Entry
+	enqueued time.Time
+}
+
 type PBEO struct {
 	name      string
 	peers     []string
@@ -51,10 +56,18 @@ type PBEO struct {
 	commitSequence    atomic.Uint64
 
 	commitCh        chan candidateSubmission
+	responseCh      chan committedResponseTask
+	responseStop    chan struct{}
+	responseStopper sync.Once
 	nestedResponses *nestedResponseStore
 	contextStore    *requestContextStore
 	lifecycleSpans  map[string]trace.Span
 }
+
+const (
+	committedResponseQueueSize  = 4096
+	committedResponseWorkerSize = 16
+)
 
 func NewPBEO(cfg Config) (*PBEO, error) {
 	if cfg.Name == "" {
@@ -102,6 +115,8 @@ func NewPBEO(cfg Config) (*PBEO, error) {
 		nestedProposals:   make(map[string]struct{}),
 		kv:                initial,
 		commitCh:          make(chan candidateSubmission, 1024),
+		responseCh:        make(chan committedResponseTask, committedResponseQueueSize),
+		responseStop:      make(chan struct{}),
 		nestedResponses:   newNestedResponseStore(),
 		contextStore:      newRequestContextStore(),
 		lifecycleSpans:    make(map[string]trace.Span),
@@ -140,6 +155,9 @@ func NewPBEO(cfg Config) (*PBEO, error) {
 	}
 	p.nestedEO = nestedEO
 
+	for i := 0; i < committedResponseWorkerSize; i++ {
+		go p.runCommittedResponseWorker()
+	}
 	go p.runCommitSequencer()
 	return p, nil
 }
@@ -163,6 +181,9 @@ func (p *PBEO) Ready() bool {
 }
 
 func (p *PBEO) Stop() {
+	p.responseStopper.Do(func() {
+		close(p.responseStop)
+	})
 	if p.box != nil {
 		p.box.Stop()
 	}
@@ -286,9 +307,18 @@ func (p *PBEO) handleCommittedNestedObservation(committed eo.CommittedEntry) {
 }
 
 func (p *PBEO) Learn(slot uint64, entry Entry) {
+	_, learnSpan := telemetry.StartSpanFromPayload(
+		entry.Response,
+		"pbeo.learn_to_client_response",
+		append(
+			p.entryAttrs(entry),
+			attribute.Int64("pbeo.commit_slot", int64(slot)),
+		)...,
+	)
 	p.mu.Lock()
 	if _, exists := p.learnedSlots[slot]; exists {
 		p.mu.Unlock()
+		endPBEOTrace(learnSpan, "duplicate_slot")
 		return
 	}
 	p.learnedSlots[slot] = struct{}{}
@@ -299,6 +329,7 @@ func (p *PBEO) Learn(slot uint64, entry Entry) {
 	p.mu.Unlock()
 
 	p.Process()
+	endPBEOTrace(learnSpan, "processed")
 }
 
 func (p *PBEO) Process() {
@@ -475,6 +506,17 @@ func (p *PBEO) dequeueCommittableEntries() []CommittedEntry {
 
 func (p *PBEO) applyCommittedEntry(committed CommittedEntry) {
 	entry := committed.Entry
+	_, span := telemetry.StartSpanFromPayload(
+		entry.Response,
+		"pbeo.apply_committed_entry",
+		append(
+			p.entryAttrs(entry),
+			attribute.Int64("pbeo.commit_slot", int64(committed.Slot)),
+			attribute.Int("pbeo.write_count", len(entry.Writes)),
+			attribute.Int("pbeo.write_bytes", stringMapBytes(entry.Writes)),
+			attribute.Int("pbeo.client_count", len(p.clients)),
+		)...,
+	)
 	p.stateMu.Lock()
 	for key, value := range entry.Writes {
 		p.kv[key] = value
@@ -484,7 +526,47 @@ func (p *PBEO) applyCommittedEntry(committed CommittedEntry) {
 	p.contextStore.clear(entry.RequestID)
 	p.nestedResponses.clear(entry.RequestID)
 
-	p.sendCommittedResponse(entry)
+	if p.enqueueCommittedResponse(entry) {
+		span.SetAttributes(attribute.Int("pbeo.response_queue_depth_on_enqueue", len(p.responseCh)))
+		endPBEOTrace(span, "response_enqueued")
+		return
+	}
+	p.endRequestLifecycle(entry.RequestID, "stopped_before_response")
+	endPBEOTrace(span, "response_enqueue_stopped")
+}
+
+func (p *PBEO) enqueueCommittedResponse(entry Entry) bool {
+	task := committedResponseTask{
+		entry:    cloneEntry(entry),
+		enqueued: time.Now(),
+	}
+	select {
+	case <-p.responseStop:
+		return false
+	case p.responseCh <- task:
+		return true
+	}
+}
+
+func (p *PBEO) runCommittedResponseWorker() {
+	for {
+		select {
+		case <-p.responseStop:
+			return
+		case task := <-p.responseCh:
+			_, span := telemetry.StartSpanFromPayload(
+				task.entry.Response,
+				"pbeo.response_worker_iteration",
+				append(
+					p.entryAttrs(task.entry),
+					attribute.Int("pbeo.response_queue_depth_on_dequeue", len(p.responseCh)),
+					attribute.Int64("pbeo.response_queue_wait_us", time.Since(task.enqueued).Microseconds()),
+				)...,
+			)
+			p.sendCommittedResponse(task.entry)
+			endPBEOTrace(span, "sent_to_clients")
+		}
+	}
 }
 
 func (p *PBEO) sendCommittedResponse(entry Entry) {
@@ -593,6 +675,14 @@ func (p *PBEO) finishRequestFailure(requestID string) {
 		span.SetAttributes(attribute.String("pbeo.request_lifecycle_result", "failed_before_commit"))
 		span.End()
 	}
+}
+
+func endPBEOTrace(span trace.Span, event string) {
+	if span == nil {
+		return
+	}
+	span.AddEvent(event)
+	span.End()
 }
 
 func (p *PBEO) committedEntry(requestID string) (Entry, bool) {

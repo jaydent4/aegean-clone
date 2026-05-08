@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -28,11 +27,15 @@ type proposalRequest struct {
 
 type stepRequest struct {
 	message raftpb.Message
-	span    trace.Span
 }
 
 type unreachablePeer struct {
 	id uint64
+}
+
+type pendingCommitSignal struct {
+	index uint64
+	span  trace.Span
 }
 
 type drainReadyStats struct {
@@ -61,14 +64,17 @@ type raftConsensusBox struct {
 	leaderID    atomic.Uint64
 	learnedSlot uint64
 
-	proposals   chan proposalRequest
-	steps       chan stepRequest
-	sendQueues  map[uint64]chan raftpb.Message
-	unreachable chan unreachablePeer
-	spans       map[string]trace.Span
-	stopOnce    sync.Once
-	stopCh      chan struct{}
-	doneCh      chan struct{}
+	proposals       chan proposalRequest
+	steps           chan stepRequest
+	sendQueues      map[uint64]chan raftpb.Message
+	unreachable     chan unreachablePeer
+	spans           map[string]trace.Span
+	commitWaitSpans map[string]trace.Span
+	pendingMu       sync.Mutex
+	pendingAck      map[uint64][]pendingCommitSignal
+	stopOnce        sync.Once
+	stopCh          chan struct{}
+	doneCh          chan struct{}
 }
 
 const raftAsyncSendQueueSize = 1024
@@ -133,19 +139,21 @@ func newRaftConsensusBox(cfg BoxConfig, onLearn LearnFunc) (ConsensusBox, error)
 	}
 
 	box := &raftConsensusBox{
-		name:        cfg.Name,
-		selfID:      selfID,
-		peerIDs:     peerIDs,
-		peers:       peers,
-		send:        cfg.SendRaft,
-		learn:       onLearn,
-		proposals:   make(chan proposalRequest),
-		steps:       make(chan stepRequest, 1024),
-		sendQueues:  make(map[uint64]chan raftpb.Message),
-		unreachable: make(chan unreachablePeer, 1024),
-		spans:       make(map[string]trace.Span),
-		stopCh:      make(chan struct{}),
-		doneCh:      make(chan struct{}),
+		name:            cfg.Name,
+		selfID:          selfID,
+		peerIDs:         peerIDs,
+		peers:           peers,
+		send:            cfg.SendRaft,
+		learn:           onLearn,
+		proposals:       make(chan proposalRequest),
+		steps:           make(chan stepRequest, 1024),
+		sendQueues:      make(map[uint64]chan raftpb.Message),
+		unreachable:     make(chan unreachablePeer, 1024),
+		spans:           make(map[string]trace.Span),
+		commitWaitSpans: make(map[string]trace.Span),
+		pendingAck:      make(map[uint64][]pendingCommitSignal),
+		stopCh:          make(chan struct{}),
+		doneCh:          make(chan struct{}),
 	}
 
 	for id := range peers {
@@ -188,31 +196,37 @@ func (b *raftConsensusBox) Propose(entry Entry) error {
 	span := b.startRequestTrace(entry)
 	request := proposalRequest{entry: entry, result: result, span: span}
 
+	channelSpan := b.startProposeChannelSendTrace(entry)
 	select {
 	case <-b.doneCh:
+		endRequestTrace(channelSpan, "stopped_before_enqueue")
 		endRequestTrace(span, "stopped_before_enqueue")
 		return errConsensusBoxStopped
 	case b.proposals <- request:
+		endRequestTrace(channelSpan, "proposal_enqueued")
 		addRequestTraceEvent(span, "proposal_enqueued")
 	}
 
+	waitSpan := b.startProposeResultWaitTrace(entry)
 	select {
 	case <-b.doneCh:
+		endRequestTrace(waitSpan, "stopped_before_result")
 		return errConsensusBoxStopped
 	case err := <-result:
+		if err != nil && waitSpan != nil {
+			waitSpan.RecordError(err)
+		}
+		endRequestTrace(waitSpan, "result_received")
 		return err
 	}
 }
 
 func (b *raftConsensusBox) HandleMessage(message raftpb.Message) error {
-	span := b.startMessageStepTrace(message)
-	request := stepRequest{message: message, span: span}
+	request := stepRequest{message: message}
 	select {
 	case <-b.doneCh:
-		endRequestTrace(span, "stopped_before_enqueue")
 		return errConsensusBoxStopped
 	case b.steps <- request:
-		addRequestTraceEvent(span, "queued")
 		return nil
 	}
 }
@@ -220,6 +234,7 @@ func (b *raftConsensusBox) HandleMessage(message raftpb.Message) error {
 func (b *raftConsensusBox) Stop() {
 	b.stopOnce.Do(func() {
 		close(b.stopCh)
+		b.endPendingCommitSignals("box_stopped")
 		<-b.doneCh
 	})
 }
@@ -244,6 +259,7 @@ func (b *raftConsensusBox) run(rawNode *raft.RawNode, storage *raft.MemoryStorag
 			b.drainReady(rawNode, storage)
 			b.endRunIterationTrace(iterationSpan, "tick")
 		case request := <-b.proposals:
+			proposalSpan := b.startProposalLoopTrace(request.entry)
 			b.rememberRequestTrace(request.entry, request.span)
 			data, err := json.Marshal(request.entry)
 			if err == nil {
@@ -254,11 +270,18 @@ func (b *raftConsensusBox) run(rawNode *raft.RawNode, storage *raft.MemoryStorag
 					b.forgetRequestTrace(request.entry)
 				}
 				b.drainReady(rawNode, storage)
+				if err == nil {
+					b.startCommitWaitTrace(request.entry)
+				}
 			} else {
 				endRequestTrace(request.span, "marshal_error")
 				b.forgetRequestTrace(request.entry)
 			}
 			request.result <- err
+			if err != nil && proposalSpan != nil {
+				proposalSpan.RecordError(err)
+			}
+			endRequestTrace(proposalSpan, "result_sent")
 			if err != nil {
 				iterationSpan.RecordError(err)
 			}
@@ -267,20 +290,10 @@ func (b *raftConsensusBox) run(rawNode *raft.RawNode, storage *raft.MemoryStorag
 			message := request.message
 			commitBefore := rawNode.Status().Commit
 			if err := rawNode.Step(message); err == nil {
+				b.trackAckToCommitSignal(message, commitBefore, rawNode.Status().Commit)
 				b.drainReady(rawNode, storage)
-				if request.span != nil {
-					request.span.SetAttributes(
-						attribute.Int64("raft.status.commit_before_step", int64(commitBefore)),
-						attribute.Int64("raft.status.commit_after_step", int64(rawNode.Status().Commit)),
-					)
-				}
-				endRequestTrace(request.span, "stepped")
 				b.endRunIterationTrace(iterationSpan, "step")
 			} else {
-				if request.span != nil {
-					request.span.RecordError(err)
-				}
-				endRequestTrace(request.span, "step_error")
 				iterationSpan.RecordError(err)
 				b.endRunIterationTrace(iterationSpan, "step_error")
 			}
@@ -376,6 +389,9 @@ func (b *raftConsensusBox) enqueueSend(peer string, message raftpb.Message) bool
 	case <-b.stopCh:
 		return false
 	case queue <- message:
+		if isCommitIndexMessage(message) {
+			b.finishCommitSignals(message.To, message.Commit)
+		}
 		return true
 	}
 }
@@ -387,20 +403,14 @@ func (b *raftConsensusBox) runSendWorker(peerID uint64, queue <-chan raftpb.Mess
 		case <-b.stopCh:
 			return
 		case message := <-queue:
-			span := b.startMessageSendTrace(peer, message)
 			if err := b.send(peer, message); err != nil {
-				if span != nil {
-					span.RecordError(err)
-				}
 				select {
 				case b.unreachable <- unreachablePeer{id: peerID}:
 				case <-b.stopCh:
 				default:
 				}
-				endRequestTrace(span, "send_error")
 				continue
 			}
-			endRequestTrace(span, "sent")
 		}
 	}
 }
@@ -442,11 +452,9 @@ func (b *raftConsensusBox) learnCommittedEntry(rawNode *raft.RawNode, entry raft
 		}
 		b.learnedSlot++
 		b.finishCommittedRequestTrace(b.learnedSlot, value)
-		learnSpan := b.startLearnCommittedTrace(b.learnedSlot, value)
 		if b.learn != nil {
 			b.learn(b.learnedSlot, value)
 		}
-		endRequestTrace(learnSpan, "learned")
 	}
 }
 
@@ -463,6 +471,36 @@ func (b *raftConsensusBox) startRequestTrace(entry Entry) trace.Span {
 		)...,
 	)
 	addRequestTraceEvent(span, "request")
+	return span
+}
+
+func (b *raftConsensusBox) startProposeChannelSendTrace(entry Entry) trace.Span {
+	if entry.RequestID == "" {
+		return nil
+	}
+	_, span := telemetry.StartSpanFromPayload(
+		entry.Response,
+		"eo.raft.propose_channel_send",
+		append(
+			b.entryTraceAttrs(entry),
+			attribute.Int("eo.raft.proposals_queued_before_send", len(b.proposals)),
+		)...,
+	)
+	return span
+}
+
+func (b *raftConsensusBox) startProposeResultWaitTrace(entry Entry) trace.Span {
+	if entry.RequestID == "" {
+		return nil
+	}
+	_, span := telemetry.StartSpanFromPayload(
+		entry.Response,
+		"eo.raft.propose_result_wait",
+		append(
+			b.entryTraceAttrs(entry),
+			attribute.Int("eo.raft.proposals_queued_after_send", len(b.proposals)),
+		)...,
+	)
 	return span
 }
 
@@ -485,6 +523,7 @@ func (b *raftConsensusBox) finishCommittedRequestTrace(slot uint64, entry Entry)
 	if entry.RequestID == "" {
 		return
 	}
+	b.finishCommitWaitTrace(slot, entry)
 	span, ok := b.spans[entry.RequestID]
 	if !ok {
 		_, span = telemetry.StartSpanFromPayload(
@@ -512,6 +551,51 @@ func (b *raftConsensusBox) endOpenRequestTraces(event string) {
 		endRequestTrace(span, event)
 		delete(b.spans, requestID)
 	}
+	for requestID, span := range b.commitWaitSpans {
+		endRequestTrace(span, event)
+		delete(b.commitWaitSpans, requestID)
+	}
+}
+
+func (b *raftConsensusBox) startProposalLoopTrace(entry Entry) trace.Span {
+	if entry.RequestID == "" {
+		return nil
+	}
+	_, span := telemetry.StartSpanFromPayload(
+		entry.Response,
+		"eo.raft.proposal_loop",
+		append(
+			b.entryTraceAttrs(entry),
+			attribute.Int("eo.raft.proposals_queued_after_dequeue", len(b.proposals)),
+			attribute.Int("eo.raft.steps_queued", len(b.steps)),
+		)...,
+	)
+	return span
+}
+
+func (b *raftConsensusBox) startCommitWaitTrace(entry Entry) {
+	if entry.RequestID == "" {
+		return
+	}
+	_, span := telemetry.StartSpanFromPayload(
+		entry.Response,
+		"eo.raft.wait_commit_after_propose",
+		append(
+			b.entryTraceAttrs(entry),
+			attribute.Int("eo.raft.steps_queued_after_propose", len(b.steps)),
+		)...,
+	)
+	b.commitWaitSpans[entry.RequestID] = span
+}
+
+func (b *raftConsensusBox) finishCommitWaitTrace(slot uint64, entry Entry) {
+	span := b.commitWaitSpans[entry.RequestID]
+	if span == nil {
+		return
+	}
+	delete(b.commitWaitSpans, entry.RequestID)
+	span.SetAttributes(attribute.Int64("eo.raft.commit_slot", int64(slot)))
+	endRequestTrace(span, "commit")
 }
 
 func (b *raftConsensusBox) startRunIterationTrace(event string) trace.Span {
@@ -544,6 +628,82 @@ func (b *raftConsensusBox) endRunIterationTrace(span trace.Span, event string) {
 	span.End()
 }
 
+func (b *raftConsensusBox) trackAckToCommitSignal(message raftpb.Message, commitBefore uint64, commitAfter uint64) {
+	if message.Type != raftpb.MsgAppResp || message.Reject || message.Index == 0 || !b.IsLeader() {
+		return
+	}
+	peer := b.peers[message.From]
+	if peer == "" {
+		peer = fmt.Sprintf("%d", message.From)
+	}
+	_, span := telemetry.Tracer("aegean").Start(
+		context.Background(),
+		"eo.raft.ack_to_commit_send",
+		trace.WithAttributes(
+			attribute.String("node.name", b.name),
+			attribute.Int64("raft.node_id", int64(b.selfID)),
+			attribute.Int64("raft.leader_id", int64(b.leaderID.Load())),
+			attribute.String("raft.peer", peer),
+			attribute.Int64("raft.message.from", int64(message.From)),
+			attribute.Int64("raft.message.to", int64(message.To)),
+			attribute.Int64("raft.message.term", int64(message.Term)),
+			attribute.Int64("raft.message.index", int64(message.Index)),
+			attribute.Int64("raft.status.commit_before_step", int64(commitBefore)),
+			attribute.Int64("raft.status.commit_after_step", int64(commitAfter)),
+		),
+	)
+	b.pendingMu.Lock()
+	b.pendingAck[message.From] = append(b.pendingAck[message.From], pendingCommitSignal{
+		index: message.Index,
+		span:  span,
+	})
+	b.pendingMu.Unlock()
+}
+
+func (b *raftConsensusBox) finishCommitSignals(peerID uint64, commit uint64) {
+	if commit == 0 {
+		return
+	}
+	b.pendingMu.Lock()
+	pending := b.pendingAck[peerID]
+	if len(pending) == 0 {
+		b.pendingMu.Unlock()
+		return
+	}
+	remaining := pending[:0]
+	var finished []pendingCommitSignal
+	for _, signal := range pending {
+		if signal.index <= commit {
+			finished = append(finished, signal)
+			continue
+		}
+		remaining = append(remaining, signal)
+	}
+	if len(remaining) == 0 {
+		delete(b.pendingAck, peerID)
+	} else {
+		b.pendingAck[peerID] = remaining
+	}
+	b.pendingMu.Unlock()
+
+	for _, signal := range finished {
+		signal.span.SetAttributes(attribute.Int64("raft.message.commit", int64(commit)))
+		endRequestTrace(signal.span, "commit_index_enqueued")
+	}
+}
+
+func (b *raftConsensusBox) endPendingCommitSignals(event string) {
+	b.pendingMu.Lock()
+	pending := b.pendingAck
+	b.pendingAck = make(map[uint64][]pendingCommitSignal)
+	b.pendingMu.Unlock()
+	for _, signals := range pending {
+		for _, signal := range signals {
+			endRequestTrace(signal.span, event)
+		}
+	}
+}
+
 func (b *raftConsensusBox) entryTraceAttrs(entry Entry) []attribute.KeyValue {
 	attrs := append([]attribute.KeyValue{}, telemetry.AttrsFromPayload(entry.Response)...)
 	attrs = append(attrs,
@@ -556,159 +716,6 @@ func (b *raftConsensusBox) entryTraceAttrs(entry Entry) []attribute.KeyValue {
 	return attrs
 }
 
-func (b *raftConsensusBox) startMessageSendTrace(peer string, message raftpb.Message) trace.Span {
-	switch {
-	case message.Type == raftpb.MsgApp && len(requestIDsFromMessage(message)) > 0:
-		return b.startAppendSendTrace(peer, message)
-	case message.Type == raftpb.MsgAppResp:
-		return b.startRaftIndexMessageTrace("eo.raft.append_resp_send", peer, message)
-	case isCommitIndexMessage(message):
-		return b.startRaftIndexMessageTrace("eo.raft.commit_index_send", peer, message)
-	default:
-		return nil
-	}
-}
-
-func (b *raftConsensusBox) startMessageStepTrace(message raftpb.Message) trace.Span {
-	switch {
-	case message.Type == raftpb.MsgApp && len(requestIDsFromMessage(message)) > 0:
-		return b.startAppendStepTrace(message)
-	case message.Type == raftpb.MsgAppResp:
-		return b.startRaftIndexStepTrace("eo.raft.append_resp_step", message)
-	case isCommitIndexMessage(message):
-		return b.startRaftIndexStepTrace("eo.raft.commit_index_step", message)
-	default:
-		return nil
-	}
-}
-
-func (b *raftConsensusBox) startAppendSendTrace(peer string, message raftpb.Message) trace.Span {
-	requestIDs := requestIDsFromMessage(message)
-	if len(requestIDs) == 0 {
-		return nil
-	}
-	_, span := telemetry.Tracer("aegean").Start(
-		context.Background(),
-		"eo.raft.append_send",
-		trace.WithAttributes(append(
-			b.messageTraceAttrs(message, requestIDs),
-			attribute.String("raft.peer", peer),
-		)...),
-	)
-	return span
-}
-
-func (b *raftConsensusBox) startRaftIndexMessageTrace(name string, peer string, message raftpb.Message) trace.Span {
-	_, span := telemetry.Tracer("aegean").Start(
-		context.Background(),
-		name,
-		trace.WithAttributes(append(
-			b.raftIndexMessageAttrs(message),
-			attribute.String("raft.peer", peer),
-		)...),
-	)
-	return span
-}
-
-func (b *raftConsensusBox) startRaftIndexStepTrace(name string, message raftpb.Message) trace.Span {
-	_, span := telemetry.Tracer("aegean").Start(
-		context.Background(),
-		name,
-		trace.WithAttributes(b.raftIndexMessageAttrs(message)...),
-	)
-	addRequestTraceEvent(span, "received")
-	return span
-}
-
-func (b *raftConsensusBox) startAppendStepTrace(message raftpb.Message) trace.Span {
-	requestIDs := requestIDsFromMessage(message)
-	if len(requestIDs) == 0 {
-		return nil
-	}
-	_, span := telemetry.Tracer("aegean").Start(
-		context.Background(),
-		"eo.raft.append_step_to_ready",
-		trace.WithAttributes(b.messageTraceAttrs(message, requestIDs)...),
-	)
-	addRequestTraceEvent(span, "received")
-	return span
-}
-
-func (b *raftConsensusBox) startLearnCommittedTrace(slot uint64, entry Entry) trace.Span {
-	if entry.RequestID == "" {
-		return nil
-	}
-	_, span := telemetry.StartSpanFromPayload(
-		entry.Response,
-		"eo.raft.learn_committed_entry",
-		append(
-			b.entryTraceAttrs(entry),
-			attribute.Int64("eo.raft.commit_slot", int64(slot)),
-		)...,
-	)
-	return span
-}
-
-func (b *raftConsensusBox) messageTraceAttrs(message raftpb.Message, requestIDs []string) []attribute.KeyValue {
-	attrs := []attribute.KeyValue{
-		attribute.String("node.name", b.name),
-		attribute.Int64("raft.node_id", int64(b.selfID)),
-		attribute.Int64("raft.leader_id", int64(b.leaderID.Load())),
-		attribute.String("raft.message.type", message.Type.String()),
-		attribute.Int64("raft.message.from", int64(message.From)),
-		attribute.Int64("raft.message.to", int64(message.To)),
-		attribute.Int64("raft.message.term", int64(message.Term)),
-		attribute.Int64("raft.message.index", int64(message.Index)),
-		attribute.Int64("raft.message.log_term", int64(message.LogTerm)),
-		attribute.Int64("raft.message.commit", int64(message.Commit)),
-		attribute.Int("raft.message.entries", len(message.Entries)),
-		attribute.Int("raft.message.bytes", message.Size()),
-		attribute.Int("eo.raft.message_request_count", len(requestIDs)),
-		attribute.String("eo.raft.message_request_ids", strings.Join(requestIDs, ",")),
-	}
-	appendEntryIndexAttrs(&attrs, message)
-	if len(requestIDs) > 0 {
-		attrs = append(attrs, attribute.String("request.id", requestIDs[0]))
-	}
-	if len(requestIDs) > 1 {
-		attrs = append(attrs, attribute.String("eo.raft.message_last_request_id", requestIDs[len(requestIDs)-1]))
-	}
-	return attrs
-}
-
-func (b *raftConsensusBox) raftIndexMessageAttrs(message raftpb.Message) []attribute.KeyValue {
-	attrs := []attribute.KeyValue{
-		attribute.String("node.name", b.name),
-		attribute.Int64("raft.node_id", int64(b.selfID)),
-		attribute.Int64("raft.leader_id", int64(b.leaderID.Load())),
-		attribute.String("raft.message.type", message.Type.String()),
-		attribute.Int64("raft.message.from", int64(message.From)),
-		attribute.Int64("raft.message.to", int64(message.To)),
-		attribute.Int64("raft.message.term", int64(message.Term)),
-		attribute.Int64("raft.message.index", int64(message.Index)),
-		attribute.Int64("raft.message.log_term", int64(message.LogTerm)),
-		attribute.Int64("raft.message.commit", int64(message.Commit)),
-		attribute.Bool("raft.message.reject", message.Reject),
-		attribute.Int64("raft.message.reject_hint", int64(message.RejectHint)),
-		attribute.Int("raft.message.entries", len(message.Entries)),
-		attribute.Int("raft.message.bytes", message.Size()),
-	}
-	appendEntryIndexAttrs(&attrs, message)
-	return attrs
-}
-
-func appendEntryIndexAttrs(attrs *[]attribute.KeyValue, message raftpb.Message) {
-	if len(message.Entries) == 0 {
-		return
-	}
-	first := message.Entries[0].Index
-	last := message.Entries[len(message.Entries)-1].Index
-	*attrs = append(*attrs,
-		attribute.Int64("raft.message.first_entry_index", int64(first)),
-		attribute.Int64("raft.message.last_entry_index", int64(last)),
-	)
-}
-
 func isCommitIndexMessage(message raftpb.Message) bool {
 	if message.Commit == 0 {
 		return false
@@ -719,24 +726,6 @@ func isCommitIndexMessage(message raftpb.Message) bool {
 	default:
 		return false
 	}
-}
-
-func requestIDsFromMessage(message raftpb.Message) []string {
-	if message.Type != raftpb.MsgApp || len(message.Entries) == 0 {
-		return nil
-	}
-	requestIDs := make([]string, 0, len(message.Entries))
-	for _, entry := range message.Entries {
-		if entry.Type != raftpb.EntryNormal || len(entry.Data) == 0 {
-			continue
-		}
-		var value Entry
-		if err := json.Unmarshal(entry.Data, &value); err != nil || value.RequestID == "" {
-			continue
-		}
-		requestIDs = append(requestIDs, value.RequestID)
-	}
-	return requestIDs
 }
 
 func addRequestTraceEvent(span trace.Span, event string) {
