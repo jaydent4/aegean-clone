@@ -12,6 +12,7 @@ import (
 	reqraceworkflow "aegean/workflow/req_race"
 	socialworkflow "aegean/workflow/social"
 	supersimpleworkflow "aegean/workflow/supersimple"
+	writeworkflow "aegean/workflow/write"
 )
 
 var ClientWorkflows = map[string]func(c *nodes.Client){
@@ -42,6 +43,7 @@ var ClientWorkflows = map[string]func(c *nodes.Client){
 	"social_k6_open_read_user_timeline_client":   socialworkflow.K6OpenReadUserTimelineClientRequestLogic,
 	"supersimple_oha_client":                     supersimpleworkflow.OhaClientRequestLogic,
 	"supersimple_k6_closed_client":               supersimpleworkflow.K6ClosedClientRequestLogic,
+	"write_k6_open_client":                       writeworkflow.K6OpenClientRequestLogic,
 }
 
 var ExecWorkflows = map[string]exec.ExecuteRequestFunc{
@@ -129,6 +131,8 @@ var ExecWorkflows = map[string]exec.ExecuteRequestFunc{
 	},
 	"supersimple_middle":  supersimpleworkflow.ExecuteRequestMiddle,
 	"supersimple_backend": supersimpleworkflow.ExecuteRequestServer,
+	"write_middle":        writeworkflow.ExecuteRequestMiddle,
+	"write_backend":       writeworkflow.ExecuteRequestBackend,
 }
 
 var InitStateWorkflows = map[string]exec.InitStateFunc{
@@ -146,16 +150,20 @@ var InitStateWorkflows = map[string]exec.InitStateFunc{
 		return socialworkflow.InitState(e)
 	},
 	"supersimple_default": supersimpleworkflow.InitState,
+	"write_default":       writeworkflow.InitState,
 }
 
 var PBEOExecWorkflows = map[string]pbeo.ExecuteRequestFunc{
 	"aegean_middle_pbeo":  aegeanworkflow.ExecuteRequestMiddlePBEO,
 	"aegean_backend_pbeo": aegeanworkflow.ExecuteRequestBackendPBEO,
+	"write_middle_pbeo":   writeworkflow.ExecuteRequestMiddlePBEO,
+	"write_backend_pbeo":  writeworkflow.ExecuteRequestBackendPBEO,
 }
 
 var PBEOInitStateWorkflows = map[string]pbeo.InitStateFunc{
 	"default":             aegeanworkflow.InitStatePBEO,
 	"aegean_pbeo_default": aegeanworkflow.InitStatePBEO,
+	"write_pbeo_default":  writeworkflow.InitStatePBEO,
 }
 
 var UnreplicatedWorkflows = map[string]unreplicated.WorkflowFunc{
@@ -184,6 +192,8 @@ var UnreplicatedWorkflows = map[string]unreplicated.WorkflowFunc{
 	"media_review_storage":     mediaworkflow.ExecuteRequestReviewStorageDirect,
 	"media_user_review":        mediaworkflow.ExecuteRequestUserReviewDirect,
 	"media_movie_review":       mediaworkflow.ExecuteRequestMovieReviewDirect,
+	"write_backend":            writeworkflow.ExecuteRequestBackendDirect,
+	"write_middle":             writeworkflow.ExecuteRequestMiddleDirect,
 }
 
 var UnreplicatedInitStateWorkflows = map[string]unreplicated.InitStateFunc{
@@ -192,6 +202,7 @@ var UnreplicatedInitStateWorkflows = map[string]unreplicated.InitStateFunc{
 	"hotel_default":  hotelworkflow.InitStateDirect,
 	"media_default":  mediaworkflow.InitStateDirect,
 	"social_default": socialworkflow.InitStateDirect,
+	"write_default":  writeworkflow.InitStateDirect,
 }
 
 var ExternalServiceInitWorkflows = map[string]func(es *nodes.ExternalService){
