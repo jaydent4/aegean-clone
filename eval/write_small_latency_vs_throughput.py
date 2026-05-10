@@ -9,18 +9,11 @@ from plot_utils import parse_metrics_log
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 RESULTS_ROOT = REPO_ROOT / "results"
-OUTPUT_PATH = RESULTS_ROOT / "basic_open_large" / "latency_vs_throughput.png"
+OUTPUT_PATH = RESULTS_ROOT / "write_small" / "latency_vs_throughput.png"
 
 SERIES = [
-    ("Aegean", RESULTS_ROOT / "basic_open_large_aegean", [25, 50, 60], "#08306b"),
-    ("Aegean+EO", RESULTS_ROOT / "basic_open_large_aegean_eo", [25, 50, 55], "#6baed6"),
-    ("PBEO", RESULTS_ROOT / "basic_open_large_pbeo", [100, 120, 135], "#238b45"),
-    (
-        "Unreplicated",
-        RESULTS_ROOT / "basic_open_large_unreplicated",
-        [25, 75, 125],
-        "#555555",
-    ),
+    ("Aegean", RESULTS_ROOT / "write_small_aegean", [100, 105, 110], "#08306b"),
+    ("PBEO", RESULTS_ROOT / "write_small_pbeo", [100, 200, 225], "#238b45"),
 ]
 
 
@@ -43,33 +36,30 @@ def main() -> int:
         throughputs = [point[1] for point in points]
         medians = [point[2] for point in points]
         p90s = [point[3] for point in points]
-        is_unreplicated = label == "Unreplicated"
 
         ax.plot(
             throughputs,
             medians,
             marker="o",
-            linewidth=3.2 if is_unreplicated else 2.4,
-            markersize=7 if is_unreplicated else 6,
+            linewidth=2.4,
+            markersize=6,
             color=color,
             label=f"{label} Median",
-            zorder=4 if is_unreplicated else 2,
         )
         ax.plot(
             throughputs,
             p90s,
             marker="s",
-            linewidth=3.2 if is_unreplicated else 2.4,
-            markersize=6 if is_unreplicated else 5,
+            linewidth=2.4,
+            markersize=5,
             linestyle=":",
             color=color,
             label=f"{label} P90",
-            zorder=4 if is_unreplicated else 2,
         )
 
     ax.set_xlabel("Realized Throughput (req/s)")
     ax.set_ylabel("Latency (ms)")
-    ax.set_title("Basic Open Large Latency vs Realized Throughput")
+    ax.set_title("Write Small Latency vs Realized Throughput")
     ax.set_xlim(left=0)
     ax.set_ylim(0, 1000)
     ax.grid(True, linestyle="--", alpha=0.35)

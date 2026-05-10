@@ -9,16 +9,21 @@ from plot_utils import parse_metrics_log
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 RESULTS_ROOT = REPO_ROOT / "results"
-OUTPUT_PATH = RESULTS_ROOT / "basic_open_large" / "latency_vs_throughput.png"
+OUTPUT_PATH = RESULTS_ROOT / "basic_open_small" / "latency_vs_throughput.png"
 
 SERIES = [
-    ("Aegean", RESULTS_ROOT / "basic_open_large_aegean", [25, 50, 60], "#08306b"),
-    ("Aegean+EO", RESULTS_ROOT / "basic_open_large_aegean_eo", [25, 50, 55], "#6baed6"),
-    ("PBEO", RESULTS_ROOT / "basic_open_large_pbeo", [100, 120, 135], "#238b45"),
+    ("Aegean", RESULTS_ROOT / "basic_open_small_aegean", [800, 1000], "#08306b"),
+    ("Aegean+EO", RESULTS_ROOT / "basic_open_small_aegean_eo", [800, 900], "#6baed6"),
+    (
+        "PBEO",
+        RESULTS_ROOT / "basic_open_small_pbeo",
+        [400, 1600, 2400, 2600],
+        "#238b45",
+    ),
     (
         "Unreplicated",
-        RESULTS_ROOT / "basic_open_large_unreplicated",
-        [25, 75, 125],
+        RESULTS_ROOT / "basic_open_small_unreplicated",
+        [400, 1200, 2400],
         "#555555",
     ),
 ]
@@ -69,7 +74,7 @@ def main() -> int:
 
     ax.set_xlabel("Realized Throughput (req/s)")
     ax.set_ylabel("Latency (ms)")
-    ax.set_title("Basic Open Large Latency vs Realized Throughput")
+    ax.set_title("Basic Open Small Latency vs Realized Throughput")
     ax.set_xlim(left=0)
     ax.set_ylim(0, 1000)
     ax.grid(True, linestyle="--", alpha=0.35)

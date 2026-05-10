@@ -1,0 +1,17 @@
+---
+architecture: write_aegean.yaml
+
+# K6 configs
+k6_qps: 15
+duration: 15s
+k6_pre_allocated_vus: 0
+k6_max_vus: 10000
+
+# Write workflow configs
+write_value_size_bytes: 1048576
+
+# Run & system configs
+run_timeout_seconds: 60
+parallel_window_k: 16
+worker_count: 8
+gomaxprocs: 32

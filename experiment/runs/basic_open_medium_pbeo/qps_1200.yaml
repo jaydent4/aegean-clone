@@ -1,0 +1,26 @@
+---
+architecture: basic_open_pbeo.yaml
+
+# K6 configs
+k6_qps: 1200
+duration: 15s
+k6_pre_allocated_vus: 0
+k6_max_vus: 10000
+
+# Aegean workflow configs
+spin_time_seconds: 0.0005
+write_key_mod: 100
+read_key_mod: 100
+key_count: 100
+value_length: 5000
+
+# PBEO configs
+pbeo_tick_interval_ms: 10
+pbeo_election_tick: 1000
+pbeo_heartbeat_tick: 1
+
+# Run & system configs
+run_timeout_seconds: 60
+parallel_window_k: 16
+worker_count: 8
+gomaxprocs: 32
