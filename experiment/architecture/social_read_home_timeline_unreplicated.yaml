@@ -18,7 +18,7 @@ services:
     clients:
     - node1
     nodes:
-    - node4
+    - node2
     exec_workflow: social_post_storage
     init_state_workflow: social_default
 nodes:
@@ -26,5 +26,5 @@ nodes:
     service: client
   node1:
     service: home_timeline
-  node4:
+  node2:
     service: post_storage

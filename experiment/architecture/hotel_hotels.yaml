@@ -18,9 +18,9 @@ services:
     clients:
     - node1
     nodes:
+    - node2
+    - node3
     - node4
-    - node5
-    - node6
     exec_workflow: hotel_search
     init_state_workflow: hotel_default
     shimQuorumSize: 1
@@ -34,13 +34,13 @@ services:
   geo:
     type: server
     clients:
+    - node2
+    - node3
     - node4
+    nodes:
     - node5
     - node6
-    nodes:
     - node7
-    - node8
-    - node9
     exec_workflow: hotel_geo
     init_state_workflow: hotel_default
     shimQuorumSize: 1
@@ -54,13 +54,13 @@ services:
   rate:
     type: server
     clients:
+    - node2
+    - node3
     - node4
-    - node5
-    - node6
     nodes:
+    - node8
+    - node9
     - node10
-    - node11
-    - node12
     exec_workflow: hotel_rate
     init_state_workflow: hotel_default
     shimQuorumSize: 1
@@ -76,9 +76,9 @@ services:
     clients:
     - node1
     nodes:
+    - node11
+    - node12
     - node13
-    - node14
-    - node15
     exec_workflow: hotel_reservation
     init_state_workflow: hotel_default
     shimQuorumSize: 1
@@ -94,9 +94,9 @@ services:
     clients:
     - node1
     nodes:
+    - node14
+    - node15
     - node16
-    - node17
-    - node18
     exec_workflow: hotel_profile
     init_state_workflow: hotel_default
     shimQuorumSize: 1
@@ -112,9 +112,9 @@ services:
     clients:
     - node1
     nodes:
+    - node17
+    - node18
     - node19
-    - node20
-    - node21
     exec_workflow: hotel_recommendation
     init_state_workflow: hotel_default
     shimQuorumSize: 1
@@ -130,9 +130,9 @@ services:
     clients:
     - node1
     nodes:
+    - node20
+    - node21
     - node22
-    - node23
-    - node24
     exec_workflow: hotel_user
     init_state_workflow: hotel_default
     shimQuorumSize: 1
@@ -148,66 +148,66 @@ nodes:
     service: client
   node1:
     service: frontend
-  node4:
+  node2:
     service: search
     is_primary_batcher: true
-  node5:
+  node3:
     service: search
     is_primary_batcher: false
-  node6:
+  node4:
     service: search
+    is_primary_batcher: false
+  node5:
+    service: geo
+    is_primary_batcher: true
+  node6:
+    service: geo
     is_primary_batcher: false
   node7:
     service: geo
-    is_primary_batcher: true
-  node8:
-    service: geo
     is_primary_batcher: false
+  node8:
+    service: rate
+    is_primary_batcher: true
   node9:
-    service: geo
+    service: rate
     is_primary_batcher: false
   node10:
     service: rate
-    is_primary_batcher: true
-  node11:
-    service: rate
     is_primary_batcher: false
+  node11:
+    service: reservation
+    is_primary_batcher: true
   node12:
-    service: rate
+    service: reservation
     is_primary_batcher: false
   node13:
     service: reservation
-    is_primary_batcher: true
-  node14:
-    service: reservation
     is_primary_batcher: false
+  node14:
+    service: profile
+    is_primary_batcher: true
   node15:
-    service: reservation
+    service: profile
     is_primary_batcher: false
   node16:
     service: profile
-    is_primary_batcher: true
-  node17:
-    service: profile
     is_primary_batcher: false
+  node17:
+    service: recommendation
+    is_primary_batcher: true
   node18:
-    service: profile
+    service: recommendation
     is_primary_batcher: false
   node19:
     service: recommendation
-    is_primary_batcher: true
-  node20:
-    service: recommendation
     is_primary_batcher: false
+  node20:
+    service: user
+    is_primary_batcher: true
   node21:
-    service: recommendation
+    service: user
     is_primary_batcher: false
   node22:
-    service: user
-    is_primary_batcher: true
-  node23:
-    service: user
-    is_primary_batcher: false
-  node24:
     service: user
     is_primary_batcher: false

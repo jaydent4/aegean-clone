@@ -18,7 +18,7 @@ services:
     clients:
     - node1
     nodes:
-    - node4
+    - node2
     exec_workflow: social_post_storage
     init_state_workflow: social_default
   user_timeline:
@@ -26,7 +26,7 @@ services:
     clients:
     - node1
     nodes:
-    - node7
+    - node3
     exec_workflow: social_user_timeline
     init_state_workflow: social_default
   home_timeline:
@@ -34,15 +34,15 @@ services:
     clients:
     - node1
     nodes:
-    - node10
+    - node4
     exec_workflow: social_home_timeline
     init_state_workflow: social_default
   social_graph:
     type: unreplicated_server
     clients:
-    - node10
+    - node4
     nodes:
-    - node13
+    - node5
     exec_workflow: social_social_graph
     init_state_workflow: social_default
 nodes:
@@ -50,11 +50,11 @@ nodes:
     service: client
   node1:
     service: compose_post
-  node4:
+  node2:
     service: post_storage
-  node7:
+  node3:
     service: user_timeline
-  node10:
+  node4:
     service: home_timeline
-  node13:
+  node5:
     service: social_graph

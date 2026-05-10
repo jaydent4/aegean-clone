@@ -18,7 +18,7 @@ services:
     clients:
     - node1
     nodes:
-    - node4
+    - node2
     exec_workflow: aegean_backend
     init_state_workflow: aegean_default
 nodes:
@@ -26,5 +26,5 @@ nodes:
     service: client
   node1:
     service: middle
-  node4:
+  node2:
     service: backend
