@@ -798,6 +798,7 @@ def run_config_paths(
 
 def resolve_config_targets(config_targets, parser):
     config_paths = []
+    all_run_config_paths = None
     for config_target in config_targets:
         resolved_config_target = os.path.abspath(config_target)
         if os.path.isdir(resolved_config_target):
@@ -808,7 +809,21 @@ def resolve_config_targets(config_targets, parser):
         elif os.path.isfile(resolved_config_target):
             config_paths.append(resolved_config_target)
         else:
-            parser.error(f"config_path must point to an existing file or directory: {config_target}")
+            try:
+                config_re = re.compile(config_target)
+            except re.error as exc:
+                parser.error(f"config_path is not an existing file/directory or valid regex: {config_target} ({exc})")
+
+            if all_run_config_paths is None:
+                all_run_config_paths = list_run_config_paths()
+
+            regex_matches = [
+                path for path in all_run_config_paths
+                if config_re.search(os.path.relpath(path, REPO_ROOT)) or config_re.search(path)
+            ]
+            if not regex_matches:
+                parser.error(f"regex matched no run configs: {config_target}")
+            config_paths.extend(regex_matches)
     return config_paths
 
 
@@ -817,7 +832,7 @@ def main():
     parser.add_argument(
         "config_paths",
         nargs="*",
-        help="Paths to run config YAML/JSON files or directories of run configs",
+        help="Paths to run config YAML/JSON files, directories of run configs, or regexes matching run config paths",
     )
     parser.add_argument(
         "--all",
