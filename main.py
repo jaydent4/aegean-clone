@@ -199,7 +199,7 @@ def list_run_config_paths(runs_dir=None):
     return sorted(os.path.abspath(path) for path in run_config_paths)
 
 
-def create_results_run_dir(relative_run_config_path, results_dir="results", timestamped=False):
+def get_results_run_dir(relative_run_config_path, results_dir="results", timestamped=False):
     results_root = os.path.join(REPO_ROOT, results_dir)
     run_config_relpath = os.path.relpath(
         os.path.abspath(os.path.join(REPO_ROOT, relative_run_config_path)),
@@ -208,8 +208,24 @@ def create_results_run_dir(relative_run_config_path, results_dir="results", time
     run_dir = os.path.join(results_root, os.path.splitext(run_config_relpath)[0])
     if timestamped:
         run_dir = os.path.join(run_dir, datetime.now().strftime("%Y%m%d_%H%M%S"))
+    return run_dir
+
+
+def create_results_run_dir(relative_run_config_path, results_dir="results", timestamped=False):
+    run_dir = get_results_run_dir(relative_run_config_path, results_dir=results_dir, timestamped=timestamped)
     os.makedirs(run_dir, exist_ok=True)
     return run_dir
+
+
+def result_exists_for_run_config(config_path, runs=1):
+    _, relative_run_config_path, _, _ = load_run_config(config_path)
+    run_dir = get_results_run_dir(relative_run_config_path, timestamped=False)
+    if runs > 1:
+        return os.path.isfile(os.path.join(run_dir, "aggregated_results.json")), run_dir
+    if not os.path.isdir(run_dir):
+        return False, run_dir
+    with os.scandir(run_dir) as entries:
+        return any(entries), run_dir
 
 
 def collect_logs(run_dir, node_names, client_names, enable_pprof=False, enable_tracing=False):
@@ -773,9 +789,19 @@ def run_config_paths(
     enable_pprof=False,
     enable_tracing=False,
     enable_logging=False,
+    resume=False,
 ):
     completed_items = []
     for config_path in config_paths:
+        if resume:
+            result_exists, result_path = result_exists_for_run_config(config_path, runs=runs)
+            if result_exists:
+                if runs > 1:
+                    result_path = os.path.join(result_path, "aggregated_results.json")
+                logger.info("Skipping existing result for %s: %s", config_path, result_path)
+                completed_items.append(result_path)
+                continue
+
         if runs > 1:
             output_path = run_experiment_n_times(
                 config_path,
@@ -866,6 +892,11 @@ def main():
         help="Number of times to run the experiment (default: 1). Results are aggregated into aggregated_results.json.",
     )
     parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Skip configs whose expected result already exists.",
+    )
+    parser.add_argument(
         "--email",
         help="Send a completion email to this address after all requested runs finish.",
     )
@@ -902,6 +933,7 @@ def main():
         enable_pprof=enable_pprof,
         enable_tracing=enable_tracing,
         enable_logging=enable_logging,
+        resume=args.resume,
     )
 
     if args.runs > 1 and len(completed_items) == 1 and not args.all and not args.config_dir:
