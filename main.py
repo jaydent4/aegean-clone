@@ -767,9 +767,38 @@ def load_config_file(path):
     return data
 
 
+def run_config_paths(
+    config_paths,
+    runs,
+    enable_pprof=False,
+    enable_tracing=False,
+    enable_logging=False,
+):
+    completed_items = []
+    for config_path in config_paths:
+        if runs > 1:
+            output_path = run_experiment_n_times(
+                config_path,
+                runs,
+                enable_pprof=enable_pprof,
+                enable_tracing=enable_tracing,
+                enable_logging=enable_logging,
+            )
+            completed_items.append(output_path)
+        else:
+            run_dir, _ = run_experiment(
+                config_path,
+                enable_pprof=enable_pprof,
+                enable_tracing=enable_tracing,
+                enable_logging=enable_logging,
+            )
+            completed_items.append(run_dir)
+    return completed_items
+
+
 def main():
     parser = argparse.ArgumentParser(description="Run Aegean experiment")
-    parser.add_argument("config_path", nargs="?", help="Path to run config YAML or JSON")
+    parser.add_argument("config_path", nargs="?", help="Path to run config YAML/JSON or a directory of run configs")
     parser.add_argument(
         "--all",
         action="store_true",
@@ -793,7 +822,7 @@ def main():
     parser.add_argument(
         "--dir",
         dest="config_dir",
-        help="Run every config YAML or JSON file under the provided directory recursively.",
+        help="Run every config YAML or JSON file under the provided directory recursively. Equivalent to passing the directory as config_path.",
     )
     parser.add_argument(
         "--runs",
@@ -811,7 +840,10 @@ def main():
     enable_tracing = args.enable_tracing
     enable_logging = args.enable_logging
     started_at = time.monotonic()
-    completed_items = []
+    config_paths = []
+
+    if args.runs < 1:
+        parser.error("--runs must be at least 1")
 
     if args.all:
         if args.config_path:
@@ -821,80 +853,36 @@ def main():
         config_paths = list_run_config_paths()
         if not config_paths:
             parser.error("no run configs found under experiment/runs")
-        for config_path in config_paths:
-            if args.runs > 1:
-                output_path = run_experiment_n_times(
-                    config_path,
-                    args.runs,
-                    enable_pprof=enable_pprof,
-                    enable_tracing=enable_tracing,
-                    enable_logging=enable_logging,
-                )
-                completed_items.append(output_path)
-            else:
-                run_dir, _ = run_experiment(
-                    config_path,
-                    enable_pprof=enable_pprof,
-                    enable_tracing=enable_tracing,
-                    enable_logging=enable_logging,
-                )
-                completed_items.append(run_dir)
-        if args.email:
-            send_run_complete_email(args.email, completed_items, started_at)
-        return
-
-    if args.config_dir:
-        if args.config_path:
-            parser.error("config_path cannot be used with --dir")
-        config_dir = os.path.abspath(args.config_dir)
-        if not os.path.isdir(config_dir):
-            parser.error(f"--dir must point to an existing directory: {args.config_dir}")
-        config_paths = list_run_config_paths(config_dir)
-        if not config_paths:
-            parser.error(f"no run configs found under {config_dir}")
-        for config_path in config_paths:
-            if args.runs > 1:
-                output_path = run_experiment_n_times(
-                    config_path,
-                    args.runs,
-                    enable_pprof=enable_pprof,
-                    enable_tracing=enable_tracing,
-                    enable_logging=enable_logging,
-                )
-                completed_items.append(output_path)
-            else:
-                run_dir, _ = run_experiment(
-                    config_path,
-                    enable_pprof=enable_pprof,
-                    enable_tracing=enable_tracing,
-                    enable_logging=enable_logging,
-                )
-                completed_items.append(run_dir)
-        if args.email:
-            send_run_complete_email(args.email, completed_items, started_at)
-        return
-
-    if not args.config_path:
-        parser.error("config_path is required unless --all or --dir is used")
-
-    if args.runs > 1:
-        output_path = run_experiment_n_times(
-            args.config_path,
-            args.runs,
-            enable_pprof=enable_pprof,
-            enable_tracing=enable_tracing,
-            enable_logging=enable_logging,
-        )
-        completed_items.append(output_path)
-        print(f"Aggregated results: {output_path}")
     else:
-        run_dir, _ = run_experiment(
-            args.config_path,
-            enable_pprof=enable_pprof,
-            enable_tracing=enable_tracing,
-            enable_logging=enable_logging,
-        )
-        completed_items.append(run_dir)
+        config_target = args.config_dir or args.config_path
+        if args.config_dir and args.config_path:
+            parser.error("config_path cannot be used with --dir")
+        if not config_target:
+            parser.error("config_path is required unless --all or --dir is used")
+
+        config_target = os.path.abspath(config_target)
+        if os.path.isdir(config_target):
+            config_dir = config_target
+            config_paths = list_run_config_paths(config_dir)
+            if not config_paths:
+                parser.error(f"no run configs found under {config_dir}")
+        elif os.path.isfile(config_target):
+            config_paths = [config_target]
+        elif args.config_dir:
+            parser.error(f"--dir must point to an existing directory: {args.config_dir}")
+        else:
+            parser.error(f"config_path must point to an existing file or directory: {args.config_path}")
+
+    completed_items = run_config_paths(
+        config_paths,
+        args.runs,
+        enable_pprof=enable_pprof,
+        enable_tracing=enable_tracing,
+        enable_logging=enable_logging,
+    )
+
+    if args.runs > 1 and len(completed_items) == 1 and not args.all and not args.config_dir:
+        print(f"Aggregated results: {completed_items[0]}")
 
     if args.email:
         send_run_complete_email(args.email, completed_items, started_at)
