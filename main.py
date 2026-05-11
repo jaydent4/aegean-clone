@@ -783,6 +783,14 @@ def load_config_file(path):
     return data
 
 
+def run_config_is_skipped(config_path):
+    data = load_config_file(config_path)
+    skipped = data.get("skipped", False)
+    if not isinstance(skipped, bool):
+        raise ValueError(f"run config 'skipped' field must be boolean when present: {config_path}")
+    return skipped
+
+
 def run_config_paths(
     config_paths,
     runs,
@@ -793,6 +801,10 @@ def run_config_paths(
 ):
     completed_items = []
     for config_path in config_paths:
+        if run_config_is_skipped(config_path):
+            logger.info("Skipping config marked skipped=true: %s", config_path)
+            continue
+
         if resume:
             result_exists, result_path = result_exists_for_run_config(config_path, runs=runs)
             if result_exists:
