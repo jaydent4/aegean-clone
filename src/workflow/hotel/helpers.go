@@ -162,6 +162,10 @@ func hotelNestedTargets(runConfig map[string]any, replicas []string) []string {
 	return append([]string{}, replicas...)
 }
 
+func hotelServiceTargets(e workflowRuntime, serviceName string, fallback []string) []string {
+	return common.ServiceNodesOrDefault(e.GetRunConfig(), serviceName, fallback)
+}
+
 func hotelDispatchNestedRequest(e workflowRuntime, sourceRequest map[string]any, targets []string, outgoing map[string]any) {
 	selectedTargets := hotelNestedTargets(e.GetRunConfig(), targets)
 	if common.BoolOrDefault(e.GetRunConfig(), "hotel_nested_use_eo", false) {

@@ -65,7 +65,7 @@ func ExecuteRequestUserTimeline(e workflowRuntime, request map[string]any, ndSee
 					"post_ids": postIDs,
 				},
 			}
-			socialDispatchNestedRequest(e, request, userTimelinePostStorageTargets, outgoing)
+			socialDispatchNestedRequest(e, request, socialServiceTargets(e, "post_storage", userTimelinePostStorageTargets), outgoing)
 			return blockedForNestedResponse(requestID)
 
 		case userTimelineStageAwaitPosts:

@@ -26,7 +26,7 @@ func ExecuteRequestUniqueID(e workflowRuntime, request map[string]any, ndSeed in
 			"review_request_id": reviewRequestID,
 			"review_id":         reviewID,
 		})
-		mediaDispatchNestedRequest(e, request, mediaComposeReviewTargets, outgoing)
+		mediaDispatchNestedRequest(e, request, mediaServiceTargets(e, "compose_review", mediaComposeReviewTargets), outgoing)
 		return mediaBlockedForNestedResponse(requestID)
 	case mediaUniqueIDStageAwait:
 		return mediaCompleteAfterComposeResponse(e, request)

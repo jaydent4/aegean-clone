@@ -31,7 +31,7 @@ func ExecuteRequestText(e workflowRuntime, request map[string]any, ndSeed int64,
 			"review_request_id": reviewRequestID,
 			"text":              text,
 		})
-		mediaDispatchNestedRequest(e, request, mediaComposeReviewTargets, outgoing)
+		mediaDispatchNestedRequest(e, request, mediaServiceTargets(e, "compose_review", mediaComposeReviewTargets), outgoing)
 		return mediaBlockedForNestedResponse(requestID)
 	case mediaTextStageAwait:
 		return mediaCompleteAfterComposeResponse(e, request)

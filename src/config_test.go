@@ -105,7 +105,9 @@ func TestBuildNodeRunConfigAppliesServiceOverrides(t *testing.T) {
 		},
 	}
 
-	merged := buildNodeRunConfig(runParams, cfg, "node4")
+	merged := buildNodeRunConfig(runParams, cfg, "node4", map[string]NodeConfig{
+		"node4": cfg,
+	})
 
 	if got := merged["batch_size"]; got != 20 {
 		t.Fatalf("batch_size = %#v, want 20", got)

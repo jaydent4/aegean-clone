@@ -5,7 +5,7 @@ const (
 	mediaMovieIDStageAwait      = "await_compose_and_rating"
 )
 
-var mediaRatingTargets = []string{"node16", "node17", "node18"}
+var mediaRatingTargets = []string{"node10", "node11", "node12"}
 
 func ExecuteRequestMovieID(e workflowRuntime, request map[string]any, ndSeed int64, ndTimestamp float64) map[string]any {
 	_ = ndSeed
@@ -42,14 +42,14 @@ func ExecuteRequestMovieID(e workflowRuntime, request map[string]any, ndSeed int
 			"review_request_id": reviewRequestID,
 			"movie_id":          movieID,
 		})
-		mediaDispatchNestedRequest(e, request, mediaComposeReviewTargets, composeRequest)
+		mediaDispatchNestedRequest(e, request, mediaServiceTargets(e, "compose_review", mediaComposeReviewTargets), composeRequest)
 
 		ratingRequest := mediaNewNestedRequest(requestID, "rating", ndTimestamp, "upload_rating", map[string]any{
 			"review_request_id": reviewRequestID,
 			"movie_id":          movieID,
 			"rating":            rating,
 		})
-		mediaDispatchNestedRequest(e, request, mediaRatingTargets, ratingRequest)
+		mediaDispatchNestedRequest(e, request, mediaServiceTargets(e, "rating", mediaRatingTargets), ratingRequest)
 		return mediaBlockedForNestedResponse(requestID)
 	case mediaMovieIDStageAwait:
 		nestedResponses, ok := e.GetNestedResponses(requestID)

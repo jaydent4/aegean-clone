@@ -114,6 +114,10 @@ func mediaNestedTargets(runConfig map[string]any, replicas []string) []string {
 	return append([]string{}, replicas...)
 }
 
+func mediaServiceTargets(e workflowRuntime, serviceName string, fallback []string) []string {
+	return common.ServiceNodesOrDefault(e.GetRunConfig(), serviceName, fallback)
+}
+
 func mediaDispatchNestedRequest(e workflowRuntime, sourceRequest map[string]any, targets []string, outgoing map[string]any) {
 	selectedTargets := mediaNestedTargets(e.GetRunConfig(), targets)
 	if common.BoolOrDefault(e.GetRunConfig(), "media_nested_use_eo", false) {

@@ -12,13 +12,13 @@ RESULTS_ROOT = REPO_ROOT / "results"
 OUTPUT_PATH = RESULTS_ROOT / "basic_open_large" / "latency_vs_throughput.png"
 
 SERIES = [
-    ("Aegean", RESULTS_ROOT / "basic_open_large_aegean", [25, 50, 60], "#08306b"),
-    ("Aegean+EO", RESULTS_ROOT / "basic_open_large_aegean_eo", [25, 50, 55], "#6baed6"),
-    ("PBEO", RESULTS_ROOT / "basic_open_large_pbeo", [100, 120, 135], "#238b45"),
+    ("Aegean", RESULTS_ROOT / "basic_open_large_aegean", [50, 100, 150, 180, 200], "#08306b"),
+    ("Aegean+EO", RESULTS_ROOT / "basic_open_large_aegean_eo", [50, 100, 150, 170, 180], "#6baed6"),
+    ("PBEO", RESULTS_ROOT / "basic_open_large_pbeo", [100, 300, 500, 525, 550], "#238b45"),
     (
         "Unreplicated",
         RESULTS_ROOT / "basic_open_large_unreplicated",
-        [25, 75, 125],
+        [165, 329, 494],
         "#555555",
     ),
 ]

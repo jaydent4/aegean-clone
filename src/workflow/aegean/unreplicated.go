@@ -91,7 +91,7 @@ func ExecuteRequestMiddleDirect(e *unreplicated.Engine, request map[string]any, 
 			"op":         request["op"],
 			"op_payload": request["op_payload"],
 		}
-		e.DispatchNestedRequestDirect(request, []string{"node4"}, nestedRequest)
+		e.DispatchNestedRequestDirect(request, common.ServiceNodesOrDefault(e.RunConfig, "backend", []string{"node2"}), nestedRequest)
 		return map[string]any{"status": "blocked_for_nested_response", "request_id": requestID}
 	case directFanoutStageAwaitNested:
 		nestedResponses, hasNested := e.GetNestedResponses(requestID)

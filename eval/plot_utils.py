@@ -12,12 +12,14 @@ except ModuleNotFoundError as exc:
 
 THROUGHPUT_RE = re.compile(r"http_reqs\.*:\s+\d+\s+([0-9.]+)/s")
 LATENCY_RE = re.compile(
-    r"http_req_duration\.*:.*?\bmed=([0-9.]+)(ms|s)\b.*?\bp\(90\)=([0-9.]+)(ms|s)\b"
+    r"http_req_duration\.*:.*?\bmed=([0-9.]+)(µs|us|ms|s)\b.*?\bp\(90\)=([0-9.]+)(µs|us|ms|s)\b"
 )
 
 
 def duration_to_ms(value: str, unit: str) -> float:
     duration = float(value)
+    if unit in ("µs", "us"):
+        return duration / 1000
     if unit == "s":
         return duration * 1000
     return duration

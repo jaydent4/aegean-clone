@@ -90,3 +90,39 @@ func BoolOrDefault(config map[string]any, key string, defaultValue bool) bool {
 	}
 	return typed
 }
+
+func ServiceNodesOrDefault(config map[string]any, serviceName string, fallback []string) []string {
+	raw, ok := config["service_nodes"]
+	if !ok {
+		return append([]string{}, fallback...)
+	}
+
+	var rawNodes any
+	switch typed := raw.(type) {
+	case map[string]any:
+		rawNodes = typed[serviceName]
+	case map[string][]string:
+		if nodes, ok := typed[serviceName]; ok {
+			return append([]string{}, nodes...)
+		}
+	default:
+		return append([]string{}, fallback...)
+	}
+
+	switch typed := rawNodes.(type) {
+	case []string:
+		return append([]string{}, typed...)
+	case []any:
+		nodes := make([]string, 0, len(typed))
+		for _, rawNode := range typed {
+			nodeName, ok := rawNode.(string)
+			if ok && nodeName != "" {
+				nodes = append(nodes, nodeName)
+			}
+		}
+		if len(nodes) > 0 {
+			return nodes
+		}
+	}
+	return append([]string{}, fallback...)
+}

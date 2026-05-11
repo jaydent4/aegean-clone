@@ -5,6 +5,8 @@ import (
 	"flag"
 	"fmt"
 	"sort"
+	"strconv"
+	"strings"
 
 	"aegean/nodes"
 	"aegean/telemetry"
@@ -43,7 +45,7 @@ func main() {
 	if !ok {
 		panic(fmt.Sprintf("unknown node name: %s", *name))
 	}
-	nodeRunConfig := buildNodeRunConfig(runConfig.Params, cfg, *name)
+	nodeRunConfig := buildNodeRunConfig(runConfig.Params, cfg, *name, configs)
 	readyNodes := allNodeNamesExcept(configs, *name)
 	telemetryShutdown := telemetry.Init(
 		context.Background(),
@@ -145,8 +147,8 @@ func main() {
 	node.Start()
 }
 
-func buildNodeRunConfig(runParams map[string]any, cfg NodeConfig, nodeName string) map[string]any {
-	nodeRunConfig := make(map[string]any, len(runParams)+len(cfg.BatcherConfig)+2)
+func buildNodeRunConfig(runParams map[string]any, cfg NodeConfig, nodeName string, configs map[string]NodeConfig) map[string]any {
+	nodeRunConfig := make(map[string]any, len(runParams)+len(cfg.BatcherConfig)+3)
 	for key, value := range runParams {
 		if key == "service_overrides" {
 			continue
@@ -173,7 +175,50 @@ func buildNodeRunConfig(runParams map[string]any, cfg NodeConfig, nodeName strin
 	}
 	nodeRunConfig["node_name"] = nodeName
 	nodeRunConfig["service_name"] = cfg.Service
+	nodeRunConfig["service_nodes"] = buildServiceNodeMap(configs)
 	return nodeRunConfig
+}
+
+func buildServiceNodeMap(configs map[string]NodeConfig) map[string]any {
+	serviceNodes := map[string][]string{}
+	for nodeName, cfg := range configs {
+		if cfg.Service == "" {
+			continue
+		}
+		if len(cfg.Nodes) > 0 {
+			serviceNodes[cfg.Service] = append([]string{}, cfg.Nodes...)
+			continue
+		}
+		serviceNodes[cfg.Service] = append(serviceNodes[cfg.Service], nodeName)
+	}
+
+	out := make(map[string]any, len(serviceNodes))
+	for serviceName, nodes := range serviceNodes {
+		if len(nodes) > 1 {
+			sortNodeNames(nodes)
+		}
+		out[serviceName] = append([]string{}, nodes...)
+	}
+	return out
+}
+
+func sortNodeNames(nodes []string) {
+	sort.Slice(nodes, func(i, j int) bool {
+		left, leftOK := nodeNumber(nodes[i])
+		right, rightOK := nodeNumber(nodes[j])
+		if leftOK && rightOK {
+			return left < right
+		}
+		return nodes[i] < nodes[j]
+	})
+}
+
+func nodeNumber(nodeName string) (int, bool) {
+	if !strings.HasPrefix(nodeName, "node") {
+		return 0, false
+	}
+	value, err := strconv.Atoi(strings.TrimPrefix(nodeName, "node"))
+	return value, err == nil
 }
 
 type starter interface {

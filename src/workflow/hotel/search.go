@@ -9,8 +9,8 @@ const (
 )
 
 var (
-	hotelGeoTargets  = []string{"node7", "node8", "node9"}
-	hotelRateTargets = []string{"node10", "node11", "node12"}
+	hotelGeoTargets  = []string{"node3", "node4", "node5"}
+	hotelRateTargets = []string{"node6", "node7", "node8"}
 )
 
 func ExecuteRequestSearch(e workflowRuntime, request map[string]any, ndSeed int64, ndTimestamp float64) map[string]any {
@@ -42,7 +42,7 @@ func ExecuteRequestSearch(e workflowRuntime, request map[string]any, ndSeed int6
 			"lat": normalizedPayload["lat"],
 			"lon": normalizedPayload["lon"],
 		})
-		hotelDispatchNestedRequest(e, request, hotelGeoTargets, geoRequest)
+		hotelDispatchNestedRequest(e, request, hotelServiceTargets(e, "geo", hotelGeoTargets), geoRequest)
 		return hotelBlockedForNestedResponse(requestID)
 
 	case searchStageAwaitGeo:
@@ -73,7 +73,7 @@ func ExecuteRequestSearch(e workflowRuntime, request map[string]any, ndSeed int6
 			"in_date":   contextPayload["in_date"],
 			"out_date":  contextPayload["out_date"],
 		})
-		hotelDispatchNestedRequest(e, request, hotelRateTargets, rateRequest)
+		hotelDispatchNestedRequest(e, request, hotelServiceTargets(e, "rate", hotelRateTargets), rateRequest)
 		return hotelBlockedForNestedResponse(requestID)
 
 	case searchStageAwaitRate:

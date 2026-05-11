@@ -8,9 +8,9 @@ const (
 )
 
 var composeNestedTargets = map[string][]string{
-	"post_storage":  {"node4", "node5", "node6"},
-	"user_timeline": {"node7", "node8", "node9"},
-	"home_timeline": {"node10", "node11", "node12"},
+	"post_storage":  {"node2", "node3", "node4"},
+	"user_timeline": {"node5", "node6", "node7"},
+	"home_timeline": {"node8", "node9", "node10"},
 }
 
 // ComposePost is the top-level write workflow:
@@ -108,11 +108,14 @@ func validateComposeRequest(request map[string]any) map[string]any {
 func dispatchComposeNestedRequests(e workflowRuntime, request map[string]any, post Post, ndTimestamp float64) {
 	parentRequestID := request["request_id"]
 	postIDs := []string{post.PostID}
+	postStorageTargets := socialServiceTargets(e, "post_storage", composeNestedTargets["post_storage"])
+	userTimelineTargets := socialServiceTargets(e, "user_timeline", composeNestedTargets["user_timeline"])
+	homeTimelineTargets := socialServiceTargets(e, "home_timeline", composeNestedTargets["home_timeline"])
 
 	// Each child gets its own request_id plus the shared parent_request_id so the
 	// parent compose workflow can correlate the three completions.
 	outgoingByTarget := map[string]map[string]any{
-		composeNestedTargets["post_storage"][0]: {
+		postStorageTargets[0]: {
 			"type":              "request",
 			"request_id":        nestedRequestID(parentRequestID, "post_storage"),
 			"parent_request_id": parentRequestID,
@@ -125,7 +128,7 @@ func dispatchComposeNestedRequests(e workflowRuntime, request map[string]any, po
 				"text":       post.Text,
 			},
 		},
-		composeNestedTargets["user_timeline"][0]: {
+		userTimelineTargets[0]: {
 			"type":              "request",
 			"request_id":        nestedRequestID(parentRequestID, "user_timeline"),
 			"parent_request_id": parentRequestID,
@@ -136,7 +139,7 @@ func dispatchComposeNestedRequests(e workflowRuntime, request map[string]any, po
 				"post_ids": postIDs,
 			},
 		},
-		composeNestedTargets["home_timeline"][0]: {
+		homeTimelineTargets[0]: {
 			"type":              "request",
 			"request_id":        nestedRequestID(parentRequestID, "home_timeline"),
 			"parent_request_id": parentRequestID,
@@ -149,8 +152,14 @@ func dispatchComposeNestedRequests(e workflowRuntime, request map[string]any, po
 		},
 	}
 
+	targetsByService := map[string][]string{
+		"post_storage":  postStorageTargets,
+		"user_timeline": userTimelineTargets,
+		"home_timeline": homeTimelineTargets,
+	}
 	for _, serviceName := range []string{"post_storage", "user_timeline", "home_timeline"} {
-		socialDispatchNestedRequest(e, request, composeNestedTargets[serviceName], outgoingByTarget[composeNestedTargets[serviceName][0]])
+		targets := targetsByService[serviceName]
+		socialDispatchNestedRequest(e, request, targets, outgoingByTarget[targets[0]])
 	}
 }
 

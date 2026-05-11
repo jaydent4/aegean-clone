@@ -6,10 +6,10 @@ const (
 )
 
 var (
-	mediaUserTargets     = []string{"node4", "node5", "node6"}
-	mediaMovieIDTargets  = []string{"node7", "node8", "node9"}
-	mediaTextTargets     = []string{"node10", "node11", "node12"}
-	mediaUniqueIDTargets = []string{"node13", "node14", "node15"}
+	mediaUserTargets     = []string{"node2", "node3", "node4"}
+	mediaMovieIDTargets  = []string{"node5", "node6", "node7"}
+	mediaTextTargets     = []string{"node8"}
+	mediaUniqueIDTargets = []string{"node9"}
 )
 
 func ExecuteRequestReviewComposeAPI(e workflowRuntime, request map[string]any, ndSeed int64, ndTimestamp float64) map[string]any {
@@ -78,23 +78,23 @@ func dispatchReviewComposeFanout(e workflowRuntime, request map[string]any, payl
 		"username":          mediaPayloadString(payload, "username"),
 		"password":          mediaPayloadString(payload, "password"),
 	})
-	mediaDispatchNestedRequest(e, request, mediaUserTargets, userRequest)
+	mediaDispatchNestedRequest(e, request, mediaServiceTargets(e, "user", mediaUserTargets), userRequest)
 
 	movieIDRequest := mediaNewNestedRequest(requestID, "movie_id", ndTimestamp, "upload_movie_id", map[string]any{
 		"review_request_id": reviewRequestID,
 		"title":             mediaPayloadString(payload, "title"),
 		"rating":            rating,
 	})
-	mediaDispatchNestedRequest(e, request, mediaMovieIDTargets, movieIDRequest)
+	mediaDispatchNestedRequest(e, request, mediaServiceTargets(e, "movie_id", mediaMovieIDTargets), movieIDRequest)
 
 	textRequest := mediaNewNestedRequest(requestID, "text", ndTimestamp, "upload_text", map[string]any{
 		"review_request_id": reviewRequestID,
 		"text":              mediaPayloadString(payload, "text"),
 	})
-	mediaDispatchNestedRequest(e, request, mediaTextTargets, textRequest)
+	mediaDispatchNestedRequest(e, request, mediaServiceTargets(e, "text", mediaTextTargets), textRequest)
 
 	uniqueIDRequest := mediaNewNestedRequest(requestID, "unique_id", ndTimestamp, "upload_unique_id", map[string]any{
 		"review_request_id": reviewRequestID,
 	})
-	mediaDispatchNestedRequest(e, request, mediaUniqueIDTargets, uniqueIDRequest)
+	mediaDispatchNestedRequest(e, request, mediaServiceTargets(e, "unique_id", mediaUniqueIDTargets), uniqueIDRequest)
 }

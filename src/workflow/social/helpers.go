@@ -43,6 +43,10 @@ func nestedRequestTargets(runConfig map[string]any, replicas []string) []string 
 	return append([]string{}, replicas...)
 }
 
+func socialServiceTargets(e workflowRuntime, serviceName string, fallback []string) []string {
+	return common.ServiceNodesOrDefault(e.GetRunConfig(), serviceName, fallback)
+}
+
 func socialDispatchNestedRequest(e workflowRuntime, sourceRequest map[string]any, targets []string, outgoing map[string]any) {
 	selectedTargets := nestedRequestTargets(e.GetRunConfig(), targets)
 	if common.BoolOrDefault(e.GetRunConfig(), "social_nested_use_eo", false) {

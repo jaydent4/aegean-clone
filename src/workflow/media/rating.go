@@ -45,7 +45,7 @@ func ExecuteRequestRating(e workflowRuntime, request map[string]any, ndSeed int6
 			"review_request_id": reviewRequestID,
 			"rating":            rating,
 		})
-		mediaDispatchNestedRequest(e, request, mediaComposeReviewTargets, outgoing)
+		mediaDispatchNestedRequest(e, request, mediaServiceTargets(e, "compose_review", mediaComposeReviewTargets), outgoing)
 		return mediaBlockedForNestedResponse(requestID)
 	case mediaRatingStageAwait:
 		return mediaCompleteAfterComposeResponse(e, request)

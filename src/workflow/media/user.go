@@ -44,7 +44,7 @@ func ExecuteRequestUser(e workflowRuntime, request map[string]any, ndSeed int64,
 			"review_request_id": reviewRequestID,
 			"user_id":           userID,
 		})
-		mediaDispatchNestedRequest(e, request, mediaComposeReviewTargets, outgoing)
+		mediaDispatchNestedRequest(e, request, mediaServiceTargets(e, "compose_review", mediaComposeReviewTargets), outgoing)
 		return mediaBlockedForNestedResponse(requestID)
 	case mediaUserStageAwait:
 		return mediaCompleteAfterComposeResponse(e, request)

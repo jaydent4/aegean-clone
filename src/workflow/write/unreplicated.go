@@ -61,7 +61,7 @@ func ExecuteRequestMiddleDirect(e *unreplicated.Engine, request map[string]any, 
 			}
 		}
 
-		e.DispatchNestedRequestDirect(request, []string{"node4"}, map[string]any{
+		e.DispatchNestedRequestDirect(request, common.ServiceNodesOrDefault(e.RunConfig, "backend", []string{"node2"}), map[string]any{
 			"type":       "request",
 			"request_id": requestID,
 			"timestamp":  request["timestamp"],

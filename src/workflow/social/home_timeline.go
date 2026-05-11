@@ -8,7 +8,7 @@ const (
 	homeTimelineStageAwaitPosts     = "await_posts"
 )
 
-var socialGraphTargets = []string{"node13", "node14", "node15"}
+var socialGraphTargets = []string{"node11", "node12", "node13"}
 var homeTimelinePostStorageTargets = []string{"node4", "node5", "node6"}
 
 // HomeTimeline has two independent responsibilities:
@@ -56,7 +56,7 @@ func ExecuteRequestHomeTimeline(e workflowRuntime, request map[string]any, ndSee
 					"user_id": userID,
 				},
 			}
-			socialDispatchNestedRequest(e, request, socialGraphTargets, outgoing)
+			socialDispatchNestedRequest(e, request, socialServiceTargets(e, "social_graph", socialGraphTargets), outgoing)
 			return blockedForNestedResponse(requestID)
 
 		case homeTimelineStageAwaitFollowers:
@@ -142,7 +142,7 @@ func ExecuteRequestHomeTimeline(e workflowRuntime, request map[string]any, ndSee
 					"post_ids": postIDs,
 				},
 			}
-			socialDispatchNestedRequest(e, request, homeTimelinePostStorageTargets, outgoing)
+			socialDispatchNestedRequest(e, request, socialServiceTargets(e, "post_storage", homeTimelinePostStorageTargets), outgoing)
 			return blockedForNestedResponse(requestID)
 
 		case homeTimelineStageAwaitPosts:

@@ -1,0 +1,18 @@
+---
+architecture: basic_open_pbeo.yaml
+k6_qps: 3200
+duration: 15s
+k6_pre_allocated_vus: 0
+k6_max_vus: 10000
+spin_time_seconds: 5.0e-05
+write_key_mod: 1000
+read_key_mod: 1000
+key_count: 1000
+value_length: 500
+pbeo_tick_interval_ms: 10
+pbeo_election_tick: 1000
+pbeo_heartbeat_tick: 1
+run_timeout_seconds: 60
+parallel_window_k: 16
+worker_count: 8
+gomaxprocs: 32

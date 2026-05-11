@@ -13,10 +13,10 @@ const (
 )
 
 var (
-	mediaComposeReviewTargets = []string{"node19", "node20", "node21"}
-	mediaReviewStorageTargets = []string{"node22", "node23", "node24"}
-	mediaUserReviewTargets    = []string{"node25", "node26", "node27"}
-	mediaMovieReviewTargets   = []string{"node28", "node29", "node30"}
+	mediaComposeReviewTargets = []string{"node13", "node14", "node15"}
+	mediaReviewStorageTargets = []string{"node16", "node17", "node18"}
+	mediaUserReviewTargets    = []string{"node19", "node20", "node21"}
+	mediaMovieReviewTargets   = []string{"node22", "node23", "node24"}
 )
 
 func ExecuteRequestComposeReview(e workflowRuntime, request map[string]any, ndSeed int64, ndTimestamp float64) map[string]any {
@@ -172,19 +172,19 @@ func dispatchComposedReviewWrites(e workflowRuntime, request map[string]any, rev
 	reviewStorageRequest := mediaNewNestedRequest(requestID, "review_storage", ndTimestamp, "store_review", map[string]any{
 		"review": reviewPayload,
 	})
-	mediaDispatchNestedRequest(e, request, mediaReviewStorageTargets, reviewStorageRequest)
+	mediaDispatchNestedRequest(e, request, mediaServiceTargets(e, "review_storage", mediaReviewStorageTargets), reviewStorageRequest)
 
 	userReviewRequest := mediaNewNestedRequest(requestID, "user_review", ndTimestamp, "upload_user_review", map[string]any{
 		"user_id":   review.UserID,
 		"review_id": review.ReviewID,
 		"timestamp": review.Timestamp,
 	})
-	mediaDispatchNestedRequest(e, request, mediaUserReviewTargets, userReviewRequest)
+	mediaDispatchNestedRequest(e, request, mediaServiceTargets(e, "user_review", mediaUserReviewTargets), userReviewRequest)
 
 	movieReviewRequest := mediaNewNestedRequest(requestID, "movie_review", ndTimestamp, "upload_movie_review", map[string]any{
 		"movie_id":  review.MovieID,
 		"review_id": review.ReviewID,
 		"timestamp": review.Timestamp,
 	})
-	mediaDispatchNestedRequest(e, request, mediaMovieReviewTargets, movieReviewRequest)
+	mediaDispatchNestedRequest(e, request, mediaServiceTargets(e, "movie_review", mediaMovieReviewTargets), movieReviewRequest)
 }

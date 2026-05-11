@@ -15,11 +15,11 @@ const (
 )
 
 var (
-	hotelSearchTargets         = []string{"node4", "node5", "node6"}
-	hotelReservationTargets    = []string{"node13", "node14", "node15"}
-	hotelProfileTargets        = []string{"node16", "node17", "node18"}
-	hotelRecommendationTargets = []string{"node19", "node20", "node21"}
-	hotelUserTargets           = []string{"node22", "node23", "node24"}
+	hotelSearchTargets         = []string{"node2"}
+	hotelReservationTargets    = []string{"node9", "node10", "node11"}
+	hotelProfileTargets        = []string{"node12", "node13", "node14"}
+	hotelRecommendationTargets = []string{"node15", "node16", "node17"}
+	hotelUserTargets           = []string{"node18", "node19", "node20"}
 )
 
 func ExecuteRequestFrontend(e workflowRuntime, request map[string]any, ndSeed int64, ndTimestamp float64) map[string]any {
@@ -67,7 +67,7 @@ func executeFrontendSearch(e workflowRuntime, request map[string]any, stage stri
 			"out_date":    normalizedPayload["out_date"],
 			"room_number": normalizedPayload["room_number"],
 		})
-		hotelDispatchNestedRequest(e, request, hotelSearchTargets, searchRequest)
+		hotelDispatchNestedRequest(e, request, hotelServiceTargets(e, "search", hotelSearchTargets), searchRequest)
 		return hotelBlockedForNestedResponse(requestID)
 
 	case frontendStageAwaitSearch:
@@ -97,7 +97,7 @@ func executeFrontendSearch(e workflowRuntime, request map[string]any, stage stri
 			"out_date":    contextPayload["out_date"],
 			"room_number": contextPayload["room_number"],
 		})
-		hotelDispatchNestedRequest(e, request, hotelReservationTargets, reservationRequest)
+		hotelDispatchNestedRequest(e, request, hotelServiceTargets(e, "reservation", hotelReservationTargets), reservationRequest)
 		return hotelBlockedForNestedResponse(requestID)
 
 	case frontendStageAwaitAvailability:
@@ -125,7 +125,7 @@ func executeFrontendSearch(e workflowRuntime, request map[string]any, stage stri
 			"hotel_ids": hotelIDs,
 			"locale":    contextPayload["locale"],
 		})
-		hotelDispatchNestedRequest(e, request, hotelProfileTargets, profileRequest)
+		hotelDispatchNestedRequest(e, request, hotelServiceTargets(e, "profile", hotelProfileTargets), profileRequest)
 		return hotelBlockedForNestedResponse(requestID)
 
 	case frontendStageAwaitSearchProfiles:
@@ -167,7 +167,7 @@ func executeFrontendRecommendation(e workflowRuntime, request map[string]any, st
 			"lat":     normalizedPayload["lat"],
 			"lon":     normalizedPayload["lon"],
 		})
-		hotelDispatchNestedRequest(e, request, hotelRecommendationTargets, recommendationRequest)
+		hotelDispatchNestedRequest(e, request, hotelServiceTargets(e, "recommendation", hotelRecommendationTargets), recommendationRequest)
 		return hotelBlockedForNestedResponse(requestID)
 
 	case frontendStageAwaitRecommendation:
@@ -195,7 +195,7 @@ func executeFrontendRecommendation(e workflowRuntime, request map[string]any, st
 			"hotel_ids": hotelIDs,
 			"locale":    contextPayload["locale"],
 		})
-		hotelDispatchNestedRequest(e, request, hotelProfileTargets, profileRequest)
+		hotelDispatchNestedRequest(e, request, hotelServiceTargets(e, "profile", hotelProfileTargets), profileRequest)
 		return hotelBlockedForNestedResponse(requestID)
 
 	case frontendStageAwaitRecommendationProfiles:
@@ -229,7 +229,7 @@ func executeFrontendCheckUser(e workflowRuntime, request map[string]any, stage s
 			return hotelErrorResponse(requestID, "failed to set frontend user stage")
 		}
 		userRequest := hotelNewNestedRequest(requestID, "user", ndTimestamp, "check_user", payload)
-		hotelDispatchNestedRequest(e, request, hotelUserTargets, userRequest)
+		hotelDispatchNestedRequest(e, request, hotelServiceTargets(e, "user", hotelUserTargets), userRequest)
 		return hotelBlockedForNestedResponse(requestID)
 
 	case frontendStageAwaitUserCheck:
@@ -282,7 +282,7 @@ func executeFrontendReservation(e workflowRuntime, request map[string]any, stage
 			"username": payload["username"],
 			"password": payload["password"],
 		})
-		hotelDispatchNestedRequest(e, request, hotelUserTargets, userRequest)
+		hotelDispatchNestedRequest(e, request, hotelServiceTargets(e, "user", hotelUserTargets), userRequest)
 		return hotelBlockedForNestedResponse(requestID)
 
 	case frontendStageAwaitReservationUser:
@@ -307,7 +307,7 @@ func executeFrontendReservation(e workflowRuntime, request map[string]any, stage
 			"customer_name": contextPayload["customer_name"],
 			"room_number":   contextPayload["room_number"],
 		})
-		hotelDispatchNestedRequest(e, request, hotelReservationTargets, reservationRequest)
+		hotelDispatchNestedRequest(e, request, hotelServiceTargets(e, "reservation", hotelReservationTargets), reservationRequest)
 		return hotelBlockedForNestedResponse(requestID)
 
 	case frontendStageAwaitReservationWrite:
