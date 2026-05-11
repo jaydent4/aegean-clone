@@ -796,9 +796,29 @@ def run_config_paths(
     return completed_items
 
 
+def resolve_config_targets(config_targets, parser):
+    config_paths = []
+    for config_target in config_targets:
+        resolved_config_target = os.path.abspath(config_target)
+        if os.path.isdir(resolved_config_target):
+            dir_config_paths = list_run_config_paths(resolved_config_target)
+            if not dir_config_paths:
+                parser.error(f"no run configs found under {resolved_config_target}")
+            config_paths.extend(dir_config_paths)
+        elif os.path.isfile(resolved_config_target):
+            config_paths.append(resolved_config_target)
+        else:
+            parser.error(f"config_path must point to an existing file or directory: {config_target}")
+    return config_paths
+
+
 def main():
     parser = argparse.ArgumentParser(description="Run Aegean experiment")
-    parser.add_argument("config_path", nargs="?", help="Path to run config YAML/JSON or a directory of run configs")
+    parser.add_argument(
+        "config_paths",
+        nargs="*",
+        help="Paths to run config YAML/JSON files or directories of run configs",
+    )
     parser.add_argument(
         "--all",
         action="store_true",
@@ -822,7 +842,7 @@ def main():
     parser.add_argument(
         "--dir",
         dest="config_dir",
-        help="Run every config YAML or JSON file under the provided directory recursively. Equivalent to passing the directory as config_path.",
+        help="Run every config YAML or JSON file under the provided directory recursively. Equivalent to passing the directory as a config_path.",
     )
     parser.add_argument(
         "--runs",
@@ -846,32 +866,20 @@ def main():
         parser.error("--runs must be at least 1")
 
     if args.all:
-        if args.config_path:
-            parser.error("config_path cannot be used with --all")
+        if args.config_paths:
+            parser.error("config_paths cannot be used with --all")
         if args.config_dir:
             parser.error("--dir cannot be used with --all")
         config_paths = list_run_config_paths()
         if not config_paths:
             parser.error("no run configs found under experiment/runs")
     else:
-        config_target = args.config_dir or args.config_path
-        if args.config_dir and args.config_path:
-            parser.error("config_path cannot be used with --dir")
-        if not config_target:
-            parser.error("config_path is required unless --all or --dir is used")
-
-        config_target = os.path.abspath(config_target)
-        if os.path.isdir(config_target):
-            config_dir = config_target
-            config_paths = list_run_config_paths(config_dir)
-            if not config_paths:
-                parser.error(f"no run configs found under {config_dir}")
-        elif os.path.isfile(config_target):
-            config_paths = [config_target]
-        elif args.config_dir:
-            parser.error(f"--dir must point to an existing directory: {args.config_dir}")
-        else:
-            parser.error(f"config_path must point to an existing file or directory: {args.config_path}")
+        if args.config_dir and args.config_paths:
+            parser.error("config_paths cannot be used with --dir")
+        config_targets = [args.config_dir] if args.config_dir else args.config_paths
+        if not config_targets:
+            parser.error("at least one config_path is required unless --all or --dir is used")
+        config_paths = resolve_config_targets(config_targets, parser)
 
     completed_items = run_config_paths(
         config_paths,
