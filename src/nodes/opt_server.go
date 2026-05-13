@@ -95,7 +95,7 @@ func NewOptServer(name, host string, port int, clients []string, nodes []string,
 			panic(err)
 		}
 		server.EO = component
-		server.Exec.SetNestedEO(component)
+		server.Exec.SetNestedEO(optexec.NewNestedEORequestQuorumGate(name, component))
 	}
 
 	server.Node.HandleMessage = server.HandleMessage
@@ -218,6 +218,8 @@ func (s *OptServer) HandleMessage(payload map[string]any) map[string]any {
 		return s.EO.HandleRaftMessage(payload)
 	case protocol.MessageTypeInLogRaft:
 		return s.Batcher.HandleInLogRaftMessage(payload)
+	case protocol.MessageTypeEONestedRequest:
+		return s.Exec.HandleNestedEORequestMessage(payload)
 	case "batch":
 		return s.Mixer.HandleBatchMessage(payload)
 	case protocol.MessageTypeInLogRequest:

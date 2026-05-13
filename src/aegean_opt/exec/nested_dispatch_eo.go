@@ -8,6 +8,11 @@ type NestedEOReplicator interface {
 	ProposeResponsePayload(requestID string, payload map[string]any) error
 }
 
+type NestedEORequestQuorum interface {
+	SubmitNestedRequest(source string, requestID string, targets []string, payload map[string]any) map[string]any
+	HandleNestedRequestMessage(payload map[string]any) map[string]any
+}
+
 type eoDispatchAction uint8
 
 type nestedDispatchState uint8
@@ -60,6 +65,18 @@ func (e *Exec) DispatchNestedRequestEO(sourceRequest map[string]any, targets []s
 		return
 	}
 
+	if requestID, ok := canonicalRequestID(prepared["request_id"]); ok {
+		if !e.nestedDispatchTracker.registerPending(requestID) {
+			return
+		}
+		if quorum, ok := e.nestedEO.(NestedEORequestQuorum); ok {
+			quorum.SubmitNestedRequest(e.Name, requestID, targets, prepared)
+			return
+		}
+		e.dispatchNestedRequestEOAfterRegister(requestID, targets, prepared)
+		return
+	}
+
 	switch e.nextEODispatchAction(prepared) {
 	case eoDispatchSendDirect:
 		sendNestedRequestDirect(targets, prepared)
@@ -68,6 +85,14 @@ func (e *Exec) DispatchNestedRequestEO(sourceRequest map[string]any, targets []s
 	case eoDispatchSkip:
 		return
 	}
+}
+
+func (e *Exec) HandleNestedEORequestMessage(payload map[string]any) map[string]any {
+	quorum, ok := e.nestedEO.(NestedEORequestQuorum)
+	if !ok {
+		return map[string]any{"status": "eo_nested_request_quorum_not_configured"}
+	}
+	return quorum.HandleNestedRequestMessage(payload)
 }
 
 func (e *Exec) ClaimNestedRequestEO(prepared map[string]any) bool {
@@ -131,6 +156,19 @@ func (e *Exec) nextEODispatchAction(prepared map[string]any) eoDispatchAction {
 	}
 
 	return eoDispatchWaitForResponse
+}
+
+func (e *Exec) dispatchNestedRequestEOAfterRegister(requestID string, targets []string, prepared map[string]any) {
+	if e.nestedEO.IsLeader() {
+		sendNestedRequestDirect(targets, prepared)
+		return
+	}
+
+	if _, ok := e.nestedEO.Leader(); !ok {
+		sendNestedRequestDirect(targets, prepared)
+		return
+	}
+	_ = requestID
 }
 
 func (e *Exec) nestedResponseState(payload map[string]any) (string, nestedDispatchState, bool) {

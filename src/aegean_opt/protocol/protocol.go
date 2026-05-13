@@ -7,6 +7,7 @@ const (
 	MessageTypeScheduledRequest         = "scheduled_request"
 	MessageTypeVerificationWindowClosed = "verification_window_closed"
 	MessageTypeVerificationWindowReplay = "verification_window_replay"
+	MessageTypeEONestedRequest          = "eo_nested_request"
 )
 
 const (
@@ -25,6 +26,8 @@ const (
 	FieldWriteKeys   = "write_keys"
 	FieldRequests    = "requests"
 	FieldSchedule    = "scheduled_requests"
+	FieldTargets     = "targets"
+	FieldHash        = "request_hash"
 )
 
 func NodeID(seqNum int, requestIndex int) string {
