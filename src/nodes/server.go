@@ -101,7 +101,11 @@ func NewServer(name, host string, port int, clients []string, nodes []string, is
 			panic(err)
 		}
 		server.EO = component
-		server.Exec.SetNestedEO(component)
+		if common.BoolOrDefault(runConfig, "use_eo_after_quorum", false) {
+			server.Exec.SetNestedEO(exec.NewNestedEORequestQuorumGate(name, component))
+		} else {
+			server.Exec.SetNestedEO(component)
+		}
 	}
 
 	server.Node.HandleMessage = server.HandleMessage
@@ -202,6 +206,8 @@ func (s *Server) HandleMessage(payload map[string]any) map[string]any {
 			return map[string]any{"status": "error", "error": "eo not configured"}
 		}
 		return s.EO.HandleRaftMessage(payload)
+	case exec.MessageTypeEONestedRequest:
+		return s.Exec.HandleNestedEORequestMessage(payload)
 	case "batch":
 		return s.Mixer.HandleBatchMessage(payload)
 	case "verify":

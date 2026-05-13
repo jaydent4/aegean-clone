@@ -201,6 +201,91 @@ func TestExecDispatchNestedRequestEOOnlyLeaderSends(t *testing.T) {
 	}
 }
 
+func TestNestedEORequestQuorumDispatchesAfterTwoMatchingRequests(t *testing.T) {
+	server := startTestServer(t, nil)
+	defer server.close()
+
+	quorum := newNestedEORequestQuorumGate("node1", &fakeNestedEO{isLeader: true, leader: "node1"}, 250*time.Millisecond)
+	request := map[string]any{
+		"type":       "request",
+		"request_id": "parent/child",
+		"timestamp":  123.0,
+		"sender":     "node1",
+		"op":         "default",
+		"op_payload": map[string]any{"value": "same"},
+	}
+
+	quorum.SubmitNestedRequest("node1", "parent/child", []string{"127.0.0.1"}, request)
+	select {
+	case unexpected := <-server.received:
+		t.Fatalf("expected one vote not to dispatch, got %v", unexpected)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	forwarded := cloneMapAny(request)
+	forwarded["sender"] = "node2"
+	quorum.HandleNestedRequestMessage(map[string]any{
+		"type":       "eo_nested_request",
+		"request_id": "parent/child",
+		"request":    forwarded,
+		"targets":    []string{"127.0.0.1"},
+		"sender":     "node2",
+	})
+
+	msg := expectMessage(t, server.received, "request")
+	if msg["request_id"] != "parent/child" {
+		t.Fatalf("expected request_id parent/child, got %v", msg["request_id"])
+	}
+	if msg["sender"] != "node1" {
+		t.Fatalf("expected selected request sender to be EO leader node1, got %v", msg["sender"])
+	}
+}
+
+func TestNestedEORequestQuorumTimeoutSelectsDeterministicFallback(t *testing.T) {
+	server := startTestServer(t, nil)
+	defer server.close()
+
+	quorum := newNestedEORequestQuorumGate("node1", &fakeNestedEO{isLeader: true, leader: "node1"}, 25*time.Millisecond)
+	requestA := map[string]any{
+		"type":       "request",
+		"request_id": "parent/child",
+		"sender":     "node1",
+		"op":         "default",
+		"op_payload": map[string]any{"value": "a"},
+	}
+	requestB := map[string]any{
+		"type":       "request",
+		"request_id": "parent/child",
+		"sender":     "node2",
+		"op":         "default",
+		"op_payload": map[string]any{"value": "b"},
+	}
+	hashA := nestedEORequestHash("parent/child", requestA)
+	hashB := nestedEORequestHash("parent/child", requestB)
+	wantValue := "a"
+	if hashB < hashA {
+		wantValue = "b"
+	}
+
+	quorum.SubmitNestedRequest("node1", "parent/child", []string{"127.0.0.1"}, requestA)
+	quorum.HandleNestedRequestMessage(map[string]any{
+		"type":       "eo_nested_request",
+		"request_id": "parent/child",
+		"request":    requestB,
+		"targets":    []string{"127.0.0.1"},
+		"sender":     "node2",
+	})
+
+	msg := expectMessage(t, server.received, "request")
+	opPayload, _ := msg["op_payload"].(map[string]any)
+	if got := opPayload["value"]; got != wantValue {
+		t.Fatalf("expected fallback value %s, got %v", wantValue, got)
+	}
+	if msg["sender"] != "node1" {
+		t.Fatalf("expected fallback sender to be EO leader node1, got %v", msg["sender"])
+	}
+}
+
 func TestExecHandleNestedResponseMessageEOProposesAndApplies(t *testing.T) {
 	exec, _, _ := newTestExec("node1", []string{"node1"}, nil)
 	exec.RunConfig["nested_use_eo"] = true
