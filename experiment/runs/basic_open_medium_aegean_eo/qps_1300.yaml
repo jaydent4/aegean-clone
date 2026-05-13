@@ -11,6 +11,7 @@ key_count: 100
 value_length: 5000
 nested_use_eo: true
 aegean_nested_use_eo: true
+use_eo_after_quorum: true
 eo_tick_interval_ms: 10
 eo_election_tick: 1000
 eo_heartbeat_tick: 1
