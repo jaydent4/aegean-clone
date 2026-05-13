@@ -95,7 +95,11 @@ func NewOptServer(name, host string, port int, clients []string, nodes []string,
 			panic(err)
 		}
 		server.EO = component
-		server.Exec.SetNestedEO(optexec.NewNestedEORequestQuorumGate(name, component))
+		if common.BoolOrDefault(runConfig, "use_eo_after_quorum", false) {
+			server.Exec.SetNestedEO(optexec.NewNestedEORequestQuorumGate(name, component))
+		} else {
+			server.Exec.SetNestedEO(component)
+		}
 	}
 
 	server.Node.HandleMessage = server.HandleMessage
