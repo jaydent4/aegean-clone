@@ -10,6 +10,7 @@ import (
 	hotelworkflow "aegean/workflow/hotel"
 	mediaworkflow "aegean/workflow/media"
 	reqraceworkflow "aegean/workflow/req_race"
+	responseworkflow "aegean/workflow/response"
 	socialworkflow "aegean/workflow/social"
 	supersimpleworkflow "aegean/workflow/supersimple"
 	writeworkflow "aegean/workflow/write"
@@ -35,6 +36,7 @@ var ClientWorkflows = map[string]func(c *nodes.Client){
 	"req_race_oha_client":                        reqraceworkflow.OhaClientRequestLogic,
 	"req_race_k6_open_client":                    reqraceworkflow.K6OpenClientRequestLogic,
 	"req_race_k6_closed_client":                  reqraceworkflow.K6ClosedClientRequestLogic,
+	"response_k6_open_client":                    responseworkflow.K6OpenClientRequestLogic,
 	"social_k6_closed_client":                    socialworkflow.K6ClosedClientRequestLogic,
 	"social_k6_closed_read_home_timeline_client": socialworkflow.K6ClosedReadHomeTimelineClientRequestLogic,
 	"social_k6_closed_read_user_timeline_client": socialworkflow.K6ClosedReadUserTimelineClientRequestLogic,
@@ -114,6 +116,8 @@ var ExecWorkflows = map[string]exec.ExecuteRequestFunc{
 	"req_race_backend_1": reqraceworkflow.ExecuteRequestBackend1,
 	"req_race_backend_2": reqraceworkflow.ExecuteRequestBackend2,
 	"req_race_backend_3": reqraceworkflow.ExecuteRequestBackend3,
+	"response_middle":    responseworkflow.ExecuteRequestMiddle,
+	"response_backend":   responseworkflow.ExecuteRequestBackend,
 	"social_compose_post": func(e *exec.Exec, request map[string]any, ndSeed int64, ndTimestamp float64) map[string]any {
 		return socialworkflow.ExecuteRequestComposePost(e, request, ndSeed, ndTimestamp)
 	},
@@ -146,6 +150,7 @@ var InitStateWorkflows = map[string]exec.InitStateFunc{
 		return mediaworkflow.InitState(e)
 	},
 	"req_race_default": reqraceworkflow.InitState,
+	"response_default": responseworkflow.InitState,
 	"social_default": func(e *exec.Exec) map[string]string {
 		return socialworkflow.InitState(e)
 	},
@@ -192,17 +197,20 @@ var UnreplicatedWorkflows = map[string]unreplicated.WorkflowFunc{
 	"media_review_storage":     mediaworkflow.ExecuteRequestReviewStorageDirect,
 	"media_user_review":        mediaworkflow.ExecuteRequestUserReviewDirect,
 	"media_movie_review":       mediaworkflow.ExecuteRequestMovieReviewDirect,
+	"response_middle":          responseworkflow.ExecuteRequestMiddleDirect,
+	"response_backend":         responseworkflow.ExecuteRequestBackendDirect,
 	"write_backend":            writeworkflow.ExecuteRequestBackendDirect,
 	"write_middle":             writeworkflow.ExecuteRequestMiddleDirect,
 }
 
 var UnreplicatedInitStateWorkflows = map[string]unreplicated.InitStateFunc{
-	"default":        aegeanworkflow.InitStateDirect,
-	"aegean_default": aegeanworkflow.InitStateDirect,
-	"hotel_default":  hotelworkflow.InitStateDirect,
-	"media_default":  mediaworkflow.InitStateDirect,
-	"social_default": socialworkflow.InitStateDirect,
-	"write_default":  writeworkflow.InitStateDirect,
+	"default":          aegeanworkflow.InitStateDirect,
+	"aegean_default":   aegeanworkflow.InitStateDirect,
+	"hotel_default":    hotelworkflow.InitStateDirect,
+	"media_default":    mediaworkflow.InitStateDirect,
+	"response_default": responseworkflow.InitStateDirect,
+	"social_default":   socialworkflow.InitStateDirect,
+	"write_default":    writeworkflow.InitStateDirect,
 }
 
 var ExternalServiceInitWorkflows = map[string]func(es *nodes.ExternalService){

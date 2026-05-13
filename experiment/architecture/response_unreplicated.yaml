@@ -1,0 +1,31 @@
+---
+services:
+  client:
+    type: client
+    next:
+    - node1
+    client_workflow: response_k6_open_client
+  middle:
+    type: unreplicated_server
+    clients:
+    - node0
+    nodes:
+    - node1
+    exec_workflow: response_middle
+    init_state_workflow: response_default
+  backend:
+    type: unreplicated_server
+    clients:
+    - node1
+    nodes:
+    - node2
+    exec_workflow: response_backend
+    init_state_workflow: response_default
+nodes:
+  node0:
+    service: client
+  node1:
+    service: middle
+  node2:
+    service: backend
+
