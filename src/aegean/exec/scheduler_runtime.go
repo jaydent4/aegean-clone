@@ -73,8 +73,14 @@ func (s *execScheduler) executeParallelBatches(e *Exec, parallelBatches [][]map[
 			activeWorkers--
 			status := common.GetString(res.output, "status")
 			if status == "blocked_for_nested_response" {
-				res.req.nestedSeen = s.nestedResponseCount(res.req.id)
-				res.req.state = requestWaiting
+				nestedCount := s.nestedResponseCount(res.req.id)
+				if nestedCount > res.req.nestedSeen {
+					res.req.nestedSeen = nestedCount
+					res.req.state = requestRunnable
+				} else {
+					res.req.nestedSeen = nestedCount
+					res.req.state = requestWaiting
+				}
 			} else {
 				e.endRequestDispatchWait(res.req.payload)
 				e.startRequestSpan(
