@@ -1,8 +1,8 @@
 ---
-architecture: response_aegean.yaml
+architecture: response_aegean_eo.yaml
 
 # K6 configs
-k6_qps: 100
+k6_qps: 250
 warmup_duration: 10s
 duration: 15s
 k6_pre_allocated_vus: 0
@@ -10,6 +10,14 @@ k6_max_vus: 10000
 
 # Response workflow configs
 response_size_bytes: 102400
+
+# Nested exact-once dispatch
+nested_use_eo: true
+response_nested_use_eo: true
+use_eo_after_quorum: true
+eo_tick_interval_ms: 10
+eo_election_tick: 1000
+eo_heartbeat_tick: 1
 
 # Run & system configs
 run_timeout_seconds: 60
