@@ -3,6 +3,7 @@ package socialworkflow
 import (
 	"aegean/common"
 	"aegean/nodes"
+	"aegean/workflow/warmup"
 	"context"
 	"fmt"
 	"log"
@@ -45,20 +46,20 @@ func K6ClosedClientRequestLogic(c *nodes.Client) {
 
 func K6OpenClientRequestLogic(c *nodes.Client) {
 	duration := common.MustString(c.RunConfig, "duration")
+	warmupDuration := common.StringOrDefault(c.RunConfig, "warmup_duration", "0s")
 	runTimeoutSeconds := common.MustInt(c.RunConfig, "run_timeout_seconds")
 	userCount := common.MustInt(c.RunConfig, "social_user_count")
 	postTextLength := common.IntOrDefault(c.RunConfig, "social_post_text_length", 64)
 	k6QPS := common.MustInt(c.RunConfig, "k6_qps")
-	k6PreAllocatedVUs := common.MustInt(c.RunConfig, "k6_pre_allocated_vus")
+	k6PreAllocatedVUs := common.K6PreAllocatedVUs(c.RunConfig, k6QPS)
 	k6MaxVUs := common.MustInt(c.RunConfig, "k6_max_vus")
 	k6CommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)
 	k6TargetURL := fmt.Sprintf("http://%s:8000/", c.Name)
 
-	if err := runK6Open(k6OpenRunConfig{
+	baseConfig := k6OpenRunConfig{
 		rate:            k6QPS,
-		duration:        duration,
 		preAllocatedVUs: k6PreAllocatedVUs,
 		maxVUs:          k6MaxVUs,
 		targetURL:       k6TargetURL,
@@ -69,6 +70,13 @@ func K6OpenClientRequestLogic(c *nodes.Client) {
 			"SOCIAL_USER_COUNT=" + strconv.Itoa(userCount),
 			"SOCIAL_POST_TEXT_LENGTH=" + strconv.Itoa(postTextLength),
 		},
+	}
+
+	if err := warmup.RunWarmupThenMeasured(warmupDuration, duration, func(runDuration string, suppressOutput bool) error {
+		config := baseConfig
+		config.duration = runDuration
+		config.suppressOutput = suppressOutput
+		return runK6Open(config)
 	}); err != nil {
 		if err == context.DeadlineExceeded {
 			log.Printf("social k6 open client timed out after %s", k6CommandDeadline)
@@ -109,19 +117,19 @@ func K6ClosedReadUserTimelineClientRequestLogic(c *nodes.Client) {
 
 func K6OpenReadUserTimelineClientRequestLogic(c *nodes.Client) {
 	duration := common.MustString(c.RunConfig, "duration")
+	warmupDuration := common.StringOrDefault(c.RunConfig, "warmup_duration", "0s")
 	runTimeoutSeconds := common.MustInt(c.RunConfig, "run_timeout_seconds")
 	userCount := common.MustInt(c.RunConfig, "social_user_count")
 	k6QPS := common.MustInt(c.RunConfig, "k6_qps")
-	k6PreAllocatedVUs := common.MustInt(c.RunConfig, "k6_pre_allocated_vus")
+	k6PreAllocatedVUs := common.K6PreAllocatedVUs(c.RunConfig, k6QPS)
 	k6MaxVUs := common.MustInt(c.RunConfig, "k6_max_vus")
 	k6CommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)
 	k6TargetURL := fmt.Sprintf("http://%s:8000/", c.Name)
 
-	if err := runK6Open(k6OpenRunConfig{
+	baseConfig := k6OpenRunConfig{
 		rate:            k6QPS,
-		duration:        duration,
 		preAllocatedVUs: k6PreAllocatedVUs,
 		maxVUs:          k6MaxVUs,
 		targetURL:       k6TargetURL,
@@ -131,6 +139,13 @@ func K6OpenReadUserTimelineClientRequestLogic(c *nodes.Client) {
 		extraEnv: []string{
 			"SOCIAL_USER_COUNT=" + strconv.Itoa(userCount),
 		},
+	}
+
+	if err := warmup.RunWarmupThenMeasured(warmupDuration, duration, func(runDuration string, suppressOutput bool) error {
+		config := baseConfig
+		config.duration = runDuration
+		config.suppressOutput = suppressOutput
+		return runK6Open(config)
 	}); err != nil {
 		if err == context.DeadlineExceeded {
 			log.Printf("social k6 open read user timeline client timed out after %s", k6CommandDeadline)
@@ -171,19 +186,19 @@ func K6ClosedReadHomeTimelineClientRequestLogic(c *nodes.Client) {
 
 func K6OpenReadHomeTimelineClientRequestLogic(c *nodes.Client) {
 	duration := common.MustString(c.RunConfig, "duration")
+	warmupDuration := common.StringOrDefault(c.RunConfig, "warmup_duration", "0s")
 	runTimeoutSeconds := common.MustInt(c.RunConfig, "run_timeout_seconds")
 	userCount := common.MustInt(c.RunConfig, "social_user_count")
 	k6QPS := common.MustInt(c.RunConfig, "k6_qps")
-	k6PreAllocatedVUs := common.MustInt(c.RunConfig, "k6_pre_allocated_vus")
+	k6PreAllocatedVUs := common.K6PreAllocatedVUs(c.RunConfig, k6QPS)
 	k6MaxVUs := common.MustInt(c.RunConfig, "k6_max_vus")
 	k6CommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)
 	k6TargetURL := fmt.Sprintf("http://%s:8000/", c.Name)
 
-	if err := runK6Open(k6OpenRunConfig{
+	baseConfig := k6OpenRunConfig{
 		rate:            k6QPS,
-		duration:        duration,
 		preAllocatedVUs: k6PreAllocatedVUs,
 		maxVUs:          k6MaxVUs,
 		targetURL:       k6TargetURL,
@@ -193,6 +208,13 @@ func K6OpenReadHomeTimelineClientRequestLogic(c *nodes.Client) {
 		extraEnv: []string{
 			"SOCIAL_USER_COUNT=" + strconv.Itoa(userCount),
 		},
+	}
+
+	if err := warmup.RunWarmupThenMeasured(warmupDuration, duration, func(runDuration string, suppressOutput bool) error {
+		config := baseConfig
+		config.duration = runDuration
+		config.suppressOutput = suppressOutput
+		return runK6Open(config)
 	}); err != nil {
 		if err == context.DeadlineExceeded {
 			log.Printf("social k6 open read home timeline client timed out after %s", k6CommandDeadline)
@@ -221,6 +243,7 @@ type k6OpenRunConfig struct {
 	sender          string
 	scriptPath      string
 	extraEnv        []string
+	suppressOutput  bool
 }
 
 func runK6(config k6RunConfig) error {
@@ -270,16 +293,5 @@ func runK6Open(config k6OpenRunConfig) error {
 	}
 	args = append(args, config.scriptPath)
 
-	cmd := exec.CommandContext(ctx, "k6", args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			return ctx.Err()
-		}
-		return fmt.Errorf("run k6: %w", err)
-	}
-
-	return nil
+	return warmup.Run(ctx, args, config.suppressOutput)
 }

@@ -3,11 +3,10 @@ package aegeanworkflow
 import (
 	"aegean/common"
 	"aegean/nodes"
+	"aegean/workflow/warmup"
 	"context"
 	"fmt"
 	"log"
-	"os"
-	"os/exec"
 	"strconv"
 	"time"
 )
@@ -20,16 +19,16 @@ func K6OpenClientRequestLogic(c *nodes.Client) {
 	valueLength := common.MustInt(c.RunConfig, "value_length")
 	k6QPS := common.MustInt(c.RunConfig, "k6_qps")
 	duration := common.MustString(c.RunConfig, "duration")
-	k6PreAllocatedVUs := common.MustInt(c.RunConfig, "k6_pre_allocated_vus")
+	warmupDuration := common.StringOrDefault(c.RunConfig, "warmup_duration", "0s")
+	k6PreAllocatedVUs := common.K6PreAllocatedVUs(c.RunConfig, k6QPS)
 	k6MaxVUs := common.MustInt(c.RunConfig, "k6_max_vus")
 	k6CommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)
 	k6TargetURL := fmt.Sprintf("http://%s:8000/", c.Name)
 
-	if err := runK6(k6RunConfig{
+	baseConfig := k6RunConfig{
 		rate:            k6QPS,
-		duration:        duration,
 		preAllocatedVUs: k6PreAllocatedVUs,
 		maxVUs:          k6MaxVUs,
 		targetURL:       k6TargetURL,
@@ -42,6 +41,13 @@ func K6OpenClientRequestLogic(c *nodes.Client) {
 			"READ_KEY_MOD=" + strconv.Itoa(readKeyMod),
 			"VALUE_LENGTH=" + strconv.Itoa(valueLength),
 		},
+	}
+
+	if err := warmup.RunWarmupThenMeasured(warmupDuration, duration, func(runDuration string, suppressOutput bool) error {
+		config := baseConfig
+		config.duration = runDuration
+		config.suppressOutput = suppressOutput
+		return runK6(config)
 	}); err != nil {
 		if err == context.DeadlineExceeded {
 			log.Printf("k6 client request logic timed out after %s", k6CommandDeadline)
@@ -61,6 +67,7 @@ type k6RunConfig struct {
 	sender          string
 	scriptPath      string
 	extraEnv        []string
+	suppressOutput  bool
 }
 
 func runK6(config k6RunConfig) error {
@@ -81,16 +88,5 @@ func runK6(config k6RunConfig) error {
 	}
 	args = append(args, config.scriptPath)
 
-	cmd := exec.CommandContext(ctx, "k6", args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			return ctx.Err()
-		}
-		return fmt.Errorf("run k6: %w", err)
-	}
-
-	return nil
+	return warmup.Run(ctx, args, config.suppressOutput)
 }

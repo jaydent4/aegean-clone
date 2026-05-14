@@ -58,6 +58,18 @@ func MustString(config map[string]any, key string) string {
 	return typed
 }
 
+func StringOrDefault(config map[string]any, key string, defaultValue string) string {
+	value, ok := config[key]
+	if !ok {
+		return defaultValue
+	}
+	typed, ok := value.(string)
+	if !ok {
+		panic(fmt.Sprintf("run config field %q must be a string", key))
+	}
+	return typed
+}
+
 func IntOrDefault(config map[string]any, key string, defaultValue int) int {
 	value, ok := config[key]
 	if !ok {
@@ -77,6 +89,17 @@ func IntOrDefault(config map[string]any, key string, defaultValue int) int {
 	default:
 		panic(fmt.Sprintf("run config field %q must be an integer", key))
 	}
+}
+
+func K6PreAllocatedVUs(config map[string]any, rate int) int {
+	preAllocatedVUs := MustInt(config, "k6_pre_allocated_vus")
+	if preAllocatedVUs > 0 {
+		return preAllocatedVUs
+	}
+	if rate > 0 {
+		return rate
+	}
+	return 1
 }
 
 func BoolOrDefault(config map[string]any, key string, defaultValue bool) bool {

@@ -3,6 +3,7 @@ package hotelworkflow
 import (
 	"aegean/common"
 	"aegean/nodes"
+	"aegean/workflow/warmup"
 	"context"
 	"fmt"
 	"log"
@@ -26,20 +27,20 @@ func K6ClosedRecommendationsClientRequestLogic(c *nodes.Client) {
 
 func K6OpenHotelsClientRequestLogic(c *nodes.Client) {
 	duration := common.MustString(c.RunConfig, "duration")
+	warmupDuration := common.StringOrDefault(c.RunConfig, "warmup_duration", "0s")
 	runTimeoutSeconds := common.MustInt(c.RunConfig, "run_timeout_seconds")
 	userCount := common.MustInt(c.RunConfig, "hotel_user_count")
 	hotelCount := common.MustInt(c.RunConfig, "hotel_hotel_count")
 	k6QPS := common.MustInt(c.RunConfig, "k6_qps")
-	k6PreAllocatedVUs := common.MustInt(c.RunConfig, "k6_pre_allocated_vus")
+	k6PreAllocatedVUs := common.K6PreAllocatedVUs(c.RunConfig, k6QPS)
 	k6MaxVUs := common.MustInt(c.RunConfig, "k6_max_vus")
 	k6CommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)
 	k6TargetURL := fmt.Sprintf("http://%s:8000/", c.Name)
 
-	if err := runHotelK6Open(hotelK6OpenRunConfig{
+	baseConfig := hotelK6OpenRunConfig{
 		rate:            k6QPS,
-		duration:        duration,
 		preAllocatedVUs: k6PreAllocatedVUs,
 		maxVUs:          k6MaxVUs,
 		targetURL:       k6TargetURL,
@@ -50,6 +51,13 @@ func K6OpenHotelsClientRequestLogic(c *nodes.Client) {
 			"HOTEL_USER_COUNT=" + strconv.Itoa(userCount),
 			"HOTEL_HOTEL_COUNT=" + strconv.Itoa(hotelCount),
 		},
+	}
+
+	if err := warmup.RunWarmupThenMeasured(warmupDuration, duration, func(runDuration string, suppressOutput bool) error {
+		config := baseConfig
+		config.duration = runDuration
+		config.suppressOutput = suppressOutput
+		return runHotelK6Open(config)
 	}); err != nil {
 		if err == context.DeadlineExceeded {
 			log.Printf("hotel k6 open hotels client timed out after %s", k6CommandDeadline)
@@ -61,20 +69,20 @@ func K6OpenHotelsClientRequestLogic(c *nodes.Client) {
 
 func K6OpenRecommendationsClientRequestLogic(c *nodes.Client) {
 	duration := common.MustString(c.RunConfig, "duration")
+	warmupDuration := common.StringOrDefault(c.RunConfig, "warmup_duration", "0s")
 	runTimeoutSeconds := common.MustInt(c.RunConfig, "run_timeout_seconds")
 	userCount := common.MustInt(c.RunConfig, "hotel_user_count")
 	hotelCount := common.MustInt(c.RunConfig, "hotel_hotel_count")
 	k6QPS := common.MustInt(c.RunConfig, "k6_qps")
-	k6PreAllocatedVUs := common.MustInt(c.RunConfig, "k6_pre_allocated_vus")
+	k6PreAllocatedVUs := common.K6PreAllocatedVUs(c.RunConfig, k6QPS)
 	k6MaxVUs := common.MustInt(c.RunConfig, "k6_max_vus")
 	k6CommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)
 	k6TargetURL := fmt.Sprintf("http://%s:8000/", c.Name)
 
-	if err := runHotelK6Open(hotelK6OpenRunConfig{
+	baseConfig := hotelK6OpenRunConfig{
 		rate:            k6QPS,
-		duration:        duration,
 		preAllocatedVUs: k6PreAllocatedVUs,
 		maxVUs:          k6MaxVUs,
 		targetURL:       k6TargetURL,
@@ -85,6 +93,13 @@ func K6OpenRecommendationsClientRequestLogic(c *nodes.Client) {
 			"HOTEL_USER_COUNT=" + strconv.Itoa(userCount),
 			"HOTEL_HOTEL_COUNT=" + strconv.Itoa(hotelCount),
 		},
+	}
+
+	if err := warmup.RunWarmupThenMeasured(warmupDuration, duration, func(runDuration string, suppressOutput bool) error {
+		config := baseConfig
+		config.duration = runDuration
+		config.suppressOutput = suppressOutput
+		return runHotelK6Open(config)
 	}); err != nil {
 		if err == context.DeadlineExceeded {
 			log.Printf("hotel k6 open recommendations client timed out after %s", k6CommandDeadline)
@@ -96,20 +111,20 @@ func K6OpenRecommendationsClientRequestLogic(c *nodes.Client) {
 
 func K6OpenReservationClientRequestLogic(c *nodes.Client) {
 	duration := common.MustString(c.RunConfig, "duration")
+	warmupDuration := common.StringOrDefault(c.RunConfig, "warmup_duration", "0s")
 	runTimeoutSeconds := common.MustInt(c.RunConfig, "run_timeout_seconds")
 	userCount := common.MustInt(c.RunConfig, "hotel_user_count")
 	hotelCount := common.MustInt(c.RunConfig, "hotel_hotel_count")
 	k6QPS := common.MustInt(c.RunConfig, "k6_qps")
-	k6PreAllocatedVUs := common.MustInt(c.RunConfig, "k6_pre_allocated_vus")
+	k6PreAllocatedVUs := common.K6PreAllocatedVUs(c.RunConfig, k6QPS)
 	k6MaxVUs := common.MustInt(c.RunConfig, "k6_max_vus")
 	k6CommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)
 	k6TargetURL := fmt.Sprintf("http://%s:8000/", c.Name)
 
-	if err := runHotelK6Open(hotelK6OpenRunConfig{
+	baseConfig := hotelK6OpenRunConfig{
 		rate:            k6QPS,
-		duration:        duration,
 		preAllocatedVUs: k6PreAllocatedVUs,
 		maxVUs:          k6MaxVUs,
 		targetURL:       k6TargetURL,
@@ -120,6 +135,13 @@ func K6OpenReservationClientRequestLogic(c *nodes.Client) {
 			"HOTEL_USER_COUNT=" + strconv.Itoa(userCount),
 			"HOTEL_HOTEL_COUNT=" + strconv.Itoa(hotelCount),
 		},
+	}
+
+	if err := warmup.RunWarmupThenMeasured(warmupDuration, duration, func(runDuration string, suppressOutput bool) error {
+		config := baseConfig
+		config.duration = runDuration
+		config.suppressOutput = suppressOutput
+		return runHotelK6Open(config)
 	}); err != nil {
 		if err == context.DeadlineExceeded {
 			log.Printf("hotel k6 open reservation client timed out after %s", k6CommandDeadline)
@@ -179,6 +201,7 @@ type hotelK6OpenRunConfig struct {
 	sender          string
 	scriptPath      string
 	extraEnv        []string
+	suppressOutput  bool
 }
 
 func runHotelK6(config hotelK6RunConfig) error {
@@ -227,15 +250,5 @@ func runHotelK6Open(config hotelK6OpenRunConfig) error {
 	}
 	args = append(args, config.scriptPath)
 
-	cmd := exec.CommandContext(ctx, "k6", args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			return ctx.Err()
-		}
-		return fmt.Errorf("run k6: %w", err)
-	}
-	return nil
+	return warmup.Run(ctx, args, config.suppressOutput)
 }

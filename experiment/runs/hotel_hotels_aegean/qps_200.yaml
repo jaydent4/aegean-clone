@@ -3,6 +3,7 @@ architecture: hotel_hotels.yaml
 
 # k6 config
 k6_qps: 200
+warmup_duration: 10s
 duration: 15s
 k6_pre_allocated_vus: 0
 k6_max_vus: 10000
