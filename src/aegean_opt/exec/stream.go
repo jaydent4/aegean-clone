@@ -292,6 +292,20 @@ func (e *Exec) nextSequentialStreamRequest(window *streamWindowRuntime) *streamS
 }
 
 func (e *Exec) nextRunnableStreamRequest(window *streamWindowRuntime, worker int) *streamScheduledRequest {
+	for _, req := range window.workerQueues[worker] {
+		switch req.state {
+		case requestFinished, requestExecuting:
+			continue
+		}
+		if req.pendingDeps > 0 {
+			continue
+		}
+		if req.state == requestWaiting && e.scheduler.nestedResponseCount(req.requestID) > req.nestedSeen {
+			req.state = requestRunnable
+			return req
+		}
+	}
+
 	scanLimit := e.scheduler.parallelWindowK
 	if scanLimit <= 0 {
 		scanLimit = 1
@@ -310,11 +324,6 @@ func (e *Exec) nextRunnableStreamRequest(window *streamWindowRuntime, worker int
 			continue
 		}
 		switch req.state {
-		case requestWaiting:
-			if e.scheduler.nestedResponseCount(req.requestID) > req.nestedSeen {
-				req.state = requestRunnable
-				return req
-			}
 		case requestRunnable:
 			return req
 		}

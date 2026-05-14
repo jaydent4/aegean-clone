@@ -1,6 +1,7 @@
 package exec
 
 import (
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -116,6 +117,61 @@ func TestExecStreamingBlockedRequestResumesByRequestID(t *testing.T) {
 	if got := pending.outputs[0]["nested"]; got != "ready" {
 		t.Fatalf("expected nested status ready, got %v", got)
 	}
+}
+
+func TestExecStreamingReadyNestedResponseBypassesBlockedWindowHead(t *testing.T) {
+	verifierCh := make(chan map[string]any, 8)
+	shimCh := make(chan map[string]any, 8)
+	var countsMu sync.Mutex
+	counts := make(map[string]int)
+	exec := NewExec("exec1", []string{"exec1"}, nil, verifierCh, shimCh, 1,
+		func(e *Exec, request map[string]any, _ int64, _ float64) map[string]any {
+			requestID, _ := request["request_id"].(string)
+			countsMu.Lock()
+			counts[requestID]++
+			countsMu.Unlock()
+			if nestedResponses, ok := e.GetNestedResponses(requestID); ok && len(nestedResponses) > 0 {
+				return map[string]any{
+					"request_id": requestID,
+					"status":     "ok",
+					"nested":     nestedResponses[0]["status"],
+				}
+			}
+			return map[string]any{
+				"request_id": requestID,
+				"status":     "blocked_for_nested_response",
+			}
+		},
+		nil,
+		map[string]any{
+			"worker_count":      1,
+			"parallel_window_k": 2,
+		},
+	)
+
+	exec.HandleScheduledRequestMessage(streamPlan(1, 0, "r1", 0, nil))
+	exec.HandleScheduledRequestMessage(streamPlan(1, 1, "r2", 0, nil))
+	exec.HandleVerificationWindowClosedMessage(map[string]any{
+		protocol.FieldType:   protocol.MessageTypeVerificationWindowClosed,
+		protocol.FieldSeqNum: 1,
+		protocol.FieldCount:  2,
+	})
+
+	waitForCondition(t, 2*time.Second, func() bool {
+		countsMu.Lock()
+		defer countsMu.Unlock()
+		return counts["r1"] >= 1 && counts["r2"] >= 1
+	}, "expected both streaming requests to block once")
+	exec.scheduler.parallelWindowK = 1
+	if !exec.BufferNestedResponse(map[string]any{"request_id": "r2", "status": "ready"}) {
+		t.Fatalf("expected nested response for r2 to be accepted")
+	}
+
+	waitForCondition(t, 2*time.Second, func() bool {
+		countsMu.Lock()
+		defer countsMu.Unlock()
+		return counts["r2"] >= 2
+	}, "expected r2 to resume even though r1 is still waiting at the worker queue head")
 }
 
 func streamPlan(seq int, index int, requestID string, worker int, deps []string) map[string]any {

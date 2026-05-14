@@ -26,16 +26,19 @@ type Batcher struct {
 	batchSize    int
 	batchTimeout time.Duration
 	// Monotonic batch sequence number
-	seqNum         int
-	mu             sync.Mutex
-	batchStartTime time.Time
-	requestSpans   map[string]trace.Span
-	useInLog       bool
-	inLog          *inlog.InLog
-	inLogSeqNum    int
-	inLogReqIdx    int
-	inLogCount     int
-	seenRequests   map[string]struct{}
+	seqNum            int
+	mu                sync.Mutex
+	batchStartTime    time.Time
+	requestSpans      map[string]trace.Span
+	useInLog          bool
+	inLog             *inlog.InLog
+	inLogSeqNum       int
+	inLogReqIdx       int
+	inLogCount        int
+	inLogRequestIDs   []string
+	inLogNDSeeds      []int64
+	inLogNDTimestamps []float64
+	seenRequests      map[string]struct{}
 }
 
 func NewBatcher(name string, nextCh chan<- map[string]any, execs []string, isPrimary bool, runConfig map[string]any) *Batcher {
@@ -205,18 +208,10 @@ func (b *Batcher) handleInLogRequest(payload map[string]any) map[string]any {
 
 	ndSeed := time.Now().UnixNano()
 	ndTimestamp := float64(time.Now().UnixNano()) / 1e9
-	entry := inlog.Entry{
-		Type:        inlog.EntryTypeRequest,
-		SeqNum:      b.inLogSeqNum,
-		RequestIdx:  b.inLogReqIdx,
-		RequestID:   requestID,
-		Request:     cloneMap(payload),
-		NDSeed:      ndSeed,
-		NDTimestamp: ndTimestamp,
-	}
-	if err := b.inLog.Propose(entry); err != nil {
-		return map[string]any{"status": "proposal_error", "error": err.Error(), "request_id": requestID}
-	}
+	b.batch = append(b.batch, cloneMap(payload))
+	b.inLogRequestIDs = append(b.inLogRequestIDs, requestID)
+	b.inLogNDSeeds = append(b.inLogNDSeeds, ndSeed)
+	b.inLogNDTimestamps = append(b.inLogNDTimestamps, ndTimestamp)
 	if requestID != "" {
 		b.seenRequests[requestID] = struct{}{}
 	}
@@ -234,14 +229,26 @@ func (b *Batcher) closeInLogWindowLocked() error {
 	if b.inLogCount == 0 {
 		return nil
 	}
+	requests := cloneMapSlice(b.batch)
+	requestIDs := append([]string{}, b.inLogRequestIDs...)
+	ndSeeds := append([]int64{}, b.inLogNDSeeds...)
+	ndTimestamps := append([]float64{}, b.inLogNDTimestamps...)
 	entry := inlog.Entry{
-		Type:   inlog.EntryTypeBatchFormed,
-		SeqNum: b.inLogSeqNum,
-		Count:  b.inLogCount,
+		Type:         inlog.EntryTypeRequestBatch,
+		SeqNum:       b.inLogSeqNum,
+		Count:        b.inLogCount,
+		Requests:     requests,
+		RequestIDs:   requestIDs,
+		NDSeeds:      ndSeeds,
+		NDTimestamps: ndTimestamps,
 	}
 	if err := b.inLog.Propose(entry); err != nil {
 		return err
 	}
+	b.batch = []map[string]any{}
+	b.inLogRequestIDs = nil
+	b.inLogNDSeeds = nil
+	b.inLogNDTimestamps = nil
 	b.inLogSeqNum++
 	b.inLogReqIdx = 0
 	b.inLogCount = 0
@@ -274,6 +281,47 @@ func (b *Batcher) applyInLogEntry(slot uint64, entry inlog.Entry) {
 		}
 		telemetry.CopyContext(message, entry.Request)
 		b.NextCh <- message
+	case inlog.EntryTypeRequestBatch:
+		count := entry.Count
+		if count <= 0 || count > len(entry.Requests) {
+			count = len(entry.Requests)
+		}
+		for i := 0; i < count; i++ {
+			request := cloneMap(entry.Requests[i])
+			requestID := ""
+			if i < len(entry.RequestIDs) {
+				requestID = entry.RequestIDs[i]
+			}
+			if requestID == "" {
+				requestID, _ = canonicalRequestID(request[protocol.FieldRequestID])
+			}
+			ndSeed := int64(0)
+			if i < len(entry.NDSeeds) {
+				ndSeed = entry.NDSeeds[i]
+			}
+			ndTimestamp := float64(0)
+			if i < len(entry.NDTimestamps) {
+				ndTimestamp = entry.NDTimestamps[i]
+			}
+			message := map[string]any{
+				protocol.FieldType:        protocol.MessageTypeInLogRequest,
+				"log_slot":                slot,
+				protocol.FieldSeqNum:      entry.SeqNum,
+				protocol.FieldRequestIdx:  i,
+				protocol.FieldRequestID:   requestID,
+				protocol.FieldRequest:     request,
+				protocol.FieldNDSeed:      ndSeed,
+				protocol.FieldNDTimestamp: ndTimestamp,
+			}
+			telemetry.CopyContext(message, request)
+			b.NextCh <- message
+		}
+		b.NextCh <- map[string]any{
+			protocol.FieldType:   protocol.MessageTypeInLogBatchFormed,
+			"log_slot":           slot,
+			protocol.FieldSeqNum: entry.SeqNum,
+			protocol.FieldCount:  count,
+		}
 	case inlog.EntryTypeBatchFormed:
 		b.NextCh <- map[string]any{
 			protocol.FieldType:   protocol.MessageTypeInLogBatchFormed,
@@ -334,6 +382,17 @@ func cloneMap(src map[string]any) map[string]any {
 	out := make(map[string]any, len(src))
 	for key, value := range src {
 		out[key] = value
+	}
+	return out
+}
+
+func cloneMapSlice(src []map[string]any) []map[string]any {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make([]map[string]any, 0, len(src))
+	for _, item := range src {
+		out = append(out, cloneMap(item))
 	}
 	return out
 }

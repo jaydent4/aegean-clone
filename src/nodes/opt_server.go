@@ -17,6 +17,8 @@ import (
 	raftpb "go.etcd.io/raft/v3/raftpb"
 )
 
+const optComponentChannelBuffer = 8192
+
 // OptServer wires the experimental aegean_opt component tree without changing
 // the original Aegean server path.
 type OptServer struct {
@@ -39,13 +41,13 @@ type OptServer struct {
 }
 
 func NewOptServer(name, host string, port int, clients []string, nodes []string, isPrimaryBatcher bool, shimQuorumSize int, verifyResponseQuorumSize int, execVerifyQuorumSize int, phaseQuorumSize int, expectedExecVotes int, executeRequest optexec.ExecuteRequestFunc, initStateFn optexec.InitStateFunc, runConfig map[string]any) *OptServer {
-	shimToBatcher := make(chan map[string]any, 256)
-	batcherToMixer := make(chan map[string]any, 256)
-	mixerToExec := make(chan map[string]any, 256)
-	shimToExec := make(chan map[string]any, 256)
-	execToVerifier := make(chan map[string]any, 256)
-	verifierToExec := make(chan map[string]any, 256)
-	execToShim := make(chan map[string]any, 256)
+	shimToBatcher := make(chan map[string]any, optComponentChannelBuffer)
+	batcherToMixer := make(chan map[string]any, optComponentChannelBuffer)
+	mixerToExec := make(chan map[string]any, optComponentChannelBuffer)
+	shimToExec := make(chan map[string]any, optComponentChannelBuffer)
+	execToVerifier := make(chan map[string]any, optComponentChannelBuffer)
+	verifierToExec := make(chan map[string]any, optComponentChannelBuffer)
+	execToShim := make(chan map[string]any, optComponentChannelBuffer)
 
 	server := &OptServer{
 		Node:             NewNode(name, host, port),

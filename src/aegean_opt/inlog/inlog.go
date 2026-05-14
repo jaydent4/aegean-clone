@@ -22,19 +22,24 @@ var errStopped = errors.New("inlog stopped")
 type EntryType string
 
 const (
-	EntryTypeRequest     EntryType = "REQUEST"
-	EntryTypeBatchFormed EntryType = "BATCH_FORMED"
+	EntryTypeRequest      EntryType = "REQUEST"
+	EntryTypeRequestBatch EntryType = "REQUEST_BATCH"
+	EntryTypeBatchFormed  EntryType = "BATCH_FORMED"
 )
 
 type Entry struct {
-	Type        EntryType      `json:"type"`
-	SeqNum      int            `json:"seq_num"`
-	RequestIdx  int            `json:"request_index,omitempty"`
-	RequestID   string         `json:"request_id,omitempty"`
-	Request     map[string]any `json:"request,omitempty"`
-	NDSeed      int64          `json:"nd_seed,omitempty"`
-	NDTimestamp float64        `json:"nd_timestamp,omitempty"`
-	Count       int            `json:"count,omitempty"`
+	Type         EntryType        `json:"type"`
+	SeqNum       int              `json:"seq_num"`
+	RequestIdx   int              `json:"request_index,omitempty"`
+	RequestID    string           `json:"request_id,omitempty"`
+	Request      map[string]any   `json:"request,omitempty"`
+	RequestIDs   []string         `json:"request_ids,omitempty"`
+	Requests     []map[string]any `json:"requests,omitempty"`
+	NDSeeds      []int64          `json:"nd_seeds,omitempty"`
+	NDTimestamps []float64        `json:"nd_timestamps,omitempty"`
+	NDSeed       int64            `json:"nd_seed,omitempty"`
+	NDTimestamp  float64          `json:"nd_timestamp,omitempty"`
+	Count        int              `json:"count,omitempty"`
 }
 
 type Config struct {
