@@ -85,24 +85,6 @@ func main() {
 			panic(fmt.Sprintf("unknown init state workflow %q for node %s", initStateWorkflow, *name))
 		}
 		node = nodes.NewServer(*name, *host, *port, cfg.Clients, cfg.Nodes, cfg.IsPrimaryBatcher, cfg.ShimQuorumSize, cfg.VerifyResponseQuorumSize, cfg.ExecVerifyQuorumSize, cfg.PhaseQuorumSize, cfg.ExpectedExecVotes, execFn, initFn, nodeRunConfig)
-	case "server_opt":
-		execWorkflow := cfg.ExecWorkflow
-		if execWorkflow == "" {
-			execWorkflow = "default"
-		}
-		execFn := workflow.OptExecWorkflows[execWorkflow]
-		if execFn == nil {
-			panic(fmt.Sprintf("unknown opt exec workflow %q for node %s", execWorkflow, *name))
-		}
-		initStateWorkflow := cfg.InitStateWorkflow
-		if initStateWorkflow == "" {
-			initStateWorkflow = "default"
-		}
-		initFn := workflow.OptInitStateWorkflows[initStateWorkflow]
-		if initFn == nil {
-			panic(fmt.Sprintf("unknown opt init state workflow %q for node %s", initStateWorkflow, *name))
-		}
-		node = nodes.NewOptServer(*name, *host, *port, cfg.Clients, cfg.Nodes, cfg.IsPrimaryBatcher, cfg.ShimQuorumSize, cfg.VerifyResponseQuorumSize, cfg.ExecVerifyQuorumSize, cfg.PhaseQuorumSize, cfg.ExpectedExecVotes, execFn, initFn, nodeRunConfig)
 	case "pbeo_server":
 		execWorkflow := cfg.ExecWorkflow
 		if execWorkflow == "" {
