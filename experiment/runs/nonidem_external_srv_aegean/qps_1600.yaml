@@ -11,6 +11,9 @@ k6_max_vus: 10000
 # External srv workflow configs
 external_service_mode: side_effect
 
+# EO configs
+eo_raft_send_batch_size: 1
+
 # Run & system configs
 run_timeout_seconds: 20
 parallel_window_k: 16

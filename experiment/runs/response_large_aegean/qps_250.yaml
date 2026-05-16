@@ -11,6 +11,9 @@ k6_max_vus: 10000
 # Response workflow configs
 response_size_bytes: 102400
 
+# EO configs
+eo_raft_send_batch_size: 1
+
 # Run & system configs
 run_timeout_seconds: 60
 parallel_window_k: 16

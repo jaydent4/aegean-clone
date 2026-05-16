@@ -12,12 +12,13 @@ k6_max_vus: 10000
 worker_spin_ms: 1
 
 # Nested exact-once dispatch
-nested_use_eo: true
-worker_nested_use_eo: true
-use_eo_after_quorum: true
+eo_raft_send_batch_size: 1
 eo_tick_interval_ms: 10
 eo_election_tick: 1000
 eo_heartbeat_tick: 1
+nested_use_eo: true
+worker_nested_use_eo: true
+use_eo_after_quorum: true
 
 # Run & system configs
 run_timeout_seconds: 60

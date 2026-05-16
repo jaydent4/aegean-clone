@@ -11,7 +11,11 @@ k6_max_vus: 100000
 # Response workflow configs
 response_size_bytes: 1024
 
+# EO configs
+eo_raft_send_batch_size: 256
+
 # PBEO configs
+pbeo_raft_send_batch_size: 256
 pbeo_tick_interval_ms: 10
 pbeo_election_tick: 1000
 pbeo_heartbeat_tick: 1
