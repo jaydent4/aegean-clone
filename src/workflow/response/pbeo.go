@@ -2,7 +2,12 @@ package responseworkflow
 
 import "aegean/pbeo"
 
-var responsePBEOBackendTargets = []string{"node4", "node5", "node6"}
+var responsePBEOBackendTargets = []string{"node4"}
+
+const (
+	responsePBEOStageContextKey = "response_pbeo_stage"
+	responsePBEOStageAwaiting   = "awaiting_nested_response"
+)
 
 func InitStatePBEO(runConfig map[string]any) map[string]string {
 	_ = runConfig
@@ -20,9 +25,18 @@ func ExecuteRequestBackendPBEO(tx *pbeo.Txn, request map[string]any) map[string]
 func ExecuteRequestMiddlePBEO(tx *pbeo.Txn, request map[string]any) map[string]any {
 	requestID := request["request_id"]
 
-	tx.DispatchNestedRequestDirect(request, responsePBEOBackendTargets, nestedRequestFrom(request))
+	stageAny, _ := tx.GetRequestContextValue(requestID, responsePBEOStageContextKey)
+	stage, _ := stageAny.(string)
+	if stage == "" {
+		tx.DispatchNestedRequestDirect(request, responsePBEOBackendTargets, nestedRequestFrom(request))
+		_ = tx.SetRequestContextValue(requestID, responsePBEOStageContextKey, responsePBEOStageAwaiting)
+		return blockedForNestedResponse(requestID)
+	}
 
-	nestedResponses, _ := tx.WaitForNestedResponse(requestID)
+	nestedResponses, ok := tx.GetNestedResponses(requestID)
+	if !ok {
+		return blockedForNestedResponse(requestID)
+	}
 	if !hasCommittedResponseNestedResponse(nestedResponses) {
 		return map[string]any{
 			"request_id": requestID,

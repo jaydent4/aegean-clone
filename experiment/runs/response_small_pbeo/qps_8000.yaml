@@ -2,7 +2,7 @@
 architecture: response_pbeo.yaml
 
 # K6 configs
-k6_qps: 4000
+k6_qps: 8000
 warmup_duration: 10s
 duration: 15s
 k6_pre_allocated_vus: 0
@@ -15,6 +15,8 @@ response_size_bytes: 1024
 pbeo_tick_interval_ms: 10
 pbeo_election_tick: 1000
 pbeo_heartbeat_tick: 1
+pbeo_max_executing_requests: 512
+pbeo_commit_drain_batch_size: 256
 
 # Run & system configs
 run_timeout_seconds: 60

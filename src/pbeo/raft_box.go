@@ -94,6 +94,7 @@ type raftConsensusBox struct {
 }
 
 const (
+	raftProposalQueueSize    = 4096
 	raftAsyncSendQueueSize   = 1024
 	raftAsyncLearnQueueSize  = 4096
 	defaultRaftSendBatchSize = 64
@@ -181,7 +182,7 @@ func newRaftConsensusBox(cfg BoxConfig, onLearn LearnFunc) (ConsensusBox, error)
 		send:            cfg.SendRaft,
 		sendBatch:       sendBatch,
 		learn:           onLearn,
-		proposals:       make(chan proposalRequest),
+		proposals:       make(chan proposalRequest, raftProposalQueueSize),
 		prioritySteps:   make(chan stepRequest, 1024),
 		backgroundSteps: make(chan stepRequest, 1024),
 		sendQueues:      make(map[uint64]chan raftpb.Message),
@@ -231,15 +232,13 @@ func (b *raftConsensusBox) Propose(entry Entry) error {
 		span:   span,
 	}
 	channelSpan := b.startProposeChannelSendTrace(entry)
-	select {
-	case <-b.doneCh:
+	if err := b.enqueueProposal(request); err != nil {
 		endRequestTrace(channelSpan, "stopped_before_enqueue")
 		endRequestTrace(span, "stopped_before_enqueue")
-		return errConsensusBoxStopped
-	case b.proposals <- request:
-		endRequestTrace(channelSpan, "proposal_enqueued")
-		addRequestTraceEvent(span, "proposal_enqueued")
+		return err
 	}
+	endRequestTrace(channelSpan, "proposal_enqueued")
+	addRequestTraceEvent(span, "proposal_enqueued")
 
 	waitSpan := b.startProposeResultWaitTrace(entry)
 	select {
@@ -262,14 +261,31 @@ func (b *raftConsensusBox) ProposeAsync(entry Entry) error {
 		span:  span,
 	}
 	channelSpan := b.startProposeChannelSendTrace(entry)
-	select {
-	case <-b.doneCh:
+	if err := b.enqueueProposal(request); err != nil {
 		endRequestTrace(channelSpan, "stopped_before_enqueue")
 		endRequestTrace(span, "stopped_before_enqueue")
+		return err
+	}
+	endRequestTrace(channelSpan, "proposal_enqueued")
+	addRequestTraceEvent(span, "proposal_enqueued")
+	return nil
+}
+
+func (b *raftConsensusBox) enqueueProposal(request proposalRequest) error {
+	select {
+	case <-b.stopCh:
+		return errConsensusBoxStopped
+	case <-b.doneCh:
+		return errConsensusBoxStopped
+	default:
+	}
+
+	select {
+	case <-b.stopCh:
+		return errConsensusBoxStopped
+	case <-b.doneCh:
 		return errConsensusBoxStopped
 	case b.proposals <- request:
-		endRequestTrace(channelSpan, "proposal_enqueued")
-		addRequestTraceEvent(span, "proposal_enqueued")
 		return nil
 	}
 }
@@ -371,6 +387,7 @@ func (b *raftConsensusBox) runLearnWorker() {
 
 func (b *raftConsensusBox) run(rawNode *raft.RawNode, storage *raft.MemoryStorage, tickInterval time.Duration) {
 	defer b.endOpenRequestTraces("box_stopped")
+	defer b.endQueuedProposalTraces("box_stopped")
 	defer close(b.doneCh)
 
 	ticker := time.NewTicker(tickInterval)
@@ -425,6 +442,23 @@ func (b *raftConsensusBox) run(rawNode *raft.RawNode, storage *raft.MemoryStorag
 			b.processStep(rawNode, storage, request)
 		case request := <-b.backgroundSteps:
 			b.processStep(rawNode, storage, request)
+		}
+	}
+}
+
+func (b *raftConsensusBox) endQueuedProposalTraces(event string) {
+	for {
+		select {
+		case request := <-b.proposals:
+			if request.result != nil {
+				select {
+				case request.result <- errConsensusBoxStopped:
+				default:
+				}
+			}
+			endRequestTrace(request.span, event)
+		default:
+			return
 		}
 	}
 }
