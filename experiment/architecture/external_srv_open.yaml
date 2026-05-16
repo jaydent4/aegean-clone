@@ -1,4 +1,6 @@
 ---
+run_config:
+  eo_raft_send_batch_size: 1
 services:
   client:
     type: client

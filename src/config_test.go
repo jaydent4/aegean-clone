@@ -87,10 +87,49 @@ nodes:
 	}
 }
 
+func TestLoadConfigIncludesArchitectureRunConfigDefaults(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "architecture.yaml")
+	configBody := `
+run_config:
+  eo_raft_send_batch_size: 1
+services:
+  backend:
+    type: server
+    clients: [node0]
+    nodes: [node4]
+    exec_workflow: aegean_backend
+    init_state_workflow: aegean_default
+    run_config:
+      pbeo_raft_send_batch_size: 256
+nodes:
+  node4:
+    service: backend
+    run_config:
+      eo_raft_send_batch_size: 256
+`
+	if err := os.WriteFile(configPath, []byte(configBody), 0o644); err != nil {
+		t.Fatalf("write architecture config: %v", err)
+	}
+
+	cfgs, err := loadConfig(configPath)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	nodeCfg := cfgs["node4"]
+	if got := common.MustInt(nodeCfg.RunConfig, "eo_raft_send_batch_size"); got != 256 {
+		t.Fatalf("eo_raft_send_batch_size = %d, want 256", got)
+	}
+	if got := common.MustInt(nodeCfg.RunConfig, "pbeo_raft_send_batch_size"); got != 256 {
+		t.Fatalf("pbeo_raft_send_batch_size = %d, want 256", got)
+	}
+}
+
 func TestBuildNodeRunConfigAppliesServiceOverrides(t *testing.T) {
 	runParams := map[string]any{
 		"batch_size":       40,
 		"batch_timeout_ms": 20,
+		"worker_count":     4,
 		"service_overrides": map[string]any{
 			"backend": map[string]any{
 				"batch_timeout_ms": 10,
@@ -100,6 +139,10 @@ func TestBuildNodeRunConfigAppliesServiceOverrides(t *testing.T) {
 	}
 	cfg := NodeConfig{
 		Service: "backend",
+		RunConfig: map[string]any{
+			"worker_count": 2,
+			"batch_size":   12,
+		},
 		BatcherConfig: map[string]any{
 			"batch_timeout_ms": 15,
 		},
@@ -114,6 +157,9 @@ func TestBuildNodeRunConfigAppliesServiceOverrides(t *testing.T) {
 	}
 	if got := merged["batch_timeout_ms"]; got != 10 {
 		t.Fatalf("batch_timeout_ms = %#v, want 10", got)
+	}
+	if got := merged["worker_count"]; got != 4 {
+		t.Fatalf("worker_count = %#v, want 4", got)
 	}
 	if got := merged["service_name"]; got != "backend" {
 		t.Fatalf("service_name = %#v, want backend", got)

@@ -27,7 +27,8 @@ type NodeConfig struct {
 	ExecVerifyQuorumSize     int            `json:"execVerifyQuorumSize"`
 	PhaseQuorumSize          int            `json:"phaseQuorumSize"`
 	ExpectedExecVotes        int            `json:"expectedExecVotes"`
-	BatcherConfig           map[string]any `json:"batcher_config"`
+	BatcherConfig            map[string]any `json:"batcher_config"`
+	RunConfig                map[string]any `json:"run_config"`
 }
 
 type RunConfig struct {
@@ -42,8 +43,9 @@ func loadConfig(path string) (map[string]NodeConfig, error) {
 	}
 
 	layered := struct {
-		Services map[string]any
-		Nodes    map[string]any
+		Services  map[string]any
+		Nodes     map[string]any
+		RunConfig map[string]any `json:"run_config"`
 	}{}
 	if err := decodeViaJSON(rawRoot, &layered); err != nil {
 		return nil, fmt.Errorf("parse config %s: %w", path, err)
@@ -94,11 +96,36 @@ func loadConfig(path string) (map[string]NodeConfig, error) {
 		if err := decodeViaJSON(merged, &nodeCfg); err != nil {
 			return nil, fmt.Errorf("decode merged config for node %q: %w", nodeName, err)
 		}
+		nodeCfg.RunConfig, err = mergeArchitectureRunConfig(layered.RunConfig, serviceMap, nodeMap)
+		if err != nil {
+			return nil, fmt.Errorf("parse run_config for node %q: %w", nodeName, err)
+		}
 
 		cfg[nodeName] = nodeCfg
 	}
 
 	return cfg, nil
+}
+
+func mergeArchitectureRunConfig(base map[string]any, maps ...map[string]any) (map[string]any, error) {
+	merged := map[string]any{}
+	for key, value := range base {
+		merged[key] = value
+	}
+	for _, source := range maps {
+		raw, ok := source["run_config"]
+		if !ok {
+			continue
+		}
+		obj, err := asObject(raw)
+		if err != nil {
+			return nil, err
+		}
+		for key, value := range obj {
+			merged[key] = value
+		}
+	}
+	return merged, nil
 }
 
 func loadRunConfig(path string) (RunConfig, error) {

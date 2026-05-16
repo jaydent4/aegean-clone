@@ -148,7 +148,10 @@ func main() {
 }
 
 func buildNodeRunConfig(runParams map[string]any, cfg NodeConfig, nodeName string, configs map[string]NodeConfig) map[string]any {
-	nodeRunConfig := make(map[string]any, len(runParams)+len(cfg.BatcherConfig)+3)
+	nodeRunConfig := make(map[string]any, len(cfg.RunConfig)+len(runParams)+len(cfg.BatcherConfig)+3)
+	for key, value := range cfg.RunConfig {
+		nodeRunConfig[key] = value
+	}
 	for key, value := range runParams {
 		if key == "service_overrides" {
 			continue
