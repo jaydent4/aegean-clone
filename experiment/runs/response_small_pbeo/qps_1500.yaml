@@ -1,0 +1,27 @@
+---
+architecture: response_pbeo.yaml
+
+# K6 configs
+k6_qps: 1500
+warmup_duration: 10s
+duration: 15s
+k6_pre_allocated_vus: 0
+k6_max_vus: 100000
+
+# Response workflow configs
+response_size_bytes: 1024
+
+# EO configs
+eo_raft_send_batch_size: 256
+
+# PBEO configs
+pbeo_raft_send_batch_size: 256
+pbeo_tick_interval_ms: 10
+pbeo_election_tick: 1000
+pbeo_heartbeat_tick: 1
+pbeo_max_executing_requests: 512
+pbeo_commit_drain_batch_size: 256
+
+# Run & system configs
+run_timeout_seconds: 60
+gomaxprocs: 32
