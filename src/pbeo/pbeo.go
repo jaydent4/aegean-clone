@@ -95,6 +95,7 @@ func NewPBEO(cfg Config) (*PBEO, error) {
 		factory = newRaftConsensusBox
 	}
 	nestedSendRaft := cfg.SendNestedRaft
+	nestedSendRaftBatch := cfg.SendNestedRaftBatch
 	if cfg.NestedBoxFactory == nil && nestedSendRaft == nil {
 		return nil, fmt.Errorf("pbeo requires a nested EO raft sender")
 	}
@@ -127,15 +128,16 @@ func NewPBEO(cfg Config) (*PBEO, error) {
 	}
 
 	box, err := factory(BoxConfig{
-		Name:            cfg.Name,
-		Peers:           append([]string{}, cfg.Peers...),
-		SendRaft:        cfg.SendRaft,
-		SendRaftBatch:   cfg.SendRaftBatch,
-		TickInterval:    cfg.TickInterval,
-		ElectionTick:    cfg.ElectionTick,
-		HeartbeatTick:   cfg.HeartbeatTick,
-		MaxInflightMsgs: cfg.MaxInflightMsgs,
-		MaxSizePerMsg:   cfg.MaxSizePerMsg,
+		Name:              cfg.Name,
+		Peers:             append([]string{}, cfg.Peers...),
+		SendRaft:          cfg.SendRaft,
+		SendRaftBatch:     cfg.SendRaftBatch,
+		TickInterval:      cfg.TickInterval,
+		ElectionTick:      cfg.ElectionTick,
+		HeartbeatTick:     cfg.HeartbeatTick,
+		MaxInflightMsgs:   cfg.MaxInflightMsgs,
+		MaxSizePerMsg:     cfg.MaxSizePerMsg,
+		RaftSendBatchSize: cfg.RaftSendBatchSize,
 	}, p.Learn)
 	if err != nil {
 		return nil, err
@@ -143,16 +145,18 @@ func NewPBEO(cfg Config) (*PBEO, error) {
 	p.box = box
 
 	nestedEO, err := eo.NewEO(eo.Config{
-		Name:            cfg.Name,
-		Peers:           append([]string{}, cfg.Peers...),
-		Commit:          p.handleCommittedNestedObservation,
-		SendRaft:        nestedSendRaft,
-		BoxFactory:      cfg.NestedBoxFactory,
-		TickInterval:    cfg.TickInterval,
-		ElectionTick:    cfg.ElectionTick,
-		HeartbeatTick:   cfg.HeartbeatTick,
-		MaxInflightMsgs: cfg.MaxInflightMsgs,
-		MaxSizePerMsg:   cfg.MaxSizePerMsg,
+		Name:              cfg.Name,
+		Peers:             append([]string{}, cfg.Peers...),
+		Commit:            p.handleCommittedNestedObservation,
+		SendRaft:          nestedSendRaft,
+		SendRaftBatch:     nestedSendRaftBatch,
+		BoxFactory:        cfg.NestedBoxFactory,
+		TickInterval:      cfg.TickInterval,
+		ElectionTick:      cfg.ElectionTick,
+		HeartbeatTick:     cfg.HeartbeatTick,
+		MaxInflightMsgs:   cfg.MaxInflightMsgs,
+		MaxSizePerMsg:     cfg.MaxSizePerMsg,
+		RaftSendBatchSize: cfg.EORaftSendBatchSize,
 	})
 	if err != nil {
 		box.Stop()

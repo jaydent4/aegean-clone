@@ -159,16 +159,19 @@ var InitStateWorkflows = map[string]exec.InitStateFunc{
 }
 
 var PBEOExecWorkflows = map[string]pbeo.ExecuteRequestFunc{
-	"aegean_middle_pbeo":  aegeanworkflow.ExecuteRequestMiddlePBEO,
-	"aegean_backend_pbeo": aegeanworkflow.ExecuteRequestBackendPBEO,
-	"write_middle_pbeo":   writeworkflow.ExecuteRequestMiddlePBEO,
-	"write_backend_pbeo":  writeworkflow.ExecuteRequestBackendPBEO,
+	"aegean_middle_pbeo":    aegeanworkflow.ExecuteRequestMiddlePBEO,
+	"aegean_backend_pbeo":   aegeanworkflow.ExecuteRequestBackendPBEO,
+	"response_middle_pbeo":  responseworkflow.ExecuteRequestMiddlePBEO,
+	"response_backend_pbeo": responseworkflow.ExecuteRequestBackendPBEO,
+	"write_middle_pbeo":     writeworkflow.ExecuteRequestMiddlePBEO,
+	"write_backend_pbeo":    writeworkflow.ExecuteRequestBackendPBEO,
 }
 
 var PBEOInitStateWorkflows = map[string]pbeo.InitStateFunc{
-	"default":             aegeanworkflow.InitStatePBEO,
-	"aegean_pbeo_default": aegeanworkflow.InitStatePBEO,
-	"write_pbeo_default":  writeworkflow.InitStatePBEO,
+	"default":               aegeanworkflow.InitStatePBEO,
+	"aegean_pbeo_default":   aegeanworkflow.InitStatePBEO,
+	"response_pbeo_default": responseworkflow.InitStatePBEO,
+	"write_pbeo_default":    writeworkflow.InitStatePBEO,
 }
 
 var UnreplicatedWorkflows = map[string]unreplicated.WorkflowFunc{

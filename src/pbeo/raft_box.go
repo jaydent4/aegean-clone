@@ -81,6 +81,7 @@ type raftConsensusBox struct {
 	prioritySteps   chan stepRequest
 	backgroundSteps chan stepRequest
 	sendQueues      map[uint64]chan raftpb.Message
+	sendBatchSize   int
 	learnQueue      chan asyncLearnRequest
 	unreachable     chan uint64
 	spans           map[string]trace.Span
@@ -93,9 +94,9 @@ type raftConsensusBox struct {
 }
 
 const (
-	raftAsyncSendQueueSize  = 1024
-	raftAsyncLearnQueueSize = 4096
-	raftSendBatchSize       = 64
+	raftAsyncSendQueueSize   = 1024
+	raftAsyncLearnQueueSize  = 4096
+	defaultRaftSendBatchSize = 64
 )
 
 func newRaftConsensusBox(cfg BoxConfig, onLearn LearnFunc) (ConsensusBox, error) {
@@ -141,6 +142,10 @@ func newRaftConsensusBox(cfg BoxConfig, onLearn LearnFunc) (ConsensusBox, error)
 	if maxSizePerMsg == 0 {
 		maxSizePerMsg = 1 << 20
 	}
+	sendBatchSize := cfg.RaftSendBatchSize
+	if sendBatchSize <= 0 {
+		sendBatchSize = defaultRaftSendBatchSize
+	}
 
 	storage := raft.NewMemoryStorage()
 	rawNode, err := raft.NewRawNode(&raft.Config{
@@ -180,6 +185,7 @@ func newRaftConsensusBox(cfg BoxConfig, onLearn LearnFunc) (ConsensusBox, error)
 		prioritySteps:   make(chan stepRequest, 1024),
 		backgroundSteps: make(chan stepRequest, 1024),
 		sendQueues:      make(map[uint64]chan raftpb.Message),
+		sendBatchSize:   sendBatchSize,
 		learnQueue:      make(chan asyncLearnRequest, raftAsyncLearnQueueSize),
 		unreachable:     make(chan uint64, 1024),
 		spans:           make(map[string]trace.Span),
@@ -310,9 +316,18 @@ func (b *raftConsensusBox) runSendWorker(peerID uint64, queue <-chan raftpb.Mess
 		case <-b.stopCh:
 			return
 		case message := <-queue:
+			if b.sendBatchSize <= 1 {
+				if err := b.send(peer, message); err != nil {
+					select {
+					case b.unreachable <- peerID:
+					case <-b.stopCh:
+					}
+				}
+				continue
+			}
 			messages := []raftpb.Message{message}
 		drain:
-			for len(messages) < raftSendBatchSize {
+			for len(messages) < b.sendBatchSize {
 				select {
 				case next := <-queue:
 					messages = append(messages, next)

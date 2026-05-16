@@ -10,6 +10,7 @@ const (
 	// MessageTypeRaft identifies internal EO raft traffic on the wire.
 	MessageTypeRaft = "eo_raft"
 	raftMessageKey  = "raft_message"
+	raftMessagesKey = "raft_messages"
 )
 
 // Entry is the ordered value replicated through the consensus box.
@@ -42,6 +43,7 @@ type ForwardFunc func(leader string, requestID string, request map[string]any) e
 
 // SendRaftFunc ships a raft protocol message to a remote peer.
 type SendRaftFunc func(peer string, message raftpb.Message) error
+type SendRaftBatchFunc func(peer string, messages []raftpb.Message) error
 
 // LearnFunc is invoked by the consensus box whenever a replicated entry is learned.
 type LearnFunc func(slot uint64, entry Entry)
@@ -57,14 +59,16 @@ type ConsensusBox interface {
 
 // BoxConfig controls the raft-backed consensus box.
 type BoxConfig struct {
-	Name            string
-	Peers           []string
-	SendRaft        SendRaftFunc
-	TickInterval    time.Duration
-	ElectionTick    int
-	HeartbeatTick   int
-	MaxInflightMsgs int
-	MaxSizePerMsg   uint64
+	Name              string
+	Peers             []string
+	SendRaft          SendRaftFunc
+	SendRaftBatch     SendRaftBatchFunc
+	TickInterval      time.Duration
+	ElectionTick      int
+	HeartbeatTick     int
+	MaxInflightMsgs   int
+	MaxSizePerMsg     uint64
+	RaftSendBatchSize int
 }
 
 // BoxFactory allows tests to swap in a fake consensus implementation.
@@ -72,17 +76,19 @@ type BoxFactory func(cfg BoxConfig, onLearn LearnFunc) (ConsensusBox, error)
 
 // Config constructs an EO instance.
 type Config struct {
-	Name            string
-	Peers           []string
-	Execute         ExecuteFunc
-	Commit          CommitFunc
-	Apply           ApplyFunc
-	Forward         ForwardFunc
-	SendRaft        SendRaftFunc
-	BoxFactory      BoxFactory
-	TickInterval    time.Duration
-	ElectionTick    int
-	HeartbeatTick   int
-	MaxInflightMsgs int
-	MaxSizePerMsg   uint64
+	Name              string
+	Peers             []string
+	Execute           ExecuteFunc
+	Commit            CommitFunc
+	Apply             ApplyFunc
+	Forward           ForwardFunc
+	SendRaft          SendRaftFunc
+	SendRaftBatch     SendRaftBatchFunc
+	BoxFactory        BoxFactory
+	TickInterval      time.Duration
+	ElectionTick      int
+	HeartbeatTick     int
+	MaxInflightMsgs   int
+	MaxSizePerMsg     uint64
+	RaftSendBatchSize int
 }

@@ -68,9 +68,19 @@ func NewPBEOServer(
 			_, err = netx.SendMessage(peer, 8000, payload)
 			return err
 		},
-		TickInterval:  time.Duration(common.IntOrDefault(runConfig, "pbeo_tick_interval_ms", 10)) * time.Millisecond,
-		ElectionTick:  common.IntOrDefault(runConfig, "pbeo_election_tick", 10),
-		HeartbeatTick: common.IntOrDefault(runConfig, "pbeo_heartbeat_tick", 1),
+		SendNestedRaftBatch: func(peer string, messages []raftpb.Message) error {
+			payload, err := eo.EncodeRaftMessages(messages)
+			if err != nil {
+				return err
+			}
+			_, err = netx.SendMessage(peer, 8000, payload)
+			return err
+		},
+		TickInterval:        time.Duration(common.IntOrDefault(runConfig, "pbeo_tick_interval_ms", 10)) * time.Millisecond,
+		ElectionTick:        common.IntOrDefault(runConfig, "pbeo_election_tick", 10),
+		HeartbeatTick:       common.IntOrDefault(runConfig, "pbeo_heartbeat_tick", 1),
+		RaftSendBatchSize:   common.IntOrDefault(runConfig, "pbeo_raft_send_batch_size", 64),
+		EORaftSendBatchSize: common.IntOrDefault(runConfig, "eo_raft_send_batch_size", 1),
 	})
 	if err != nil {
 		panic(err)

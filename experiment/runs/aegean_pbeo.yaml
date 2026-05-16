@@ -19,6 +19,8 @@ value_length: 50000
 pbeo_tick_interval_ms: 10
 pbeo_election_tick: 1000
 pbeo_heartbeat_tick: 1
+pbeo_raft_send_batch_size: 256
+eo_raft_send_batch_size: 256
 
 # Run & system configs
 run_timeout_seconds: 60

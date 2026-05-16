@@ -56,14 +56,16 @@ func NewEO(cfg Config) (*EO, error) {
 	}
 
 	box, err := factory(BoxConfig{
-		Name:            cfg.Name,
-		Peers:           append([]string{}, cfg.Peers...),
-		SendRaft:        cfg.SendRaft,
-		TickInterval:    cfg.TickInterval,
-		ElectionTick:    cfg.ElectionTick,
-		HeartbeatTick:   cfg.HeartbeatTick,
-		MaxInflightMsgs: cfg.MaxInflightMsgs,
-		MaxSizePerMsg:   cfg.MaxSizePerMsg,
+		Name:              cfg.Name,
+		Peers:             append([]string{}, cfg.Peers...),
+		SendRaft:          cfg.SendRaft,
+		SendRaftBatch:     cfg.SendRaftBatch,
+		TickInterval:      cfg.TickInterval,
+		ElectionTick:      cfg.ElectionTick,
+		HeartbeatTick:     cfg.HeartbeatTick,
+		MaxInflightMsgs:   cfg.MaxInflightMsgs,
+		MaxSizePerMsg:     cfg.MaxSizePerMsg,
+		RaftSendBatchSize: cfg.RaftSendBatchSize,
 	}, e.Learn)
 	if err != nil {
 		return nil, err
@@ -207,20 +209,38 @@ func (e *EO) HandleRequest(requestID string, request map[string]any) map[string]
 }
 
 func (e *EO) HandleRaftMessage(payload map[string]any) map[string]any {
-	message, err := DecodeRaftMessage(payload)
+	if _, ok := payload[raftMessageKey]; ok {
+		message, err := DecodeRaftMessage(payload)
+		if err != nil {
+			return map[string]any{
+				"status": "invalid_raft_message",
+				"error":  err.Error(),
+			}
+		}
+		if err := e.box.HandleMessage(message); err != nil {
+			return map[string]any{
+				"status": "raft_step_error",
+				"error":  err.Error(),
+			}
+		}
+		return map[string]any{"status": "raft_message_accepted"}
+	}
+	messages, err := DecodeRaftMessages(payload)
 	if err != nil {
 		return map[string]any{
 			"status": "invalid_raft_message",
 			"error":  err.Error(),
 		}
 	}
-	if err := e.box.HandleMessage(message); err != nil {
-		return map[string]any{
-			"status": "raft_step_error",
-			"error":  err.Error(),
+	for _, message := range messages {
+		if err := e.box.HandleMessage(message); err != nil {
+			return map[string]any{
+				"status": "raft_step_error",
+				"error":  err.Error(),
+			}
 		}
 	}
-	return map[string]any{"status": "raft_message_accepted"}
+	return map[string]any{"status": "raft_message_accepted", "count": len(messages)}
 }
 
 // Learn is the callback that the consensus box invokes when a slot is learned.

@@ -54,12 +54,13 @@ type drainReadyStats struct {
 }
 
 type raftConsensusBox struct {
-	name    string
-	selfID  uint64
-	peerIDs map[string]uint64
-	peers   map[uint64]string
-	send    SendRaftFunc
-	learn   LearnFunc
+	name      string
+	selfID    uint64
+	peerIDs   map[string]uint64
+	peers     map[uint64]string
+	send      SendRaftFunc
+	sendBatch SendRaftBatchFunc
+	learn     LearnFunc
 
 	leaderID    atomic.Uint64
 	learnedSlot uint64
@@ -67,6 +68,7 @@ type raftConsensusBox struct {
 	proposals       chan proposalRequest
 	steps           chan stepRequest
 	sendQueues      map[uint64]chan raftpb.Message
+	sendBatchSize   int
 	unreachable     chan unreachablePeer
 	spans           map[string]trace.Span
 	commitWaitSpans map[string]trace.Span
@@ -77,7 +79,10 @@ type raftConsensusBox struct {
 	doneCh          chan struct{}
 }
 
-const raftAsyncSendQueueSize = 1024
+const (
+	raftAsyncSendQueueSize   = 1024
+	defaultRaftSendBatchSize = 64
+)
 
 func newRaftConsensusBox(cfg BoxConfig, onLearn LearnFunc) (ConsensusBox, error) {
 	peerIDs, peers, selfID, err := buildPeerIDs(cfg.Name, cfg.Peers)
@@ -86,6 +91,17 @@ func newRaftConsensusBox(cfg BoxConfig, onLearn LearnFunc) (ConsensusBox, error)
 	}
 	if cfg.SendRaft == nil {
 		return nil, fmt.Errorf("raft consensus box requires a SendRaft callback")
+	}
+	sendBatch := cfg.SendRaftBatch
+	if sendBatch == nil {
+		sendBatch = func(peer string, messages []raftpb.Message) error {
+			for _, message := range messages {
+				if err := cfg.SendRaft(peer, message); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
 	}
 
 	tickInterval := cfg.TickInterval
@@ -110,6 +126,10 @@ func newRaftConsensusBox(cfg BoxConfig, onLearn LearnFunc) (ConsensusBox, error)
 	maxSizePerMsg := cfg.MaxSizePerMsg
 	if maxSizePerMsg == 0 {
 		maxSizePerMsg = 1 << 20
+	}
+	sendBatchSize := cfg.RaftSendBatchSize
+	if sendBatchSize <= 0 {
+		sendBatchSize = defaultRaftSendBatchSize
 	}
 
 	storage := raft.NewMemoryStorage()
@@ -144,10 +164,12 @@ func newRaftConsensusBox(cfg BoxConfig, onLearn LearnFunc) (ConsensusBox, error)
 		peerIDs:         peerIDs,
 		peers:           peers,
 		send:            cfg.SendRaft,
+		sendBatch:       sendBatch,
 		learn:           onLearn,
 		proposals:       make(chan proposalRequest),
 		steps:           make(chan stepRequest, 1024),
 		sendQueues:      make(map[uint64]chan raftpb.Message),
+		sendBatchSize:   sendBatchSize,
 		unreachable:     make(chan unreachablePeer, 1024),
 		spans:           make(map[string]trace.Span),
 		commitWaitSpans: make(map[string]trace.Span),
@@ -403,7 +425,27 @@ func (b *raftConsensusBox) runSendWorker(peerID uint64, queue <-chan raftpb.Mess
 		case <-b.stopCh:
 			return
 		case message := <-queue:
-			if err := b.send(peer, message); err != nil {
+			if b.sendBatchSize <= 1 {
+				if err := b.send(peer, message); err != nil {
+					select {
+					case b.unreachable <- unreachablePeer{id: peerID}:
+					case <-b.stopCh:
+					default:
+					}
+				}
+				continue
+			}
+			messages := []raftpb.Message{message}
+		drain:
+			for len(messages) < b.sendBatchSize {
+				select {
+				case next := <-queue:
+					messages = append(messages, next)
+				default:
+					break drain
+				}
+			}
+			if err := b.sendBatch(peer, messages); err != nil {
 				select {
 				case b.unreachable <- unreachablePeer{id: peerID}:
 				case <-b.stopCh:

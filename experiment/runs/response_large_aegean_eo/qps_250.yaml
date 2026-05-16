@@ -18,6 +18,7 @@ use_eo_after_quorum: true
 eo_tick_interval_ms: 10
 eo_election_tick: 1000
 eo_heartbeat_tick: 1
+eo_raft_send_batch_size: 1
 
 # Run & system configs
 run_timeout_seconds: 60
