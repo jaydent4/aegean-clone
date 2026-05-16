@@ -1,0 +1,173 @@
+---
+run_config:
+  pbeo_raft_send_batch_size: 256
+  eo_raft_send_batch_size: 256
+services:
+  client:
+    type: client
+    next:
+    - node1
+    client_workflow: media_k6_open_review_compose_client
+  review_compose_api:
+    type: pbeo_server
+    clients:
+    - node0
+    nodes:
+    - node1
+    exec_workflow: media_review_compose_api_pbeo
+    init_state_workflow: media_pbeo_default
+  user:
+    type: pbeo_server
+    clients:
+    - node1
+    nodes:
+    - node2
+    - node3
+    - node4
+    exec_workflow: media_user_pbeo
+    init_state_workflow: media_pbeo_default
+  movie_id:
+    type: pbeo_server
+    clients:
+    - node1
+    nodes:
+    - node5
+    - node6
+    - node7
+    exec_workflow: media_movie_id_pbeo
+    init_state_workflow: media_pbeo_default
+  text:
+    type: pbeo_server
+    clients:
+    - node1
+    nodes:
+    - node8
+    exec_workflow: media_text_pbeo
+    init_state_workflow: media_pbeo_default
+  unique_id:
+    type: pbeo_server
+    clients:
+    - node1
+    nodes:
+    - node9
+    exec_workflow: media_unique_id_pbeo
+    init_state_workflow: media_pbeo_default
+  rating:
+    type: pbeo_server
+    clients:
+    - node5
+    - node6
+    - node7
+    nodes:
+    - node10
+    - node11
+    - node12
+    exec_workflow: media_rating_pbeo
+    init_state_workflow: media_pbeo_default
+  compose_review:
+    type: pbeo_server
+    clients:
+    - node2
+    - node3
+    - node4
+    - node5
+    - node6
+    - node7
+    - node8
+    - node9
+    - node10
+    - node11
+    - node12
+    nodes:
+    - node13
+    - node14
+    - node15
+    exec_workflow: media_compose_review_pbeo
+    init_state_workflow: media_pbeo_default
+  review_storage:
+    type: pbeo_server
+    clients:
+    - node13
+    - node14
+    - node15
+    nodes:
+    - node16
+    - node17
+    - node18
+    exec_workflow: media_review_storage_pbeo
+    init_state_workflow: media_pbeo_default
+  user_review:
+    type: pbeo_server
+    clients:
+    - node13
+    - node14
+    - node15
+    nodes:
+    - node19
+    - node20
+    - node21
+    exec_workflow: media_user_review_pbeo
+    init_state_workflow: media_pbeo_default
+  movie_review:
+    type: pbeo_server
+    clients:
+    - node13
+    - node14
+    - node15
+    nodes:
+    - node22
+    - node23
+    - node24
+    exec_workflow: media_movie_review_pbeo
+    init_state_workflow: media_pbeo_default
+nodes:
+  node0:
+    service: client
+  node1:
+    service: review_compose_api
+  node2:
+    service: user
+  node3:
+    service: user
+  node4:
+    service: user
+  node5:
+    service: movie_id
+  node6:
+    service: movie_id
+  node7:
+    service: movie_id
+  node8:
+    service: text
+  node9:
+    service: unique_id
+  node10:
+    service: rating
+  node11:
+    service: rating
+  node12:
+    service: rating
+  node13:
+    service: compose_review
+  node14:
+    service: compose_review
+  node15:
+    service: compose_review
+  node16:
+    service: review_storage
+  node17:
+    service: review_storage
+  node18:
+    service: review_storage
+  node19:
+    service: user_review
+  node20:
+    service: user_review
+  node21:
+    service: user_review
+  node22:
+    service: movie_review
+  node23:
+    service: movie_review
+  node24:
+    service: movie_review

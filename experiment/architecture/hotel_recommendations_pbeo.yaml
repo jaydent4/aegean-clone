@@ -1,0 +1,129 @@
+---
+run_config:
+  pbeo_raft_send_batch_size: 256
+  eo_raft_send_batch_size: 256
+services:
+  client:
+    type: client
+    next:
+    - node1
+    client_workflow: hotel_k6_open_recommendations_client
+  frontend:
+    type: pbeo_server
+    clients:
+    - node0
+    nodes:
+    - node1
+    exec_workflow: hotel_frontend_pbeo
+    init_state_workflow: hotel_pbeo_default
+  search:
+    type: pbeo_server
+    clients:
+    - node1
+    nodes:
+    - node2
+    exec_workflow: hotel_search_pbeo
+    init_state_workflow: hotel_pbeo_default
+  geo:
+    type: pbeo_server
+    clients:
+    - node2
+    nodes:
+    - node3
+    - node4
+    - node5
+    exec_workflow: hotel_geo_pbeo
+    init_state_workflow: hotel_pbeo_default
+  rate:
+    type: pbeo_server
+    clients:
+    - node2
+    nodes:
+    - node6
+    - node7
+    - node8
+    exec_workflow: hotel_rate_pbeo
+    init_state_workflow: hotel_pbeo_default
+  reservation:
+    type: pbeo_server
+    clients:
+    - node1
+    nodes:
+    - node9
+    - node10
+    - node11
+    exec_workflow: hotel_reservation_pbeo
+    init_state_workflow: hotel_pbeo_default
+  profile:
+    type: pbeo_server
+    clients:
+    - node1
+    nodes:
+    - node12
+    - node13
+    - node14
+    exec_workflow: hotel_profile_pbeo
+    init_state_workflow: hotel_pbeo_default
+  recommendation:
+    type: pbeo_server
+    clients:
+    - node1
+    nodes:
+    - node15
+    - node16
+    - node17
+    exec_workflow: hotel_recommendation_pbeo
+    init_state_workflow: hotel_pbeo_default
+  user:
+    type: pbeo_server
+    clients:
+    - node1
+    nodes:
+    - node18
+    - node19
+    - node20
+    exec_workflow: hotel_user_pbeo
+    init_state_workflow: hotel_pbeo_default
+nodes:
+  node0:
+    service: client
+  node1:
+    service: frontend
+  node2:
+    service: search
+  node3:
+    service: geo
+  node4:
+    service: geo
+  node5:
+    service: geo
+  node6:
+    service: rate
+  node7:
+    service: rate
+  node8:
+    service: rate
+  node9:
+    service: reservation
+  node10:
+    service: reservation
+  node11:
+    service: reservation
+  node12:
+    service: profile
+  node13:
+    service: profile
+  node14:
+    service: profile
+  node15:
+    service: recommendation
+  node16:
+    service: recommendation
+  node17:
+    service: recommendation
+  node18:
+    service: user
+  node19:
+    service: user
+  node20:
+    service: user

@@ -75,6 +75,10 @@ func (t *Txn) DispatchNestedRequestDirect(sourceRequest map[string]any, targets 
 	}
 }
 
+func (t *Txn) DispatchNestedRequestEO(sourceRequest map[string]any, targets []string, outgoing map[string]any) {
+	t.DispatchNestedRequestDirect(sourceRequest, targets, outgoing)
+}
+
 func (t *Txn) GetNestedResponses(requestID any) ([]map[string]any, bool) {
 	canonicalID, ok := canonicalRequestID(requestID)
 	if !ok {

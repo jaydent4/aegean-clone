@@ -1,0 +1,78 @@
+package workerworkflow
+
+import (
+	"aegean/common"
+	"aegean/nodes"
+	"aegean/workflow/warmup"
+	"context"
+	"fmt"
+	"log"
+	"strconv"
+	"time"
+)
+
+func K6OpenClientRequestLogic(c *nodes.Client) {
+	duration := common.MustString(c.RunConfig, "duration")
+	warmupDuration := common.StringOrDefault(c.RunConfig, "warmup_duration", "0s")
+	runTimeoutSeconds := common.MustInt(c.RunConfig, "run_timeout_seconds")
+	k6QPS := common.MustInt(c.RunConfig, "k6_qps")
+	k6PreAllocatedVUs := common.K6PreAllocatedVUs(c.RunConfig, k6QPS)
+	k6MaxVUs := common.MustInt(c.RunConfig, "k6_max_vus")
+	k6CommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
+
+	c.WaitForNodesReady(c.ReadyNodes)
+	k6TargetURL := fmt.Sprintf("http://%s:8000/", c.Name)
+
+	baseConfig := workerK6OpenRunConfig{
+		rate:            k6QPS,
+		preAllocatedVUs: k6PreAllocatedVUs,
+		maxVUs:          k6MaxVUs,
+		targetURL:       k6TargetURL,
+		deadline:        k6CommandDeadline,
+		sender:          c.Name,
+		scriptPath:      "workflow/worker/k6_open_client.js",
+	}
+
+	if err := warmup.RunWarmupThenMeasured(warmupDuration, duration, func(runDuration string, suppressOutput bool) error {
+		config := baseConfig
+		config.duration = runDuration
+		config.suppressOutput = suppressOutput
+		return runK6Open(config)
+	}); err != nil {
+		if err == context.DeadlineExceeded {
+			log.Printf("worker k6 client request logic timed out after %s", k6CommandDeadline)
+			return
+		}
+		log.Printf("worker k6 client request logic failed: %v", err)
+	}
+}
+
+type workerK6OpenRunConfig struct {
+	rate            int
+	duration        string
+	preAllocatedVUs int
+	maxVUs          int
+	targetURL       string
+	deadline        time.Duration
+	sender          string
+	scriptPath      string
+	suppressOutput  bool
+}
+
+func runK6Open(config workerK6OpenRunConfig) error {
+	ctx, cancel := context.WithTimeout(context.Background(), config.deadline)
+	defer cancel()
+
+	args := []string{
+		"run",
+		"-e", "WORKER_TARGET_URL=" + config.targetURL,
+		"-e", "WORKER_SENDER=" + config.sender,
+		"-e", "WORKER_RATE=" + strconv.Itoa(config.rate),
+		"-e", "WORKER_DURATION=" + config.duration,
+		"-e", "WORKER_PRE_ALLOCATED_VUS=" + strconv.Itoa(config.preAllocatedVUs),
+		"-e", "WORKER_MAX_VUS=" + strconv.Itoa(config.maxVUs),
+		config.scriptPath,
+	}
+
+	return warmup.Run(ctx, args, config.suppressOutput)
+}

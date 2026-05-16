@@ -1,0 +1,49 @@
+---
+run_config:
+  pbeo_raft_send_batch_size: 256
+  eo_raft_send_batch_size: 256
+services:
+  client:
+    type: client
+    next:
+    - node1
+    - node2
+    - node3
+    client_workflow: worker_k6_open_client
+  middle:
+    type: pbeo_server
+    clients:
+    - node0
+    nodes:
+    - node1
+    - node2
+    - node3
+    exec_workflow: worker_middle_pbeo
+    init_state_workflow: worker_pbeo_default
+  backend:
+    type: pbeo_server
+    clients:
+    - node1
+    - node2
+    - node3
+    nodes:
+    - node4
+    - node5
+    - node6
+    exec_workflow: worker_backend_pbeo
+    init_state_workflow: worker_pbeo_default
+nodes:
+  node0:
+    service: client
+  node1:
+    service: middle
+  node2:
+    service: middle
+  node3:
+    service: middle
+  node4:
+    service: backend
+  node5:
+    service: backend
+  node6:
+    service: backend

@@ -13,6 +13,7 @@ import (
 	responseworkflow "aegean/workflow/response"
 	socialworkflow "aegean/workflow/social"
 	supersimpleworkflow "aegean/workflow/supersimple"
+	workerworkflow "aegean/workflow/worker"
 	writeworkflow "aegean/workflow/write"
 )
 
@@ -45,6 +46,7 @@ var ClientWorkflows = map[string]func(c *nodes.Client){
 	"social_k6_open_read_user_timeline_client":   socialworkflow.K6OpenReadUserTimelineClientRequestLogic,
 	"supersimple_oha_client":                     supersimpleworkflow.OhaClientRequestLogic,
 	"supersimple_k6_closed_client":               supersimpleworkflow.K6ClosedClientRequestLogic,
+	"worker_k6_open_client":                      workerworkflow.K6OpenClientRequestLogic,
 	"write_k6_open_client":                       writeworkflow.K6OpenClientRequestLogic,
 }
 
@@ -135,6 +137,8 @@ var ExecWorkflows = map[string]exec.ExecuteRequestFunc{
 	},
 	"supersimple_middle":  supersimpleworkflow.ExecuteRequestMiddle,
 	"supersimple_backend": supersimpleworkflow.ExecuteRequestServer,
+	"worker_middle":       workerworkflow.ExecuteRequestMiddle,
+	"worker_backend":      workerworkflow.ExecuteRequestBackend,
 	"write_middle":        writeworkflow.ExecuteRequestMiddle,
 	"write_backend":       writeworkflow.ExecuteRequestBackend,
 }
@@ -155,16 +159,42 @@ var InitStateWorkflows = map[string]exec.InitStateFunc{
 		return socialworkflow.InitState(e)
 	},
 	"supersimple_default": supersimpleworkflow.InitState,
+	"worker_default":      workerworkflow.InitState,
 	"write_default":       writeworkflow.InitState,
 }
 
 var PBEOExecWorkflows = map[string]pbeo.ExecuteRequestFunc{
-	"aegean_middle_pbeo":    aegeanworkflow.ExecuteRequestMiddlePBEO,
-	"aegean_backend_pbeo":   aegeanworkflow.ExecuteRequestBackendPBEO,
-	"response_middle_pbeo":  responseworkflow.ExecuteRequestMiddlePBEO,
-	"response_backend_pbeo": responseworkflow.ExecuteRequestBackendPBEO,
-	"write_middle_pbeo":     writeworkflow.ExecuteRequestMiddlePBEO,
-	"write_backend_pbeo":    writeworkflow.ExecuteRequestBackendPBEO,
+	"aegean_middle_pbeo":            aegeanworkflow.ExecuteRequestMiddlePBEO,
+	"aegean_backend_pbeo":           aegeanworkflow.ExecuteRequestBackendPBEO,
+	"response_middle_pbeo":          responseworkflow.ExecuteRequestMiddlePBEO,
+	"response_backend_pbeo":         responseworkflow.ExecuteRequestBackendPBEO,
+	"write_middle_pbeo":             writeworkflow.ExecuteRequestMiddlePBEO,
+	"write_backend_pbeo":            writeworkflow.ExecuteRequestBackendPBEO,
+	"worker_middle_pbeo":            workerworkflow.ExecuteRequestMiddlePBEO,
+	"worker_backend_pbeo":           workerworkflow.ExecuteRequestBackendPBEO,
+	"hotel_frontend_pbeo":           hotelworkflow.ExecuteRequestFrontendPBEO,
+	"hotel_search_pbeo":             hotelworkflow.ExecuteRequestSearchPBEO,
+	"hotel_geo_pbeo":                hotelworkflow.ExecuteRequestGeoPBEO,
+	"hotel_rate_pbeo":               hotelworkflow.ExecuteRequestRatePBEO,
+	"hotel_profile_pbeo":            hotelworkflow.ExecuteRequestProfilePBEO,
+	"hotel_recommendation_pbeo":     hotelworkflow.ExecuteRequestRecommendationPBEO,
+	"hotel_user_pbeo":               hotelworkflow.ExecuteRequestUserPBEO,
+	"hotel_reservation_pbeo":        hotelworkflow.ExecuteRequestReservationPBEO,
+	"media_review_compose_api_pbeo": mediaworkflow.ExecuteRequestReviewComposeAPIPBEO,
+	"media_user_pbeo":               mediaworkflow.ExecuteRequestUserPBEO,
+	"media_movie_id_pbeo":           mediaworkflow.ExecuteRequestMovieIDPBEO,
+	"media_text_pbeo":               mediaworkflow.ExecuteRequestTextPBEO,
+	"media_unique_id_pbeo":          mediaworkflow.ExecuteRequestUniqueIDPBEO,
+	"media_rating_pbeo":             mediaworkflow.ExecuteRequestRatingPBEO,
+	"media_compose_review_pbeo":     mediaworkflow.ExecuteRequestComposeReviewPBEO,
+	"media_review_storage_pbeo":     mediaworkflow.ExecuteRequestReviewStoragePBEO,
+	"media_user_review_pbeo":        mediaworkflow.ExecuteRequestUserReviewPBEO,
+	"media_movie_review_pbeo":       mediaworkflow.ExecuteRequestMovieReviewPBEO,
+	"social_compose_post_pbeo":      socialworkflow.ExecuteRequestComposePostPBEO,
+	"social_post_storage_pbeo":      socialworkflow.ExecuteRequestPostStoragePBEO,
+	"social_user_timeline_pbeo":     socialworkflow.ExecuteRequestUserTimelinePBEO,
+	"social_home_timeline_pbeo":     socialworkflow.ExecuteRequestHomeTimelinePBEO,
+	"social_social_graph_pbeo":      socialworkflow.ExecuteRequestSocialGraphPBEO,
 }
 
 var PBEOInitStateWorkflows = map[string]pbeo.InitStateFunc{
@@ -172,6 +202,10 @@ var PBEOInitStateWorkflows = map[string]pbeo.InitStateFunc{
 	"aegean_pbeo_default":   aegeanworkflow.InitStatePBEO,
 	"response_pbeo_default": responseworkflow.InitStatePBEO,
 	"write_pbeo_default":    writeworkflow.InitStatePBEO,
+	"worker_pbeo_default":   workerworkflow.InitStatePBEO,
+	"hotel_pbeo_default":    hotelworkflow.InitStatePBEO,
+	"media_pbeo_default":    mediaworkflow.InitStatePBEO,
+	"social_pbeo_default":   socialworkflow.InitStatePBEO,
 }
 
 var UnreplicatedWorkflows = map[string]unreplicated.WorkflowFunc{
@@ -204,6 +238,8 @@ var UnreplicatedWorkflows = map[string]unreplicated.WorkflowFunc{
 	"response_backend":         responseworkflow.ExecuteRequestBackendDirect,
 	"write_backend":            writeworkflow.ExecuteRequestBackendDirect,
 	"write_middle":             writeworkflow.ExecuteRequestMiddleDirect,
+	"worker_backend":           workerworkflow.ExecuteRequestBackendDirect,
+	"worker_middle":            workerworkflow.ExecuteRequestMiddleDirect,
 }
 
 var UnreplicatedInitStateWorkflows = map[string]unreplicated.InitStateFunc{
@@ -214,6 +250,7 @@ var UnreplicatedInitStateWorkflows = map[string]unreplicated.InitStateFunc{
 	"response_default": responseworkflow.InitStateDirect,
 	"social_default":   socialworkflow.InitStateDirect,
 	"write_default":    writeworkflow.InitStateDirect,
+	"worker_default":   workerworkflow.InitStateDirect,
 }
 
 var ExternalServiceInitWorkflows = map[string]func(es *nodes.ExternalService){

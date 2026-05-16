@@ -1,0 +1,49 @@
+---
+run_config:
+  pbeo_raft_send_batch_size: 256
+  eo_raft_send_batch_size: 256
+services:
+  client:
+    type: client
+    next:
+    - node1
+    - node2
+    - node3
+    client_workflow: social_k6_open_read_user_timeline_client
+  user_timeline:
+    type: pbeo_server
+    clients:
+    - node0
+    nodes:
+    - node1
+    - node2
+    - node3
+    exec_workflow: social_user_timeline_pbeo
+    init_state_workflow: social_pbeo_default
+  post_storage:
+    type: pbeo_server
+    clients:
+    - node1
+    - node2
+    - node3
+    nodes:
+    - node4
+    - node5
+    - node6
+    exec_workflow: social_post_storage_pbeo
+    init_state_workflow: social_pbeo_default
+nodes:
+  node0:
+    service: client
+  node1:
+    service: user_timeline
+  node2:
+    service: user_timeline
+  node3:
+    service: user_timeline
+  node4:
+    service: post_storage
+  node5:
+    service: post_storage
+  node6:
+    service: post_storage
