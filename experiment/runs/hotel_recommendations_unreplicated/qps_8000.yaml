@@ -1,19 +1,28 @@
 ---
 architecture: hotel_recommendations_unreplicated.yaml
-k6_qps: 400
+
+# k6 config
+k6_qps: 8000
 warmup_duration: 10s
 duration: 15s
 k6_graceful_stop: 0s
 k6_pre_allocated_vus: 0
 k6_max_vus: 10000
+
+# Hotel recommendation path config
 hotel_hotel_count: 80
 hotel_user_count: 501
 hotel_search_radius_km: 10.0
 hotel_search_max_results: 5
-hotel_nested_send_all_replicas: false
+hotel_nested_send_all_replicas: true
+
+# Redis durable state config
 hotel_redis_enable: true
 hotel_redis_addr: 127.0.0.1:6379
+
+# Run & system configs
 run_timeout_seconds: 60
 parallel_window_k: 16
 worker_count: 8
 gomaxprocs: 32
+ 
