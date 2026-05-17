@@ -172,6 +172,12 @@ func (s *nestedResponseStore) get(requestID string) ([]map[string]any, bool) {
 	return cloneMapSlice(queue), true
 }
 
+func (s *nestedResponseStore) count(requestID string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.responses[requestID])
+}
+
 func (s *nestedResponseStore) wait(requestID string) []map[string]any {
 	s.mu.Lock()
 	defer s.mu.Unlock()
