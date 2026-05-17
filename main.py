@@ -10,6 +10,7 @@ import statistics
 import subprocess
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from email.message import EmailMessage
 
@@ -182,6 +183,28 @@ def _scp_to(local_path, node_name, remote_path):
     return subprocess.run(["scp", *_ssh_options(), local_path, f"{node_name}:{remote_path}"], check=False)
 
 
+def _run_for_nodes(node_names, task, action):
+    if not node_names:
+        return {}
+
+    results = {}
+    failures = []
+    with ThreadPoolExecutor(max_workers=len(node_names)) as executor:
+        futures = {executor.submit(task, name): name for name in node_names}
+        for future in as_completed(futures):
+            name = futures[future]
+            try:
+                results[name] = future.result()
+            except Exception as exc:  # noqa: BLE001
+                failures.append((name, exc))
+
+    if failures:
+        details = "; ".join(f"{name}: {exc}" for name, exc in failures)
+        raise RuntimeError(f"{action} failed for {details}")
+
+    return results
+
+
 def list_run_config_paths(runs_dir=None):
     if runs_dir is None:
         runs_dir = os.path.join(REPO_ROOT, "experiment", "runs")
@@ -229,11 +252,13 @@ def result_exists_for_run_config(config_path, runs=1):
 
 
 def collect_logs(run_dir, node_names, client_names, enable_pprof=False, enable_tracing=False):
-    logger.info("Collecting logs (%d nodes, %d clients)", len(node_names), len(client_names))
+    logger.info("Collecting logs (%d nodes, %d clients, %d workers)", len(node_names), len(client_names), len(node_names))
 
-    for name in node_names:
+    def copy_node_log(name):
         local_path = os.path.join(run_dir, f"{name}.log")
-        _scp(name, "/tmp/node.log", local_path)
+        return _scp(name, "/tmp/node.log", local_path)
+
+    _run_for_nodes(node_names, copy_node_log, "collect logs")
 
     profiled_node = os.environ.get("AEGEAN_PROFILE_NODE", "").strip()
     profile_path = os.environ.get("AEGEAN_CPU_PROFILE_PATH", DEFAULT_REMOTE_CPU_PROFILE_PATH).strip() or DEFAULT_REMOTE_CPU_PROFILE_PATH
@@ -246,8 +271,10 @@ def collect_logs(run_dir, node_names, client_names, enable_pprof=False, enable_t
         _scp(profiled_node, block_profile_path, os.path.join(run_dir, f"{profiled_node}.block.pprof"))
         _scp(profiled_node, mutex_profile_path, os.path.join(run_dir, f"{profiled_node}.mutex.pprof"))
     if enable_tracing:
-        for name in node_names:
-            _scp(name, otel_trace_path, os.path.join(run_dir, f"{name}.otel.json"))
+        def copy_otel_trace(name):
+            return _scp(name, otel_trace_path, os.path.join(run_dir, f"{name}.otel.json"))
+
+        _run_for_nodes(node_names, copy_otel_trace, "collect traces")
 
     logger.info("Log collection complete: %s", run_dir)
 
@@ -325,14 +352,14 @@ def distribute_binary(build_node, node_names):
     if not targets:
         return
 
-    logger.info("Distributing binary from %s to %d node(s)", build_node, len(targets))
+    logger.info("Distributing binary from %s to %d node(s) with %d worker(s)", build_node, len(targets), len(targets))
     with tempfile.TemporaryDirectory() as tmp_dir:
         local_binary = os.path.join(tmp_dir, "aegean-node")
         result = _scp(build_node, REMOTE_BINARY_PATH, local_binary)
         if result.returncode != 0:
             raise RuntimeError(f"failed to copy binary from {build_node}")
 
-        for name in targets:
+        def distribute_to_node(name):
             result = _ssh_shell(name, "mkdir -p /app/bin")
             if result.returncode != 0:
                 raise RuntimeError(f"failed to create binary directory on {name}")
@@ -342,6 +369,8 @@ def distribute_binary(build_node, node_names):
             result = _ssh_shell(name, f"chmod +x {shlex.quote(REMOTE_BINARY_PATH)}")
             if result.returncode != 0:
                 raise RuntimeError(f"failed to mark binary executable on {name}")
+
+        _run_for_nodes(targets, distribute_to_node, "distribute binary")
 
 
 def ensure_binaries_ready(node_names):
@@ -400,7 +429,7 @@ def launch_nodes(
     enable_tracing=False,
     enable_logging=False,
 ):
-    logger.info("Launching %d nodes", len(node_names))
+    logger.info("Launching %d nodes with %d worker(s)", len(node_names), len(node_names))
     if node_names:
         ensure_binaries_ready(node_names)
 
@@ -410,7 +439,7 @@ def launch_nodes(
     block_profile_path = os.environ.get("AEGEAN_BLOCK_PROFILE_PATH", DEFAULT_REMOTE_BLOCK_PROFILE_PATH).strip() or DEFAULT_REMOTE_BLOCK_PROFILE_PATH
     mutex_profile_path = os.environ.get("AEGEAN_MUTEX_PROFILE_PATH", DEFAULT_REMOTE_MUTEX_PROFILE_PATH).strip() or DEFAULT_REMOTE_MUTEX_PROFILE_PATH
     otel_trace_path = os.environ.get("AEGEAN_OTEL_FILE_PATH", DEFAULT_REMOTE_OTEL_TRACE_PATH).strip() or DEFAULT_REMOTE_OTEL_TRACE_PATH
-    for name in node_names:
+    def launch_node(name):
         service_name = node_services.get(name, "")
         profile_env = ""
         if enable_pprof and name == profiled_node:
@@ -461,11 +490,14 @@ def launch_nodes(
         if result.returncode != 0:
             raise RuntimeError(f"failed to launch node {name}")
 
+    _run_for_nodes(node_names, launch_node, "launch nodes")
+
 
 def stop_docker_nodes(node_names):
-    logger.info("Stopping %d nodes", len(node_names))
-    for name in node_names:
-        _ssh_shell(
+    logger.info("Stopping %d nodes with %d worker(s)", len(node_names), len(node_names))
+
+    def stop_node(name):
+        return _ssh_shell(
             name,
             (
                 "pkill -TERM -f aegean-node || true; "
@@ -479,6 +511,8 @@ def stop_docker_nodes(node_names):
             ),
         )
 
+    _run_for_nodes(node_names, stop_node, "stop nodes")
+
 
 def get_node_ready(node_name):
     payload = _remote_rpc(node_name, "/ready", timeout=5)
@@ -490,19 +524,22 @@ def wait_for_nodes_ready(node_names, timeout=30.0, poll_interval=1.0):
         return True
 
     deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        all_ready = True
-        for name in node_names:
-            try:
-                if not get_node_ready(name):
+    with ThreadPoolExecutor(max_workers=len(node_names)) as executor:
+        while time.monotonic() < deadline:
+            all_ready = True
+            futures = {executor.submit(get_node_ready, name): name for name in node_names}
+            for future in as_completed(futures):
+                name = futures[future]
+                try:
+                    if not future.result():
+                        all_ready = False
+                except Exception as exc:  # noqa: BLE001
+                    logger.info("Node %s not ready yet: %s", name, exc)
                     all_ready = False
-            except Exception as exc:  # noqa: BLE001
-                logger.info("Node %s not ready yet: %s", name, exc)
-                all_ready = False
 
-        if all_ready:
-            return True
-        time.sleep(poll_interval)
+            if all_ready:
+                return True
+            time.sleep(poll_interval)
 
     return False
 
@@ -520,20 +557,23 @@ def wait_for_clients_complete(client_names, timeout=30.0, poll_interval=1.0):
         return True
 
     deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        all_completed = True
-        for name in client_names:
-            try:
-                status = get_client_status(name)
-                if not status["request_logic_completed"]:
+    with ThreadPoolExecutor(max_workers=len(client_names)) as executor:
+        while time.monotonic() < deadline:
+            all_completed = True
+            futures = {executor.submit(get_client_status, name): name for name in client_names}
+            for future in as_completed(futures):
+                name = futures[future]
+                try:
+                    status = future.result()
+                    if not status["request_logic_completed"]:
+                        all_completed = False
+                except Exception as exc:  # noqa: BLE001
+                    logger.info("Client %s status unavailable yet: %s", name, exc)
                     all_completed = False
-            except Exception as exc:  # noqa: BLE001
-                logger.info("Client %s status unavailable yet: %s", name, exc)
-                all_completed = False
 
-        if all_completed:
-            return True
-        time.sleep(poll_interval)
+            if all_completed:
+                return True
+            time.sleep(poll_interval)
 
     return False
 
