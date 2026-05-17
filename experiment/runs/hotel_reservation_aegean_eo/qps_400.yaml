@@ -30,7 +30,6 @@ use_eo_after_quorum: true
 hotel_redis_enable: true
 hotel_redis_addr: 127.0.0.1:6379
 
-pbeo_disable_follower_elections: true
 # Run & system configs
 run_timeout_seconds: 60
 parallel_window_k: 16
