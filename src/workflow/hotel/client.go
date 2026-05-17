@@ -34,6 +34,7 @@ func K6OpenHotelsClientRequestLogic(c *nodes.Client) {
 	k6QPS := common.MustInt(c.RunConfig, "k6_qps")
 	k6PreAllocatedVUs := common.K6PreAllocatedVUs(c.RunConfig, k6QPS)
 	k6MaxVUs := common.MustInt(c.RunConfig, "k6_max_vus")
+	k6GracefulStop := common.StringOrDefault(c.RunConfig, "k6_graceful_stop", "30s")
 	k6CommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)
@@ -50,6 +51,7 @@ func K6OpenHotelsClientRequestLogic(c *nodes.Client) {
 		extraEnv: []string{
 			"HOTEL_USER_COUNT=" + strconv.Itoa(userCount),
 			"HOTEL_HOTEL_COUNT=" + strconv.Itoa(hotelCount),
+			"HOTEL_GRACEFUL_STOP=" + k6GracefulStop,
 		},
 	}
 

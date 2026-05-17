@@ -3,6 +3,7 @@ architecture: req_race_eo.yaml
 
 # K6 configs
 duration: 15s
+k6_graceful_stop: 0s
 k6_vus: 50
 
 # Nested exact-once dispatch
