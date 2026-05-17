@@ -1150,6 +1150,86 @@ func TestExecBlockedRequestResumesAfterNestedResponse(t *testing.T) {
 	}
 }
 
+func TestExecEarlyNestedResponsesWakeOneExecutionAtATime(t *testing.T) {
+	verifierCh := make(chan map[string]any, 8)
+	shimCh := make(chan map[string]any, 8)
+	var exec *Exec
+	exec = NewExec("exec1", []string{"exec1"}, nil, verifierCh, shimCh, 1,
+		func(_ *Exec, request map[string]any, _ int64, _ float64) map[string]any {
+			requestID := request["request_id"]
+			stageAny, _ := exec.GetRequestContextValue(requestID, "stage")
+			stage, _ := stageAny.(string)
+			nestedResponses, _ := exec.GetNestedResponses(requestID)
+			hasNested := func(child string) bool {
+				for _, nested := range nestedResponses {
+					if nested["request_id"] == child {
+						return true
+					}
+				}
+				return false
+			}
+
+			switch stage {
+			case "":
+				_ = exec.SetRequestContextValue(requestID, "stage", "await_first")
+				return map[string]any{"request_id": requestID, "status": "blocked_for_nested_response"}
+			case "await_first":
+				if !hasNested("r1/first") {
+					return map[string]any{"request_id": requestID, "status": "blocked_for_nested_response"}
+				}
+				_ = exec.SetRequestContextValue(requestID, "stage", "await_second")
+				return map[string]any{"request_id": requestID, "status": "blocked_for_nested_response"}
+			case "await_second":
+				if !hasNested("r1/second") {
+					return map[string]any{"request_id": requestID, "status": "blocked_for_nested_response"}
+				}
+				return map[string]any{"request_id": requestID, "status": "ok"}
+			default:
+				return map[string]any{"request_id": requestID, "status": "error"}
+			}
+		},
+		nil,
+		requiredExecRunConfig(),
+	)
+
+	if !exec.BufferNestedResponse(map[string]any{
+		"request_id":        "r1/first",
+		"parent_request_id": "r1",
+		"status":            "ready",
+	}) {
+		t.Fatalf("expected first early nested response to be accepted")
+	}
+	if !exec.BufferNestedResponse(map[string]any{
+		"request_id":        "r1/second",
+		"parent_request_id": "r1",
+		"status":            "ready",
+	}) {
+		t.Fatalf("expected second early nested response to be accepted")
+	}
+
+	resp := exec.handleBatch(map[string]any{
+		"type":    "batch",
+		"seq_num": 1,
+		"parallel_batches": makeParallelBatches(
+			map[string]any{"request_id": "r1", "op": "multi_stage"},
+		),
+	})
+	if resp["status"] != "executed" {
+		t.Fatalf("expected handleBatch to finish execution, got %v", resp["status"])
+	}
+
+	pending, ok := exec.pendingExecResults[1]
+	if !ok {
+		t.Fatalf("expected pending response for seq 1")
+	}
+	if len(pending.outputs) != 1 {
+		t.Fatalf("expected one output, got %d", len(pending.outputs))
+	}
+	if pending.outputs[0]["status"] != "ok" {
+		t.Fatalf("expected resumed output status ok, got %v", pending.outputs[0]["status"])
+	}
+}
+
 func TestExecParallelBatchesYieldBlockedToNext(t *testing.T) {
 	verifierCh := make(chan map[string]any, 8)
 	shimCh := make(chan map[string]any, 8)

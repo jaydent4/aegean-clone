@@ -73,12 +73,9 @@ func (s *execScheduler) executeParallelBatches(e *Exec, parallelBatches [][]map[
 			activeWorkers--
 			status := common.GetString(res.output, "status")
 			if status == "blocked_for_nested_response" {
-				nestedCount := s.nestedResponseCount(res.req.id)
-				if nestedCount > res.req.nestedSeen {
-					res.req.nestedSeen = nestedCount
+				if s.promoteOneNestedResponse(res.req.id) {
 					res.req.state = requestRunnable
 				} else {
-					res.req.nestedSeen = nestedCount
 					res.req.state = requestWaiting
 				}
 			} else {
@@ -152,6 +149,9 @@ func (s *execScheduler) executeSequentialBatches(e *Exec, parallelBatches [][]ma
 					req.output = output
 					outputs = append(outputs, output)
 					break
+				}
+				for !s.promoteOneNestedResponse(req.id) {
+					<-s.nestedReadyCh
 				}
 			}
 		}

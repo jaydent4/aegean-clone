@@ -7,28 +7,30 @@ import (
 )
 
 type execScheduler struct {
-	mu               sync.Mutex
-	inflightRequests map[string]*scheduledRequest
-	nestedResponses  map[string][]map[string]any
-	nestedReadyCh    chan struct{}
-	contextStore     *requestContextStore
-	parallelWindowK  int
+	mu                     sync.Mutex
+	inflightRequests       map[string]*scheduledRequest
+	nestedResponses        map[string][]map[string]any
+	pendingNestedResponses map[string][]map[string]any
+	nestedReadyCh          chan struct{}
+	contextStore           *requestContextStore
+	parallelWindowK        int
 }
 
 func newExecScheduler(runConfig map[string]any) *execScheduler {
 	return &execScheduler{
-		inflightRequests: make(map[string]*scheduledRequest),
-		nestedResponses:  make(map[string][]map[string]any),
-		nestedReadyCh:    make(chan struct{}, 1),
-		contextStore:     newRequestContextStore(),
-		parallelWindowK:  common.MustInt(runConfig, "parallel_window_k"),
+		inflightRequests:       make(map[string]*scheduledRequest),
+		nestedResponses:        make(map[string][]map[string]any),
+		pendingNestedResponses: make(map[string][]map[string]any),
+		nestedReadyCh:          make(chan struct{}, 1),
+		contextStore:           newRequestContextStore(),
+		parallelWindowK:        common.MustInt(runConfig, "parallel_window_k"),
 	}
 }
 
 func (s *execScheduler) enqueueNestedResponse(requestID string, payload map[string]any) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.nestedResponses[requestID] = append(s.nestedResponses[requestID], payload)
+	s.pendingNestedResponses[requestID] = append(s.pendingNestedResponses[requestID], payload)
 	select {
 	case s.nestedReadyCh <- struct{}{}:
 	default:
@@ -36,22 +38,36 @@ func (s *execScheduler) enqueueNestedResponse(requestID string, payload map[stri
 	return true
 }
 
-func (s *execScheduler) hasNestedResponse(requestID string) bool {
+func (s *execScheduler) hasPendingNestedResponse(requestID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return len(s.nestedResponses[requestID]) > 0
+	return len(s.pendingNestedResponses[requestID]) > 0
 }
 
-func (s *execScheduler) nestedResponseCount(requestID string) int {
+func (s *execScheduler) promoteOneNestedResponse(requestID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return len(s.nestedResponses[requestID])
+	pending := s.pendingNestedResponses[requestID]
+	if len(pending) == 0 {
+		return false
+	}
+	response := pending[0]
+	if len(pending) == 1 {
+		delete(s.pendingNestedResponses, requestID)
+	} else {
+		s.pendingNestedResponses[requestID] = pending[1:]
+	}
+	s.nestedResponses[requestID] = append(s.nestedResponses[requestID], response)
+	return true
 }
 
 func (s *execScheduler) getNestedResponses(requestID string) ([]map[string]any, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	queue := s.nestedResponses[requestID]
+	if _, inflight := s.inflightRequests[requestID]; !inflight {
+		queue = append(append([]map[string]any{}, queue...), s.pendingNestedResponses[requestID]...)
+	}
 	if len(queue) == 0 {
 		return nil, false
 	}
@@ -68,6 +84,7 @@ func (s *execScheduler) clearNestedResponses(requestIDs []string) {
 	defer s.mu.Unlock()
 	for _, requestID := range requestIDs {
 		delete(s.nestedResponses, requestID)
+		delete(s.pendingNestedResponses, requestID)
 	}
 }
 
