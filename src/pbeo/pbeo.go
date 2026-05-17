@@ -49,7 +49,6 @@ type PBEO struct {
 	requestAttempts   map[string]struct{}
 	committedRequests map[string]Entry
 	blockedRequests   map[string]map[string]any
-	blockedNestedSeen map[string]int
 	nestedProposals   map[string]struct{}
 
 	stateMu           sync.RWMutex
@@ -127,7 +126,6 @@ func NewPBEO(cfg Config) (*PBEO, error) {
 		requestAttempts:   make(map[string]struct{}),
 		committedRequests: make(map[string]Entry),
 		blockedRequests:   make(map[string]map[string]any),
-		blockedNestedSeen: make(map[string]int),
 		nestedProposals:   make(map[string]struct{}),
 		kv:                initial,
 		commitCh:          make(chan candidateSubmission, commitQueueSize),
@@ -342,7 +340,11 @@ func (p *PBEO) BufferNestedResponse(payload map[string]any) bool {
 	buffered := p.nestedResponses.enqueue(requestID, payload)
 	if buffered {
 		if request, ok := p.takeBlockedRequest(requestID); ok {
-			go p.executeWithAdmission(requestID, request)
+			if p.nestedResponses.promoteOne(requestID) {
+				go p.executeWithAdmission(requestID, request)
+			} else if p.rememberBlockedRequest(requestID, request) {
+				go p.executeWithAdmission(requestID, request)
+			}
 		}
 	}
 	return buffered
@@ -443,8 +445,7 @@ func (p *PBEO) executeUntilProposed(requestID string, request map[string]any) {
 		response["request_id"] = requestID
 	}
 	if common.GetString(response, "status") == "blocked_for_nested_response" {
-		nestedCount := p.nestedResponses.count(requestID)
-		if p.rememberBlockedRequest(requestID, request, nestedCount) {
+		if p.rememberBlockedRequest(requestID, request) {
 			go p.executeWithAdmission(requestID, request)
 		}
 		executeSpan.SetAttributes(
@@ -594,7 +595,6 @@ func (p *PBEO) dequeueCommittableEntries() []CommittedEntry {
 		}
 		p.committedRequests[entry.RequestID] = cloneEntry(entry)
 		delete(p.blockedRequests, entry.RequestID)
-		delete(p.blockedNestedSeen, entry.RequestID)
 		delete(p.requestAttempts, entry.RequestID)
 		entries = append(entries, CommittedEntry{Slot: nextSlot, Entry: cloneEntry(entry)})
 	}
@@ -761,17 +761,15 @@ func (p *PBEO) tryAcceptRequest(requestID string) bool {
 	return true
 }
 
-func (p *PBEO) rememberBlockedRequest(requestID string, request map[string]any, nestedCount int) bool {
+func (p *PBEO) rememberBlockedRequest(requestID string, request map[string]any) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if _, committed := p.committedRequests[requestID]; committed {
 		return false
 	}
-	if nestedCount > p.blockedNestedSeen[requestID] {
-		p.blockedNestedSeen[requestID] = nestedCount
+	if p.nestedResponses.promoteOne(requestID) {
 		return true
 	}
-	p.blockedNestedSeen[requestID] = nestedCount
 	p.blockedRequests[requestID] = cloneMapAny(request)
 	return false
 }
@@ -792,7 +790,6 @@ func (p *PBEO) finishRequestFailure(requestID string) {
 	defer p.mu.Unlock()
 	delete(p.requestAttempts, requestID)
 	delete(p.blockedRequests, requestID)
-	delete(p.blockedNestedSeen, requestID)
 	span := p.lifecycleSpans[requestID]
 	delete(p.lifecycleSpans, requestID)
 	if span != nil {

@@ -144,11 +144,13 @@ type nestedResponseStore struct {
 	mu        sync.Mutex
 	cond      *sync.Cond
 	responses map[string][]map[string]any
+	pending   map[string][]map[string]any
 }
 
 func newNestedResponseStore() *nestedResponseStore {
 	store := &nestedResponseStore{
 		responses: make(map[string][]map[string]any),
+		pending:   make(map[string][]map[string]any),
 	}
 	store.cond = sync.NewCond(&store.mu)
 	return store
@@ -157,7 +159,7 @@ func newNestedResponseStore() *nestedResponseStore {
 func (s *nestedResponseStore) enqueue(requestID string, payload map[string]any) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.responses[requestID] = append(s.responses[requestID], cloneMapAny(payload))
+	s.pending[requestID] = append(s.pending[requestID], cloneMapAny(payload))
 	s.cond.Broadcast()
 	return true
 }
@@ -172,16 +174,34 @@ func (s *nestedResponseStore) get(requestID string) ([]map[string]any, bool) {
 	return cloneMapSlice(queue), true
 }
 
-func (s *nestedResponseStore) count(requestID string) int {
+func (s *nestedResponseStore) promoteOne(requestID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return len(s.responses[requestID])
+	return s.promoteOneLocked(requestID)
+}
+
+func (s *nestedResponseStore) promoteOneLocked(requestID string) bool {
+	pending := s.pending[requestID]
+	if len(pending) == 0 {
+		return false
+	}
+	response := pending[0]
+	if len(pending) == 1 {
+		delete(s.pending, requestID)
+	} else {
+		s.pending[requestID] = pending[1:]
+	}
+	s.responses[requestID] = append(s.responses[requestID], response)
+	return true
 }
 
 func (s *nestedResponseStore) wait(requestID string) []map[string]any {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for len(s.responses[requestID]) == 0 {
+		if s.promoteOneLocked(requestID) {
+			break
+		}
 		s.cond.Wait()
 	}
 	return cloneMapSlice(s.responses[requestID])
@@ -191,6 +211,7 @@ func (s *nestedResponseStore) clear(requestID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.responses, requestID)
+	delete(s.pending, requestID)
 }
 
 type requestContextStore struct {

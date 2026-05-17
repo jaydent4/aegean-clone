@@ -358,3 +358,88 @@ func TestPBEOReexecutesWhenNestedResponseArrivesBeforeBlockedRegistration(t *tes
 		t.Fatalf("timed out waiting for committed response")
 	}
 }
+
+func TestPBEOEarlyNestedResponsesWakeOneExecutionAtATime(t *testing.T) {
+	box := &fakeConsensusBox{isLeader: true, leader: "node1"}
+	var component *PBEO
+	sent := make(chan map[string]any, 1)
+
+	component = newTestPBEO(t, box, func(tx *Txn, request map[string]any) map[string]any {
+		requestID := request["request_id"]
+		stageAny, _ := tx.GetRequestContextValue(requestID, "stage")
+		stage, _ := stageAny.(string)
+		nestedResponses, _ := tx.GetNestedResponses(requestID)
+		hasNested := func(child string) bool {
+			for _, nested := range nestedResponses {
+				if nested["request_id"] == child {
+					return true
+				}
+			}
+			return false
+		}
+
+		switch stage {
+		case "":
+			if len(nestedResponses) != 0 {
+				t.Fatalf("initial execution should not see pending nested responses")
+			}
+			_ = tx.SetRequestContextValue(requestID, "stage", "await_first")
+			return map[string]any{"request_id": requestID, "status": "blocked_for_nested_response"}
+		case "await_first":
+			if !hasNested("r1/first") {
+				return map[string]any{"request_id": requestID, "status": "blocked_for_nested_response"}
+			}
+			if hasNested("r1/second") {
+				t.Fatalf("second nested response became visible before the second wake")
+			}
+			_ = tx.SetRequestContextValue(requestID, "stage", "await_second")
+			return map[string]any{"request_id": requestID, "status": "blocked_for_nested_response"}
+		case "await_second":
+			if !hasNested("r1/second") {
+				return map[string]any{"request_id": requestID, "status": "blocked_for_nested_response"}
+			}
+			return map[string]any{"request_id": requestID, "status": "ok"}
+		default:
+			return map[string]any{"request_id": requestID, "status": "unexpected_stage"}
+		}
+	}, nil, func(peer string, payload map[string]any) error {
+		sent <- cloneMapAny(payload)
+		return nil
+	})
+	defer component.Stop()
+
+	if !component.BufferNestedResponse(map[string]any{
+		"type":              "response",
+		"request_id":        "r1/first",
+		"parent_request_id": "r1",
+		"sender":            "child",
+	}) {
+		t.Fatalf("expected first early nested response to be buffered")
+	}
+	if !component.BufferNestedResponse(map[string]any{
+		"type":              "response",
+		"request_id":        "r1/second",
+		"parent_request_id": "r1",
+		"sender":            "child",
+	}) {
+		t.Fatalf("expected second early nested response to be buffered")
+	}
+
+	response := component.HandleRequest("r1", map[string]any{"request_id": "r1"})
+	if response["status"] != "accepted" {
+		t.Fatalf("expected request to be accepted, got %v", response["status"])
+	}
+
+	select {
+	case payload := <-sent:
+		if payload["request_id"] != "r1" {
+			t.Fatalf("expected response for r1, got %v", payload["request_id"])
+		}
+		response, _ := payload["response"].(map[string]any)
+		if response["status"] != "ok" {
+			t.Fatalf("expected ok response, got %v", response["status"])
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for committed response")
+	}
+}
