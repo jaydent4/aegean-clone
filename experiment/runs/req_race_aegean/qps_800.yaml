@@ -8,8 +8,11 @@ duration: 15s
 k6_pre_allocated_vus: 0
 k6_max_vus: 10000
 
+eo_disable_follower_elections: true
+
+pbeo_disable_follower_elections: true
 # Run & system configs
-run_timeout_seconds: 20
+run_timeout_seconds: 60
 parallel_window_k: 16
 worker_count: 8
 gomaxprocs: 32

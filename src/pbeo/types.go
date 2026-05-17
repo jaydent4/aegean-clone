@@ -52,39 +52,45 @@ type ConsensusBox interface {
 }
 
 type BoxConfig struct {
-	Name              string
-	Peers             []string
-	SendRaft          SendRaftFunc
-	SendRaftBatch     SendRaftBatchFunc
-	TickInterval      time.Duration
-	ElectionTick      int
-	HeartbeatTick     int
-	MaxInflightMsgs   int
-	MaxSizePerMsg     uint64
-	RaftSendBatchSize int
+	Name          string
+	Peers         []string
+	SendRaft      SendRaftFunc
+	SendRaftBatch SendRaftBatchFunc
+	TickInterval  time.Duration
+	ElectionTick  int
+	HeartbeatTick int
+	// DisableFollowerElections keeps followers from campaigning after a leader
+	// is known. It is intended only for controlled experiments that assume node
+	// failures do not happen.
+	DisableFollowerElections bool
+	MaxInflightMsgs          int
+	MaxSizePerMsg            uint64
+	RaftSendBatchSize        int
 }
 
 type BoxFactory func(cfg BoxConfig, onLearn LearnFunc) (ConsensusBox, error)
 
 type Config struct {
-	Name                string
-	Peers               []string
-	Clients             []string
-	Execute             ExecuteRequestFunc
-	InitState           InitStateFunc
-	RunConfig           map[string]any
-	Send                SendFunc
-	SendRaft            SendRaftFunc
-	SendRaftBatch       SendRaftBatchFunc
-	SendNestedRaft      eo.SendRaftFunc
-	SendNestedRaftBatch eo.SendRaftBatchFunc
-	BoxFactory          BoxFactory
-	NestedBoxFactory    eo.BoxFactory
-	TickInterval        time.Duration
-	ElectionTick        int
-	HeartbeatTick       int
-	MaxInflightMsgs     int
-	MaxSizePerMsg       uint64
-	RaftSendBatchSize   int
-	EORaftSendBatchSize int
+	Name                       string
+	Peers                      []string
+	Clients                    []string
+	Execute                    ExecuteRequestFunc
+	InitState                  InitStateFunc
+	RunConfig                  map[string]any
+	Send                       SendFunc
+	SendRaft                   SendRaftFunc
+	SendRaftBatch              SendRaftBatchFunc
+	SendNestedRaft             eo.SendRaftFunc
+	SendNestedRaftBatch        eo.SendRaftBatchFunc
+	BoxFactory                 BoxFactory
+	NestedBoxFactory           eo.BoxFactory
+	TickInterval               time.Duration
+	ElectionTick               int
+	HeartbeatTick              int
+	DisableFollowerElections   bool
+	EODisableFollowerElections bool
+	MaxInflightMsgs            int
+	MaxSizePerMsg              uint64
+	RaftSendBatchSize          int
+	EORaftSendBatchSize        int
 }

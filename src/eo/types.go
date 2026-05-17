@@ -59,16 +59,20 @@ type ConsensusBox interface {
 
 // BoxConfig controls the raft-backed consensus box.
 type BoxConfig struct {
-	Name              string
-	Peers             []string
-	SendRaft          SendRaftFunc
-	SendRaftBatch     SendRaftBatchFunc
-	TickInterval      time.Duration
-	ElectionTick      int
-	HeartbeatTick     int
-	MaxInflightMsgs   int
-	MaxSizePerMsg     uint64
-	RaftSendBatchSize int
+	Name          string
+	Peers         []string
+	SendRaft      SendRaftFunc
+	SendRaftBatch SendRaftBatchFunc
+	TickInterval  time.Duration
+	ElectionTick  int
+	HeartbeatTick int
+	// DisableFollowerElections keeps followers from campaigning after a leader
+	// is known. It is intended only for controlled experiments that assume node
+	// failures do not happen.
+	DisableFollowerElections bool
+	MaxInflightMsgs          int
+	MaxSizePerMsg            uint64
+	RaftSendBatchSize        int
 }
 
 // BoxFactory allows tests to swap in a fake consensus implementation.
@@ -76,19 +80,20 @@ type BoxFactory func(cfg BoxConfig, onLearn LearnFunc) (ConsensusBox, error)
 
 // Config constructs an EO instance.
 type Config struct {
-	Name              string
-	Peers             []string
-	Execute           ExecuteFunc
-	Commit            CommitFunc
-	Apply             ApplyFunc
-	Forward           ForwardFunc
-	SendRaft          SendRaftFunc
-	SendRaftBatch     SendRaftBatchFunc
-	BoxFactory        BoxFactory
-	TickInterval      time.Duration
-	ElectionTick      int
-	HeartbeatTick     int
-	MaxInflightMsgs   int
-	MaxSizePerMsg     uint64
-	RaftSendBatchSize int
+	Name                     string
+	Peers                    []string
+	Execute                  ExecuteFunc
+	Commit                   CommitFunc
+	Apply                    ApplyFunc
+	Forward                  ForwardFunc
+	SendRaft                 SendRaftFunc
+	SendRaftBatch            SendRaftBatchFunc
+	BoxFactory               BoxFactory
+	TickInterval             time.Duration
+	ElectionTick             int
+	HeartbeatTick            int
+	DisableFollowerElections bool
+	MaxInflightMsgs          int
+	MaxSizePerMsg            uint64
+	RaftSendBatchSize        int
 }

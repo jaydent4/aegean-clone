@@ -206,7 +206,7 @@ func newRaftConsensusBox(cfg BoxConfig, onLearn LearnFunc) (ConsensusBox, error)
 		go box.runSendWorker(id, queue)
 	}
 	go box.runLearnWorker()
-	go box.run(rawNode, storage, tickInterval)
+	go box.run(rawNode, storage, tickInterval, cfg.DisableFollowerElections)
 	return box, nil
 }
 
@@ -385,7 +385,7 @@ func (b *raftConsensusBox) runLearnWorker() {
 	}
 }
 
-func (b *raftConsensusBox) run(rawNode *raft.RawNode, storage *raft.MemoryStorage, tickInterval time.Duration) {
+func (b *raftConsensusBox) run(rawNode *raft.RawNode, storage *raft.MemoryStorage, tickInterval time.Duration, disableFollowerElections bool) {
 	defer b.endOpenRequestTraces("box_stopped")
 	defer b.endQueuedProposalTraces("box_stopped")
 	defer close(b.doneCh)
@@ -407,8 +407,10 @@ func (b *raftConsensusBox) run(rawNode *raft.RawNode, storage *raft.MemoryStorag
 		case <-b.stopCh:
 			return
 		case <-ticker.C:
-			rawNode.Tick()
-			b.drainReady(rawNode, storage)
+			if shouldTickRaft(rawNode.Status(), disableFollowerElections) {
+				rawNode.Tick()
+				b.drainReady(rawNode, storage)
+			}
 		case request := <-b.proposals:
 			proposalSpan := b.startProposalLoopTrace(request.entry)
 			b.rememberRequestTrace(request.entry, request.span)
@@ -444,6 +446,16 @@ func (b *raftConsensusBox) run(rawNode *raft.RawNode, storage *raft.MemoryStorag
 			b.processStep(rawNode, storage, request)
 		}
 	}
+}
+
+func shouldTickRaft(status raft.Status, disableFollowerElections bool) bool {
+	if !disableFollowerElections {
+		return true
+	}
+	if status.RaftState == raft.StateLeader {
+		return true
+	}
+	return status.Lead == 0
 }
 
 func (b *raftConsensusBox) endQueuedProposalTraces(event string) {

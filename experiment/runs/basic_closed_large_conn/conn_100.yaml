@@ -12,8 +12,11 @@ read_key_mod: 1000
 key_count: 1000
 value_length: 100
 
+eo_disable_follower_elections: true
+
+pbeo_disable_follower_elections: true
 # Run & system configs
-run_timeout_seconds: 20
+run_timeout_seconds: 60
 parallel_window_k: 16
 worker_count: 8
 gomaxprocs: 32

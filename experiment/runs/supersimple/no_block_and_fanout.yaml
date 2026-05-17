@@ -9,8 +9,11 @@ k6_vus: 50
 supersimple_nesres_block: false
 supersimple_forward_prob: 1.0
 
+eo_disable_follower_elections: true
+
+pbeo_disable_follower_elections: true
 # Run & system configs
-run_timeout_seconds: 20
+run_timeout_seconds: 60
 parallel_window_k: 16
 worker_count: 8
 gomaxprocs: 32

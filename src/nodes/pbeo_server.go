@@ -33,6 +33,10 @@ func NewPBEOServer(
 		Node: NewNode(name, host, port),
 	}
 
+	disableFollowerElections := common.BoolOrDefault(runConfig, "raft_disable_follower_elections", false)
+	disablePBEOFollowerElections := common.BoolOrDefault(runConfig, "pbeo_disable_follower_elections", disableFollowerElections)
+	disableEOFollowerElections := common.BoolOrDefault(runConfig, "eo_disable_follower_elections", disableFollowerElections)
+
 	component, err := pbeo.NewPBEO(pbeo.Config{
 		Name:      name,
 		Peers:     nodes,
@@ -76,11 +80,13 @@ func NewPBEOServer(
 			_, err = netx.SendMessage(peer, 8000, payload)
 			return err
 		},
-		TickInterval:        time.Duration(common.IntOrDefault(runConfig, "pbeo_tick_interval_ms", 10)) * time.Millisecond,
-		ElectionTick:        common.IntOrDefault(runConfig, "pbeo_election_tick", 10),
-		HeartbeatTick:       common.IntOrDefault(runConfig, "pbeo_heartbeat_tick", 1),
-		RaftSendBatchSize:   common.IntOrDefault(runConfig, "pbeo_raft_send_batch_size", 64),
-		EORaftSendBatchSize: common.IntOrDefault(runConfig, "eo_raft_send_batch_size", 1),
+		TickInterval:               time.Duration(common.IntOrDefault(runConfig, "pbeo_tick_interval_ms", 10)) * time.Millisecond,
+		ElectionTick:               common.IntOrDefault(runConfig, "pbeo_election_tick", 10),
+		HeartbeatTick:              common.IntOrDefault(runConfig, "pbeo_heartbeat_tick", 1),
+		DisableFollowerElections:   disablePBEOFollowerElections,
+		EODisableFollowerElections: disableEOFollowerElections,
+		RaftSendBatchSize:          common.IntOrDefault(runConfig, "pbeo_raft_send_batch_size", 64),
+		EORaftSendBatchSize:        common.IntOrDefault(runConfig, "eo_raft_send_batch_size", 1),
 	})
 	if err != nil {
 		panic(err)

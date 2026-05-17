@@ -56,16 +56,17 @@ func NewEO(cfg Config) (*EO, error) {
 	}
 
 	box, err := factory(BoxConfig{
-		Name:              cfg.Name,
-		Peers:             append([]string{}, cfg.Peers...),
-		SendRaft:          cfg.SendRaft,
-		SendRaftBatch:     cfg.SendRaftBatch,
-		TickInterval:      cfg.TickInterval,
-		ElectionTick:      cfg.ElectionTick,
-		HeartbeatTick:     cfg.HeartbeatTick,
-		MaxInflightMsgs:   cfg.MaxInflightMsgs,
-		MaxSizePerMsg:     cfg.MaxSizePerMsg,
-		RaftSendBatchSize: cfg.RaftSendBatchSize,
+		Name:                     cfg.Name,
+		Peers:                    append([]string{}, cfg.Peers...),
+		SendRaft:                 cfg.SendRaft,
+		SendRaftBatch:            cfg.SendRaftBatch,
+		TickInterval:             cfg.TickInterval,
+		ElectionTick:             cfg.ElectionTick,
+		HeartbeatTick:            cfg.HeartbeatTick,
+		DisableFollowerElections: cfg.DisableFollowerElections,
+		MaxInflightMsgs:          cfg.MaxInflightMsgs,
+		MaxSizePerMsg:            cfg.MaxSizePerMsg,
+		RaftSendBatchSize:        cfg.RaftSendBatchSize,
 	}, e.Learn)
 	if err != nil {
 		return nil, err

@@ -20,10 +20,12 @@ eo_raft_send_batch_size: 1
 eo_tick_interval_ms: 10
 eo_election_tick: 1000
 eo_heartbeat_tick: 1
+eo_disable_follower_elections: true
 nested_use_eo: true
 aegean_nested_use_eo: true
 use_eo_after_quorum: true
 
+pbeo_disable_follower_elections: true
 # Run & system configs
 run_timeout_seconds: 60
 parallel_window_k: 16

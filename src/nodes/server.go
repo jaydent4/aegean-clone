@@ -79,6 +79,11 @@ func NewServer(name, host string, port int, clients []string, nodes []string, is
 	server.Exec = exec.NewExec(name, nodes, peers, execToVerifier, execToShim, verifyResponseQuorumSize, executeRequest, initStateFn, runConfig)
 	server.Verifier = verifier.NewVerifier(name, nodes, nodes, verifierToExec, execVerifyQuorumSize, phaseQuorumSize, expectedExecVotes)
 	if common.BoolOrDefault(runConfig, "nested_use_eo", false) {
+		disableFollowerElections := common.BoolOrDefault(
+			runConfig,
+			"eo_disable_follower_elections",
+			common.BoolOrDefault(runConfig, "raft_disable_follower_elections", false),
+		)
 		component, err := eo.NewEO(eo.Config{
 			Name:  name,
 			Peers: nodes,
@@ -101,10 +106,11 @@ func NewServer(name, host string, port int, clients []string, nodes []string, is
 				_, err = netx.SendMessage(peer, 8000, payload)
 				return err
 			},
-			TickInterval:      time.Duration(common.IntOrDefault(runConfig, "eo_tick_interval_ms", 10)) * time.Millisecond,
-			ElectionTick:      common.IntOrDefault(runConfig, "eo_election_tick", 10),
-			HeartbeatTick:     common.IntOrDefault(runConfig, "eo_heartbeat_tick", 1),
-			RaftSendBatchSize: common.IntOrDefault(runConfig, "eo_raft_send_batch_size", 1),
+			TickInterval:             time.Duration(common.IntOrDefault(runConfig, "eo_tick_interval_ms", 10)) * time.Millisecond,
+			ElectionTick:             common.IntOrDefault(runConfig, "eo_election_tick", 10),
+			HeartbeatTick:            common.IntOrDefault(runConfig, "eo_heartbeat_tick", 1),
+			DisableFollowerElections: disableFollowerElections,
+			RaftSendBatchSize:        common.IntOrDefault(runConfig, "eo_raft_send_batch_size", 1),
 		})
 		if err != nil {
 			panic(err)

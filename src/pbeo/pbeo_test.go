@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"aegean/eo"
+	raft "go.etcd.io/raft/v3"
 	raftpb "go.etcd.io/raft/v3/raftpb"
 )
 
@@ -16,6 +17,48 @@ type fakeConsensusBox struct {
 	slot      uint64
 	onLearn   LearnFunc
 	proposals []Entry
+}
+
+func TestShouldTickRaftWithDisabledFollowerElections(t *testing.T) {
+	tests := []struct {
+		name    string
+		status  raft.Status
+		disable bool
+		want    bool
+	}{
+		{
+			name:    "normal raft keeps ticking followers",
+			status:  raft.Status{BasicStatus: raft.BasicStatus{SoftState: raft.SoftState{Lead: 1, RaftState: raft.StateFollower}}},
+			disable: false,
+			want:    true,
+		},
+		{
+			name:    "leader keeps ticking",
+			status:  raft.Status{BasicStatus: raft.BasicStatus{SoftState: raft.SoftState{Lead: 1, RaftState: raft.StateLeader}}},
+			disable: true,
+			want:    true,
+		},
+		{
+			name:    "followers tick until a leader is known",
+			status:  raft.Status{BasicStatus: raft.BasicStatus{SoftState: raft.SoftState{Lead: 0, RaftState: raft.StateFollower}}},
+			disable: true,
+			want:    true,
+		},
+		{
+			name:    "followers stop ticking after a leader is known",
+			status:  raft.Status{BasicStatus: raft.BasicStatus{SoftState: raft.SoftState{Lead: 1, RaftState: raft.StateFollower}}},
+			disable: true,
+			want:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldTickRaft(tt.status, tt.disable); got != tt.want {
+				t.Fatalf("shouldTickRaft() = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }
 
 func (f *fakeConsensusBox) IsLeader() bool {

@@ -17,6 +17,7 @@ social_mixer_mode: no_home_fanout_key
 
 # EO configs
 eo_raft_send_batch_size: 256
+eo_disable_follower_elections: true
 
 # PBEO configs
 pbeo_raft_send_batch_size: 256
@@ -25,9 +26,10 @@ pbeo_election_tick: 1000
 pbeo_heartbeat_tick: 1
 pbeo_max_executing_requests: 512
 pbeo_commit_drain_batch_size: 256
+pbeo_disable_follower_elections: true
 
 # Run & system configs
-run_timeout_seconds: 25
+run_timeout_seconds: 60
 parallel_window_k: 16
 worker_count: 8
 gomaxprocs: 32
