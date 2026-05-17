@@ -3,6 +3,7 @@ package hotelworkflow
 import (
 	"aegean/common"
 	"strconv"
+	"strings"
 )
 
 func InitState(e workflowRuntime) map[string]string {
@@ -24,7 +25,11 @@ func InitState(e workflowRuntime) map[string]string {
 	case "reservation":
 		state = initHotelReservationState(e)
 	default:
-		state = map[string]string{}
+		if hotelIsRecommendationService(serviceName) {
+			state = initHotelRecommendationState(e)
+		} else {
+			state = map[string]string{}
+		}
 	}
 	if !hotelServiceHasPersistentState(serviceName) {
 		return state
@@ -37,8 +42,12 @@ func hotelServiceHasPersistentState(serviceName string) bool {
 	case "geo", "profile", "rate", "recommendation", "reservation", "search", "user":
 		return true
 	default:
-		return false
+		return hotelIsRecommendationService(serviceName)
 	}
+}
+
+func hotelIsRecommendationService(serviceName string) bool {
+	return strings.HasPrefix(serviceName, "recommendation_")
 }
 
 func initHotelGeoState(e workflowRuntime) map[string]string {
@@ -70,9 +79,10 @@ func initHotelRateState(e workflowRuntime) map[string]string {
 
 func initHotelRecommendationState(e workflowRuntime) map[string]string {
 	hotelCount := common.MustInt(e.GetRunConfig(), "hotel_hotel_count")
+	pool := hotelRecommendationPoolFromConfig(e.GetRunConfig())
 	state := make(map[string]string, hotelCount)
-	for _, hotel := range hotelSeedRecommendations(hotelCount) {
-		state[hotelRecommendationKey(hotel.HotelID)] = encodeJSON(hotel)
+	for _, hotel := range hotelSeedRecommendationsForPool(hotelCount, pool) {
+		state[hotelRecommendationKeyForPool(pool, hotel.HotelID)] = encodeJSON(hotel)
 	}
 	return state
 }

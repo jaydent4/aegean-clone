@@ -177,53 +177,15 @@ func ExecuteRequestRecommendation(e workflowRuntime, request map[string]any, ndS
 	hotels := make([]HotelRecommendation, 0, hotelCount)
 	for hotelIdx := 1; hotelIdx <= hotelCount; hotelIdx++ {
 		hotelID := strconv.Itoa(hotelIdx)
-		hotel, ok := decodeHotelRecommendation(hotelReadKV(e, hotelRecommendationKey(hotelID)))
+		hotel, ok := decodeHotelRecommendation(hotelReadKV(e, hotelRecommendationKeyForRuntime(e, hotelID)))
 		if !ok {
 			continue
 		}
 		hotels = append(hotels, hotel)
 	}
 
-	var hotelIDs []string
-	switch requirement {
-	case "dis":
-		minDistance := -1.0
-		for _, hotel := range hotels {
-			distance := hotelDistanceKm(lat, lon, hotel.Lat, hotel.Lon)
-			if minDistance < 0 || distance < minDistance {
-				minDistance = distance
-				hotelIDs = []string{hotel.HotelID}
-				continue
-			}
-			if distance == minDistance {
-				hotelIDs = append(hotelIDs, hotel.HotelID)
-			}
-		}
-	case "rate":
-		maxRate := -1.0
-		for _, hotel := range hotels {
-			if hotel.Rate > maxRate {
-				maxRate = hotel.Rate
-				hotelIDs = []string{hotel.HotelID}
-				continue
-			}
-			if hotel.Rate == maxRate {
-				hotelIDs = append(hotelIDs, hotel.HotelID)
-			}
-		}
-	case "price":
-		minPrice := -1.0
-		for _, hotel := range hotels {
-			if minPrice < 0 || hotel.Price < minPrice {
-				minPrice = hotel.Price
-				hotelIDs = []string{hotel.HotelID}
-				continue
-			}
-			if hotel.Price == minPrice {
-				hotelIDs = append(hotelIDs, hotel.HotelID)
-			}
-		}
-	default:
+	hotelIDs, ok := hotelBestRecommendationIDs(hotels, requirement, lat, lon)
+	if !ok {
 		return hotelErrorResponse(requestID, "invalid require")
 	}
 
@@ -233,6 +195,61 @@ func ExecuteRequestRecommendation(e workflowRuntime, request map[string]any, ndS
 		"status":     "ok",
 		"hotel_ids":  hotelIDs,
 	})
+}
+
+func hotelBestRecommendationIDs(hotels []HotelRecommendation, requirement string, lat, lon float64) ([]string, bool) {
+	score := func(hotel HotelRecommendation) float64 {
+		switch requirement {
+		case "dis":
+			return hotelDistanceKm(lat, lon, hotel.Lat, hotel.Lon)
+		case "rate":
+			return hotel.Rate
+		case "price":
+			return hotel.Price
+		default:
+			return 0
+		}
+	}
+
+	switch requirement {
+	case "dis", "price":
+		sort.Slice(hotels, func(i, j int) bool {
+			left := score(hotels[i])
+			right := score(hotels[j])
+			if left == right {
+				return hotels[i].HotelID < hotels[j].HotelID
+			}
+			return left < right
+		})
+	case "rate":
+		sort.Slice(hotels, func(i, j int) bool {
+			left := score(hotels[i])
+			right := score(hotels[j])
+			if left == right {
+				return hotels[i].HotelID < hotels[j].HotelID
+			}
+			return left > right
+		})
+	default:
+		return nil, false
+	}
+
+	if len(hotels) == 0 {
+		return nil, true
+	}
+
+	bestScore := score(hotels[0])
+	hotelIDs := []string{}
+	for _, hotel := range hotels {
+		if score(hotel) == bestScore {
+			hotelIDs = append(hotelIDs, hotel.HotelID)
+			continue
+		}
+		if len(hotelIDs) > 0 {
+			break
+		}
+	}
+	return hotelIDs, true
 }
 
 func ExecuteRequestUser(e workflowRuntime, request map[string]any, ndSeed int64, ndTimestamp float64) map[string]any {

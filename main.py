@@ -366,7 +366,9 @@ def node_local_redis_env(run_config, service_name):
     needs_local_redis = False
 
     if "hotel_redis_enable" in run_config:
-        enabled = bool(run_config.get("hotel_redis_enable")) and service_name in HOTEL_LOCAL_REDIS_SERVICES
+        enabled = bool(run_config.get("hotel_redis_enable")) and (
+            service_name in HOTEL_LOCAL_REDIS_SERVICES or service_name.startswith("recommendation_")
+        )
         env_parts.append(f"HOTEL_REDIS_ENABLE={'1' if enabled else '0'}")
         if enabled:
             env_parts.append("HOTEL_REDIS_ADDR=127.0.0.1:6379")

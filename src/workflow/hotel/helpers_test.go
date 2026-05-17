@@ -74,9 +74,18 @@ func TestHotelUpdateSearchLedgerPersistsNormalizedQuery(t *testing.T) {
 }
 
 type hotelTestRuntime struct {
-	runConfig map[string]any
-	kv        map[string]string
-	contexts  map[any]map[string]any
+	runConfig        map[string]any
+	kv               map[string]string
+	contexts         map[any]map[string]any
+	nestedResponses  map[any][]map[string]any
+	directDispatches []hotelTestDispatch
+	eoDispatches     []hotelTestDispatch
+}
+
+type hotelTestDispatch struct {
+	source   map[string]any
+	targets  []string
+	outgoing map[string]any
 }
 
 func (r *hotelTestRuntime) GetRunConfig() map[string]any {
@@ -122,11 +131,28 @@ func (r *hotelTestRuntime) ClearRequestContext(requestID any) {
 }
 
 func (r *hotelTestRuntime) GetNestedResponses(requestID any) ([]map[string]any, bool) {
-	return nil, false
+	if r.nestedResponses == nil {
+		return nil, false
+	}
+	responses := r.nestedResponses[requestID]
+	if len(responses) == 0 {
+		return nil, false
+	}
+	return responses, true
 }
 
 func (r *hotelTestRuntime) DispatchNestedRequestDirect(sourceRequest map[string]any, targets []string, outgoing map[string]any) {
+	r.directDispatches = append(r.directDispatches, hotelTestDispatch{
+		source:   sourceRequest,
+		targets:  append([]string{}, targets...),
+		outgoing: outgoing,
+	})
 }
 
 func (r *hotelTestRuntime) DispatchNestedRequestEO(sourceRequest map[string]any, targets []string, outgoing map[string]any) {
+	r.eoDispatches = append(r.eoDispatches, hotelTestDispatch{
+		source:   sourceRequest,
+		targets:  append([]string{}, targets...),
+		outgoing: outgoing,
+	})
 }

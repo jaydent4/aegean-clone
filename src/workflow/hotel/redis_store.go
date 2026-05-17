@@ -132,7 +132,7 @@ func hotelLoadOrSeedState(e workflowRuntime, serviceName string, seed map[string
 		return state
 	}
 
-	prefixes := hotelServiceStatePrefixes(serviceName)
+	prefixes := hotelServiceStatePrefixes(e, serviceName)
 	if len(prefixes) > 0 {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
@@ -152,7 +152,7 @@ func hotelLoadOrSeedState(e workflowRuntime, serviceName string, seed map[string
 	return state
 }
 
-func hotelServiceStatePrefixes(serviceName string) []string {
+func hotelServiceStatePrefixes(e workflowRuntime, serviceName string) []string {
 	switch serviceName {
 	case "geo":
 		return []string{"hotel:geo:"}
@@ -163,7 +163,7 @@ func hotelServiceStatePrefixes(serviceName string) []string {
 	case "rate":
 		return []string{"hotel:rate:"}
 	case "recommendation":
-		return []string{"hotel:recommendation:"}
+		return []string{hotelRecommendationPoolPrefix(hotelRecommendationPoolFromConfig(e.GetRunConfig()))}
 	case "user":
 		return []string{"hotel:user:"}
 	case "reservation":
@@ -173,6 +173,9 @@ func hotelServiceStatePrefixes(serviceName string) []string {
 			"hotel:reservation:record:",
 		}
 	default:
+		if hotelIsRecommendationService(serviceName) {
+			return []string{hotelRecommendationPoolPrefix(hotelRecommendationPoolFromConfig(e.GetRunConfig()))}
+		}
 		return nil
 	}
 }

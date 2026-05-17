@@ -35,6 +35,26 @@ func hotelRecommendationKey(hotelID string) string {
 	return "hotel:recommendation:" + hotelID
 }
 
+func hotelRecommendationPoolFromConfig(config map[string]any) string {
+	return strings.TrimSpace(common.StringOrDefault(config, "hotel_recommendation_pool", ""))
+}
+
+func hotelRecommendationPoolPrefix(pool string) string {
+	pool = strings.TrimSpace(pool)
+	if pool == "" || pool == "default" {
+		return "hotel:recommendation:"
+	}
+	return "hotel:recommendation:" + pool + ":"
+}
+
+func hotelRecommendationKeyForPool(pool, hotelID string) string {
+	return hotelRecommendationPoolPrefix(pool) + hotelID
+}
+
+func hotelRecommendationKeyForRuntime(e workflowRuntime, hotelID string) string {
+	return hotelRecommendationKeyForPool(hotelRecommendationPoolFromConfig(e.GetRunConfig()), hotelID)
+}
+
 func hotelSearchLedgerKey(payload map[string]any) string {
 	lat, _ := hotelPayloadFloat64(payload, "lat")
 	lon, _ := hotelPayloadFloat64(payload, "lon")
@@ -148,6 +168,38 @@ func hotelRunConfigFloatOrDefault(config map[string]any, key string, defaultValu
 	}
 }
 
+func hotelRunConfigStringSlice(config map[string]any, key string) []string {
+	value, ok := config[key]
+	if !ok {
+		return nil
+	}
+	switch typed := value.(type) {
+	case []string:
+		return append([]string{}, typed...)
+	case []any:
+		values := make([]string, 0, len(typed))
+		for _, raw := range typed {
+			value, ok := raw.(string)
+			if ok && value != "" {
+				values = append(values, value)
+			}
+		}
+		return values
+	case string:
+		parts := strings.Split(typed, ",")
+		values := make([]string, 0, len(parts))
+		for _, part := range parts {
+			value := strings.TrimSpace(part)
+			if value != "" {
+				values = append(values, value)
+			}
+		}
+		return values
+	default:
+		return nil
+	}
+}
+
 func hotelNestedRequestID(parentRequestID any, serviceName string) string {
 	return fmt.Sprintf("%v/%s", parentRequestID, serviceName)
 }
@@ -198,6 +250,26 @@ func hotelSelectedNestedResponse(nestedResponses []map[string]any, parentRequest
 		}
 	}
 	return nil
+}
+
+func hotelFirstReadyNestedResponse(nestedResponses []map[string]any, parentRequestID any, serviceNames []string) (map[string]any, string) {
+	expected := make(map[string]string, len(serviceNames))
+	for _, serviceName := range serviceNames {
+		if serviceName == "" {
+			continue
+		}
+		expected[hotelNestedRequestID(parentRequestID, serviceName)] = serviceName
+	}
+	for _, nested := range nestedResponses {
+		if shimAggregated, _ := nested["shim_quorum_aggregated"].(bool); !shimAggregated {
+			continue
+		}
+		requestID, _ := nested["request_id"].(string)
+		if serviceName, ok := expected[requestID]; ok {
+			return nested, serviceName
+		}
+	}
+	return nil, ""
 }
 
 func hotelNestedResponsesReady(nestedResponses []map[string]any, parentRequestID any, serviceNames ...string) bool {
@@ -607,6 +679,43 @@ func hotelSeedRecommendations(hotelCount int) []HotelRecommendation {
 		})
 	}
 	return hotels
+}
+
+func hotelSeedRecommendationsForPool(hotelCount int, pool string) []HotelRecommendation {
+	hotels := hotelSeedRecommendations(hotelCount)
+	pool = strings.TrimSpace(pool)
+	if pool == "" || pool == "default" || pool == "pool_1" {
+		return hotels
+	}
+
+	poolIndex := hotelRecommendationPoolIndex(pool)
+	for idx := range hotels {
+		hotelID, _ := strconv.Atoi(hotels[idx].HotelID)
+		latStep := float64(((hotelID + poolIndex*2) % 9) - 4)
+		lonStep := float64(((hotelID*2 + poolIndex*3) % 9) - 4)
+		hotels[idx].Lat += latStep * 0.0015
+		hotels[idx].Lon += lonStep * 0.0015
+		hotels[idx].Rate = 90 + float64((hotelID*poolIndex*7+poolIndex*13)%160)
+		hotels[idx].Price = 80 + float64((hotelID*(poolIndex+5)*11+poolIndex*19)%180)
+	}
+	return hotels
+}
+
+func hotelRecommendationPoolIndex(pool string) int {
+	switch pool {
+	case "pool_1":
+		return 1
+	case "pool_2":
+		return 2
+	case "pool_3":
+		return 3
+	default:
+		total := 0
+		for _, char := range pool {
+			total += int(char)
+		}
+		return total%17 + 1
+	}
 }
 
 func hotelSeedReservationCapacities(hotelCount int) map[string]int {

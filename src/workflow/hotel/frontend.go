@@ -8,10 +8,13 @@ const (
 	frontendStageAwaitAvailability           = "await_availability"
 	frontendStageAwaitSearchProfiles         = "await_search_profiles"
 	frontendStageAwaitRecommendation         = "await_recommendation"
+	frontendStageAwaitRecommendationRace     = "await_recommendation_race"
 	frontendStageAwaitRecommendationProfiles = "await_recommendation_profiles"
 	frontendStageAwaitUserCheck              = "await_user_check"
 	frontendStageAwaitReservationUser        = "await_reservation_user"
 	frontendStageAwaitReservationWrite       = "await_reservation_write"
+
+	frontendProfileChildContextKey = "hotel_frontend_profile_child"
 )
 
 var (
@@ -159,6 +162,26 @@ func executeFrontendRecommendation(e workflowRuntime, request map[string]any, st
 		if !e.SetRequestContextValue(requestID, frontendPayloadContextKey, normalizedPayload) {
 			return hotelErrorResponse(requestID, "failed to initialize frontend recommendation context")
 		}
+		raceServices := hotelRunConfigStringSlice(e.GetRunConfig(), "hotel_recommendation_race_services")
+		if len(raceServices) > 0 {
+			for _, serviceName := range raceServices {
+				if len(hotelServiceTargets(e, serviceName, nil)) == 0 {
+					return hotelErrorResponse(requestID, "missing recommendation race service targets: "+serviceName)
+				}
+			}
+			if !e.SetRequestContextValue(requestID, frontendStageContextKey, frontendStageAwaitRecommendationRace) {
+				return hotelErrorResponse(requestID, "failed to set frontend recommendation race stage")
+			}
+			for _, serviceName := range raceServices {
+				recommendationRequest := hotelNewNestedRequest(requestID, serviceName, ndTimestamp, "get_recommendations", map[string]any{
+					"require": normalizedPayload["require"],
+					"lat":     normalizedPayload["lat"],
+					"lon":     normalizedPayload["lon"],
+				})
+				hotelDispatchNestedRequest(e, request, hotelServiceTargets(e, serviceName, nil), recommendationRequest)
+			}
+			return hotelBlockedForNestedResponse(requestID)
+		}
 		if !e.SetRequestContextValue(requestID, frontendStageContextKey, frontendStageAwaitRecommendation) {
 			return hotelErrorResponse(requestID, "failed to set frontend recommendation stage")
 		}
@@ -168,6 +191,46 @@ func executeFrontendRecommendation(e workflowRuntime, request map[string]any, st
 			"lon":     normalizedPayload["lon"],
 		})
 		hotelDispatchNestedRequest(e, request, hotelServiceTargets(e, "recommendation", hotelRecommendationTargets), recommendationRequest)
+		return hotelBlockedForNestedResponse(requestID)
+
+	case frontendStageAwaitRecommendationRace:
+		raceServices := hotelRunConfigStringSlice(e.GetRunConfig(), "hotel_recommendation_race_services")
+		if len(raceServices) == 0 {
+			return hotelErrorResponse(requestID, "missing recommendation race services")
+		}
+		nestedResponses, ok := e.GetNestedResponses(requestID)
+		if !ok {
+			return hotelBlockedForNestedResponse(requestID)
+		}
+		recommendationResponse, winningService := hotelFirstReadyNestedResponse(nestedResponses, requestID, raceServices)
+		if recommendationResponse == nil {
+			return hotelBlockedForNestedResponse(requestID)
+		}
+		recommendationPayload := hotelNestedResponsePayload(recommendationResponse)
+		hotelIDs := hotelPayloadStringSlice(recommendationPayload, "hotel_ids")
+		if len(hotelIDs) == 0 {
+			e.ClearRequestContext(requestID)
+			return hotelAttachParentRequestID(request, map[string]any{
+				"request_id": requestID,
+				"status":     "ok",
+				"result":     hotelGeoJSONResponse(nil),
+			})
+		}
+
+		contextPayloadAny, _ := e.GetRequestContextValue(requestID, frontendPayloadContextKey)
+		contextPayload, _ := contextPayloadAny.(map[string]any)
+		profileChildName := "profile_" + winningService
+		if !e.SetRequestContextValue(requestID, frontendProfileChildContextKey, profileChildName) {
+			return hotelErrorResponse(requestID, "failed to record recommendation race profile child")
+		}
+		if !e.SetRequestContextValue(requestID, frontendStageContextKey, frontendStageAwaitRecommendationProfiles) {
+			return hotelErrorResponse(requestID, "failed to advance recommendation profile stage")
+		}
+		profileRequest := hotelNewNestedRequest(requestID, profileChildName, ndTimestamp, "get_profiles", map[string]any{
+			"hotel_ids": hotelIDs,
+			"locale":    contextPayload["locale"],
+		})
+		hotelDispatchNestedRequest(e, request, hotelServiceTargets(e, "profile", hotelProfileTargets), profileRequest)
 		return hotelBlockedForNestedResponse(requestID)
 
 	case frontendStageAwaitRecommendation:
@@ -200,10 +263,16 @@ func executeFrontendRecommendation(e workflowRuntime, request map[string]any, st
 
 	case frontendStageAwaitRecommendationProfiles:
 		nestedResponses, ok := e.GetNestedResponses(requestID)
-		if !ok || !hotelNestedResponsesReady(nestedResponses, requestID, "profile") {
+		profileChildName := "profile"
+		if contextProfileChild, childOK := e.GetRequestContextValue(requestID, frontendProfileChildContextKey); childOK {
+			if typed, _ := contextProfileChild.(string); typed != "" {
+				profileChildName = typed
+			}
+		}
+		if !ok || !hotelNestedResponsesReady(nestedResponses, requestID, profileChildName) {
 			return hotelBlockedForNestedResponse(requestID)
 		}
-		profilePayload := hotelNestedResponsePayload(hotelSelectedNestedResponse(nestedResponses, requestID, "profile"))
+		profilePayload := hotelNestedResponsePayload(hotelSelectedNestedResponse(nestedResponses, requestID, profileChildName))
 		profiles := hotelProfilesFromPayload(profilePayload["profiles"])
 		e.ClearRequestContext(requestID)
 		return hotelAttachParentRequestID(request, map[string]any{
