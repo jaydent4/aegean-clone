@@ -2,7 +2,7 @@
 architecture: hotel_hotels_pbeo.yaml
 
 # k6 config
-k6_qps: 1100
+k6_qps: 909
 warmup_duration: 10s
 duration: 15s
 k6_graceful_stop: 0s
