@@ -49,6 +49,7 @@ type PBEO struct {
 	requestAttempts   map[string]struct{}
 	committedRequests map[string]Entry
 	blockedRequests   map[string]map[string]any
+	pendingNestedWake map[string]struct{}
 	nestedProposals   map[string]struct{}
 
 	stateMu           sync.RWMutex
@@ -126,6 +127,7 @@ func NewPBEO(cfg Config) (*PBEO, error) {
 		requestAttempts:   make(map[string]struct{}),
 		committedRequests: make(map[string]Entry),
 		blockedRequests:   make(map[string]map[string]any),
+		pendingNestedWake: make(map[string]struct{}),
 		nestedProposals:   make(map[string]struct{}),
 		kv:                initial,
 		commitCh:          make(chan candidateSubmission, commitQueueSize),
@@ -341,6 +343,8 @@ func (p *PBEO) BufferNestedResponse(payload map[string]any) bool {
 	if buffered {
 		if request, ok := p.takeBlockedRequest(requestID); ok {
 			go p.executeWithAdmission(requestID, request)
+		} else {
+			p.markPendingNestedWake(requestID)
 		}
 	}
 	return buffered
@@ -441,7 +445,9 @@ func (p *PBEO) executeUntilProposed(requestID string, request map[string]any) {
 		response["request_id"] = requestID
 	}
 	if common.GetString(response, "status") == "blocked_for_nested_response" {
-		p.rememberBlockedRequest(requestID, request)
+		if p.rememberBlockedRequest(requestID, request) {
+			go p.executeWithAdmission(requestID, request)
+		}
 		executeSpan.SetAttributes(
 			attribute.Int("pbeo.write_count", len(tx.Writes())),
 			attribute.Int("pbeo.write_bytes", stringMapBytes(tx.Writes())),
@@ -589,6 +595,7 @@ func (p *PBEO) dequeueCommittableEntries() []CommittedEntry {
 		}
 		p.committedRequests[entry.RequestID] = cloneEntry(entry)
 		delete(p.blockedRequests, entry.RequestID)
+		delete(p.pendingNestedWake, entry.RequestID)
 		delete(p.requestAttempts, entry.RequestID)
 		entries = append(entries, CommittedEntry{Slot: nextSlot, Entry: cloneEntry(entry)})
 	}
@@ -755,13 +762,25 @@ func (p *PBEO) tryAcceptRequest(requestID string) bool {
 	return true
 }
 
-func (p *PBEO) rememberBlockedRequest(requestID string, request map[string]any) {
+func (p *PBEO) markPendingNestedWake(requestID string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.pendingNestedWake[requestID] = struct{}{}
+}
+
+func (p *PBEO) rememberBlockedRequest(requestID string, request map[string]any) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if _, committed := p.committedRequests[requestID]; committed {
-		return
+		return false
 	}
 	p.blockedRequests[requestID] = cloneMapAny(request)
+	if _, wake := p.pendingNestedWake[requestID]; wake {
+		delete(p.pendingNestedWake, requestID)
+		delete(p.blockedRequests, requestID)
+		return true
+	}
+	return false
 }
 
 func (p *PBEO) takeBlockedRequest(requestID string) (map[string]any, bool) {
@@ -772,6 +791,7 @@ func (p *PBEO) takeBlockedRequest(requestID string) (map[string]any, bool) {
 		return nil, false
 	}
 	delete(p.blockedRequests, requestID)
+	delete(p.pendingNestedWake, requestID)
 	return cloneMapAny(request), true
 }
 
@@ -780,6 +800,7 @@ func (p *PBEO) finishRequestFailure(requestID string) {
 	defer p.mu.Unlock()
 	delete(p.requestAttempts, requestID)
 	delete(p.blockedRequests, requestID)
+	delete(p.pendingNestedWake, requestID)
 	span := p.lifecycleSpans[requestID]
 	delete(p.lifecycleSpans, requestID)
 	if span != nil {

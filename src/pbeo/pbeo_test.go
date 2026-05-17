@@ -301,3 +301,60 @@ func TestPBEOCommitsPrimaryExecutionWithoutValidation(t *testing.T) {
 		t.Fatalf("expected response from original execution, got %v", got)
 	}
 }
+
+func TestPBEOReexecutesWhenNestedResponseArrivesBeforeBlockedRegistration(t *testing.T) {
+	box := &fakeConsensusBox{isLeader: true, leader: "node1"}
+	var component *PBEO
+	attempts := make(chan int, 2)
+	sent := make(chan map[string]any, 1)
+
+	attempt := 0
+	component = newTestPBEO(t, box, func(tx *Txn, request map[string]any) map[string]any {
+		attempt++
+		attempts <- attempt
+		if attempt == 1 {
+			if !component.BufferNestedResponse(map[string]any{
+				"type":              "response",
+				"request_id":        "r1/child",
+				"parent_request_id": "r1",
+				"sender":            "child",
+			}) {
+				t.Fatalf("expected early nested response to be buffered")
+			}
+			return map[string]any{"request_id": request["request_id"], "status": "blocked_for_nested_response"}
+		}
+		if _, ok := tx.GetNestedResponses("r1"); !ok {
+			t.Fatalf("expected buffered nested response on retry")
+		}
+		return map[string]any{"request_id": request["request_id"], "status": "ok"}
+	}, nil, func(peer string, payload map[string]any) error {
+		sent <- cloneMapAny(payload)
+		return nil
+	})
+	defer component.Stop()
+
+	response := component.HandleRequest("r1", map[string]any{"request_id": "r1"})
+	if response["status"] != "accepted" {
+		t.Fatalf("expected request to be accepted, got %v", response["status"])
+	}
+
+	for want := 1; want <= 2; want++ {
+		select {
+		case got := <-attempts:
+			if got != want {
+				t.Fatalf("attempt = %d, want %d", got, want)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("timed out waiting for attempt %d", want)
+		}
+	}
+
+	select {
+	case payload := <-sent:
+		if payload["request_id"] != "r1" {
+			t.Fatalf("expected response for r1, got %v", payload["request_id"])
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for committed response")
+	}
+}
