@@ -1,0 +1,167 @@
+---
+run_config:
+  eo_raft_send_batch_size: 1
+  hotel_recommendation_race_services:
+  - recommendation_1
+  - recommendation_2
+  - recommendation_3
+services:
+  client:
+    type: client
+    next:
+    - node1
+    - node2
+    - node3
+    client_workflow: hotel_k6_open_recommendations_client
+  frontend:
+    type: server
+    clients:
+    - node0
+    nodes:
+    - node1
+    - node2
+    - node3
+    exec_workflow: hotel_frontend
+    init_state_workflow: hotel_default
+    shimQuorumSize: 1
+    verifyResponseQuorumSize: 1
+    execVerifyQuorumSize: 2
+    phaseQuorumSize: 2
+    expectedExecVotes: 3
+    batcher_config:
+      batch_size: 12
+      batch_timeout_ms: 4
+  profile:
+    type: server
+    clients:
+    - node1
+    - node2
+    - node3
+    nodes:
+    - node4
+    - node5
+    - node6
+    exec_workflow: hotel_profile
+    init_state_workflow: hotel_default
+    shimQuorumSize: 1
+    verifyResponseQuorumSize: 1
+    execVerifyQuorumSize: 2
+    phaseQuorumSize: 2
+    expectedExecVotes: 3
+    batcher_config:
+      batch_size: 12
+      batch_timeout_ms: 4
+  recommendation_1:
+    type: server
+    clients:
+    - node1
+    - node2
+    - node3
+    nodes:
+    - node7
+    - node8
+    - node9
+    exec_workflow: hotel_recommendation
+    init_state_workflow: hotel_default
+    shimQuorumSize: 1
+    verifyResponseQuorumSize: 1
+    execVerifyQuorumSize: 2
+    phaseQuorumSize: 2
+    expectedExecVotes: 3
+    run_config:
+      hotel_recommendation_pool: pool_1
+    batcher_config:
+      batch_size: 12
+      batch_timeout_ms: 4
+  recommendation_2:
+    type: server
+    clients:
+    - node1
+    - node2
+    - node3
+    nodes:
+    - node10
+    - node11
+    - node12
+    exec_workflow: hotel_recommendation
+    init_state_workflow: hotel_default
+    shimQuorumSize: 1
+    verifyResponseQuorumSize: 1
+    execVerifyQuorumSize: 2
+    phaseQuorumSize: 2
+    expectedExecVotes: 3
+    run_config:
+      hotel_recommendation_pool: pool_2
+    batcher_config:
+      batch_size: 12
+      batch_timeout_ms: 4
+  recommendation_3:
+    type: server
+    clients:
+    - node1
+    - node2
+    - node3
+    nodes:
+    - node13
+    - node14
+    - node15
+    exec_workflow: hotel_recommendation
+    init_state_workflow: hotel_default
+    shimQuorumSize: 1
+    verifyResponseQuorumSize: 1
+    execVerifyQuorumSize: 2
+    phaseQuorumSize: 2
+    expectedExecVotes: 3
+    run_config:
+      hotel_recommendation_pool: pool_3
+    batcher_config:
+      batch_size: 12
+      batch_timeout_ms: 4
+nodes:
+  node0:
+    service: client
+  node1:
+    service: frontend
+    is_primary_batcher: true
+  node2:
+    service: frontend
+    is_primary_batcher: false
+  node3:
+    service: frontend
+    is_primary_batcher: false
+  node4:
+    service: profile
+    is_primary_batcher: true
+  node5:
+    service: profile
+    is_primary_batcher: false
+  node6:
+    service: profile
+    is_primary_batcher: false
+  node7:
+    service: recommendation_1
+    is_primary_batcher: true
+  node8:
+    service: recommendation_1
+    is_primary_batcher: false
+  node9:
+    service: recommendation_1
+    is_primary_batcher: false
+  node10:
+    service: recommendation_2
+    is_primary_batcher: true
+  node11:
+    service: recommendation_2
+    is_primary_batcher: false
+  node12:
+    service: recommendation_2
+    is_primary_batcher: false
+  node13:
+    service: recommendation_3
+    is_primary_batcher: true
+  node14:
+    service: recommendation_3
+    is_primary_batcher: false
+  node15:
+    service: recommendation_3
+    is_primary_batcher: false

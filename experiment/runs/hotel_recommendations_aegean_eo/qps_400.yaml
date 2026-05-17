@@ -1,5 +1,5 @@
 ---
-architecture: hotel_recommendations.yaml
+architecture: hotel_recommendations_aegean_eo.yaml
 
 # k6 config
 k6_qps: 400
