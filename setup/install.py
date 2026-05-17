@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import shlex
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 
 
@@ -29,8 +31,9 @@ EOF""",
     Step("apt update", "apt-get update"),
     Step(
         "system packages",
-        "DEBIAN_FRONTEND=noninteractive apt-get install -y openssh-server ca-certificates wget tar",
+        "DEBIAN_FRONTEND=noninteractive apt-get install -y openssh-server ca-certificates wget tar redis-server",
     ),
+    Step("verify redis", "redis-server --version"),
     Step(
         "install oha",
         r"""arch="$(dpkg --print-architecture)"
@@ -135,7 +138,16 @@ def format_output(stdout: str, stderr: str) -> str:
     return "\n".join(lines[-12:])
 
 
-def install_host(host: str) -> tuple[bool, list[str]]:
+@dataclass(frozen=True)
+class HostInstallResult:
+    host: str
+    success: bool
+    failures: list[str]
+    elapsed_sec: float
+
+
+def install_host(host: str) -> HostInstallResult:
+    started_at = time.monotonic()
     failures: list[str] = []
     for step in STEPS:
         result = run_step(host, step)
@@ -144,7 +156,12 @@ def install_host(host: str) -> tuple[bool, list[str]]:
         failures.append(
             f"{host}: {step.name} failed (exit {result.returncode})\n{format_output(result.stdout, result.stderr)}"
         )
-    return (len(failures) == 0, failures)
+    return HostInstallResult(
+        host=host,
+        success=len(failures) == 0,
+        failures=failures,
+        elapsed_sec=time.monotonic() - started_at,
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -162,12 +179,24 @@ def main() -> int:
         return 2
 
     failures: list[str] = []
-    for idx in range(args.count):
-        host = f"node{idx}"
-        success, host_failures = install_host(host)
-        failures.extend(host_failures)
-        if success:
-            print(f"{host}: successfully installed all steps")
+    hosts = [f"node{idx}" for idx in range(args.count)]
+
+    with ThreadPoolExecutor(max_workers=len(hosts)) as executor:
+        futures = {executor.submit(install_host, host): host for host in hosts}
+        for future in as_completed(futures):
+            host = futures[future]
+            try:
+                result = future.result()
+            except Exception as exc:  # noqa: BLE001
+                failures.append(f"{host}: install failed unexpectedly\n{exc}")
+                print(f"{host}: failed unexpectedly")
+                continue
+
+            failures.extend(result.failures)
+            if result.success:
+                print(f"{result.host}: successfully installed all steps ({result.elapsed_sec:.1f}s)")
+            else:
+                print(f"{result.host}: failed ({result.elapsed_sec:.1f}s)")
 
     if failures:
         print("\n\n".join(failures), file=sys.stderr)
