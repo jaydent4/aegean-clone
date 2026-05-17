@@ -144,6 +144,9 @@ func loadRunConfig(path string) (RunConfig, error) {
 	if err := requirePositiveIntegerField(raw, "run_timeout_seconds"); err != nil {
 		return RunConfig{}, fmt.Errorf("run config %s %w", path, err)
 	}
+	if err := requireOptionalPositiveIntegerField(raw, "nested_eo_request_quorum_timeout_ms"); err != nil {
+		return RunConfig{}, fmt.Errorf("run config %s %w", path, err)
+	}
 	if !filepath.IsAbs(architecture) {
 		architecture, err = resolveArchitecturePath(path, architecture)
 		if err != nil {
@@ -228,6 +231,19 @@ func requirePositiveIntegerField(raw map[string]any, field string) error {
 	value, ok := raw[field]
 	if !ok {
 		return fmt.Errorf("missing required field %q", field)
+	}
+
+	if _, ok := asPositiveInt(value); !ok {
+		return fmt.Errorf("field %q must be a positive integer", field)
+	}
+
+	return nil
+}
+
+func requireOptionalPositiveIntegerField(raw map[string]any, field string) error {
+	value, ok := raw[field]
+	if !ok {
+		return nil
 	}
 
 	if _, ok := asPositiveInt(value); !ok {

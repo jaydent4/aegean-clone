@@ -143,6 +143,18 @@ def load_run_config(run_config_path):
     if not isinstance(run_timeout_seconds, int) or run_timeout_seconds <= 0:
         raise ValueError("run config must include positive integer 'run_timeout_seconds'")
 
+    nested_eo_request_quorum_timeout_ms = data.get("nested_eo_request_quorum_timeout_ms")
+    if (
+        nested_eo_request_quorum_timeout_ms is not None
+        and (
+            not isinstance(nested_eo_request_quorum_timeout_ms, int)
+            or nested_eo_request_quorum_timeout_ms <= 0
+        )
+    ):
+        raise ValueError(
+            "run config field 'nested_eo_request_quorum_timeout_ms' must be a positive integer"
+        )
+
     architecture_path = os.path.normpath(os.path.join(architecture_dir, architecture))
     return resolved_run_config_path, relative_run_config_path, architecture_path, data
 

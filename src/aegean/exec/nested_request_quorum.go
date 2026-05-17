@@ -16,12 +16,11 @@ import (
 const (
 	MessageTypeEONestedRequest = "eo_nested_request"
 
-	// TODO: make the nested EO request quorum configurable once configs settle.
-	nestedEORequestQuorumSize = 2
-	// TODO: make the fallback timeout configurable and revisit recovery policy.
-	nestedEORequestQuorumTimeout = 5 * time.Second
-	nestedEORequestForwardRetry  = 25 * time.Millisecond
-	nestedEORequestForwardRPC    = 200 * time.Millisecond
+	// TODO: make the nested EO request quorum size configurable once configs settle.
+	nestedEORequestQuorumSize           = 2
+	DefaultNestedEORequestQuorumTimeout = 5 * time.Second
+	nestedEORequestForwardRetry         = 25 * time.Millisecond
+	nestedEORequestForwardRPC           = 200 * time.Millisecond
 )
 
 type NestedEORequestQuorumGate struct {
@@ -58,12 +57,16 @@ type nestedEOSelectedRequest struct {
 }
 
 func NewNestedEORequestQuorumGate(name string, inner NestedEOReplicator) *NestedEORequestQuorumGate {
-	return newNestedEORequestQuorumGate(name, inner, nestedEORequestQuorumTimeout)
+	return newNestedEORequestQuorumGate(name, inner, DefaultNestedEORequestQuorumTimeout)
+}
+
+func NewNestedEORequestQuorumGateWithTimeout(name string, inner NestedEOReplicator, timeout time.Duration) *NestedEORequestQuorumGate {
+	return newNestedEORequestQuorumGate(name, inner, timeout)
 }
 
 func newNestedEORequestQuorumGate(name string, inner NestedEOReplicator, timeout time.Duration) *NestedEORequestQuorumGate {
 	if timeout <= 0 {
-		timeout = nestedEORequestQuorumTimeout
+		timeout = DefaultNestedEORequestQuorumTimeout
 	}
 	return &NestedEORequestQuorumGate{
 		name:      name,

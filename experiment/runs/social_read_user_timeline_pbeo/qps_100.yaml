@@ -18,6 +18,7 @@ social_mixer_mode: no_home_fanout_key
 # EO configs
 eo_raft_send_batch_size: 256
 eo_disable_follower_elections: true
+nested_eo_request_quorum_timeout_ms: 5000
 
 # PBEO configs
 pbeo_raft_send_batch_size: 256
