@@ -425,9 +425,9 @@ def launch_nodes(
         logging_env = f"AEGEAN_ENABLE_LOGGING={'1' if enable_logging else '0'} "
         redis_needed, redis_env = node_local_redis_env(run_config, service_name)
         redis_setup = (
-            "pkill -TERM -x redis-server || true; "
+            "sudo pkill -TERM -x redis-server || true; "
             "sleep 1; "
-            "pkill -9 -x redis-server || true; "
+            "sudo pkill -9 -x redis-server || true; "
         )
         if redis_needed:
             redis_data_dir = f"/tmp/aegean-redis-{name}"
