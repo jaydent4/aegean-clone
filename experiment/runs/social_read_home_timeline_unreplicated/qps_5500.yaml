@@ -1,6 +1,6 @@
 ---
 architecture: social_read_home_timeline_unreplicated.yaml
-k6_qps: 400
+k6_qps: 5500
 warmup_duration: 10s
 warmup_graceful_stop: 45s
 duration: 15s

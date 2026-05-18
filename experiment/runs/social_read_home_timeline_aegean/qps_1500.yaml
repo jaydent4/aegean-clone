@@ -1,0 +1,23 @@
+---
+architecture: social_read_home_timeline_aegean.yaml
+
+# k6 config
+k6_qps: 1500
+warmup_duration: 10s
+warmup_graceful_stop: 45s
+duration: 15s
+k6_pre_allocated_vus: 0
+k6_max_vus: 10000
+
+# Social workflow config
+social_user_count: 32
+social_followers_per_user: 3
+social_seed_posts_per_user: 10
+social_nested_send_all_replicas: true
+social_mixer_mode: no_home_fanout_key
+
+# Run & system configs
+run_timeout_seconds: 60
+parallel_window_k: 16
+worker_count: 8
+gomaxprocs: 32
