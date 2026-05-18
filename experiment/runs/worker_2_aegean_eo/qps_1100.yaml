@@ -2,7 +2,7 @@
 architecture: worker_aegean_eo.yaml
 
 # K6 configs
-k6_qps: 100
+k6_qps: 1100
 warmup_duration: 10s
 warmup_graceful_stop: 45s
 duration: 15s
