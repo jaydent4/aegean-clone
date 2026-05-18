@@ -6,8 +6,8 @@ services:
     - node1
     - node2
     - node3
-    client_workflow: worker_k6_open_client
-  middle:
+    client_workflow: social_k6_open_read_user_timeline_client
+  user_timeline:
     type: server
     clients:
     - node0
@@ -15,17 +15,17 @@ services:
     - node1
     - node2
     - node3
-    exec_workflow: worker_middle
-    init_state_workflow: worker_default
+    exec_workflow: social_user_timeline
+    init_state_workflow: social_default
     shimQuorumSize: 1
     verifyResponseQuorumSize: 1
     execVerifyQuorumSize: 2
     phaseQuorumSize: 2
     expectedExecVotes: 3
     batcher_config:
-      batch_size: 40
-      batch_timeout_ms: 30
-  backend:
+      batch_size: 24
+      batch_timeout_ms: 25
+  post_storage:
     type: server
     clients:
     - node1
@@ -35,34 +35,34 @@ services:
     - node4
     - node5
     - node6
-    exec_workflow: worker_backend
-    init_state_workflow: worker_default
+    exec_workflow: social_post_storage
+    init_state_workflow: social_default
     shimQuorumSize: 2
     verifyResponseQuorumSize: 1
     execVerifyQuorumSize: 2
     phaseQuorumSize: 2
     expectedExecVotes: 3
     batcher_config:
-      batch_size: 10
+      batch_size: 24
       batch_timeout_ms: 5
 nodes:
   node0:
     service: client
   node1:
-    service: middle
+    service: user_timeline
     is_primary_batcher: true
   node2:
-    service: middle
+    service: user_timeline
     is_primary_batcher: false
   node3:
-    service: middle
+    service: user_timeline
     is_primary_batcher: false
   node4:
-    service: backend
+    service: post_storage
     is_primary_batcher: true
   node5:
-    service: backend
+    service: post_storage
     is_primary_batcher: false
   node6:
-    service: backend
+    service: post_storage
     is_primary_batcher: false

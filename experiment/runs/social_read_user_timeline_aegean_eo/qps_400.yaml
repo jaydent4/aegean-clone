@@ -1,5 +1,5 @@
 ---
-architecture: social_read_user_timeline.yaml
+architecture: social_read_user_timeline_aegean_eo.yaml
 
 # k6 config
 k6_qps: 400

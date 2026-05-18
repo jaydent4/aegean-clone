@@ -1,0 +1,247 @@
+---
+services:
+  client:
+    type: client
+    next:
+    - node1
+    client_workflow: media_k6_open_review_compose_client
+  review_compose_api:
+    type: unreplicated_server
+    clients:
+    - node0
+    nodes:
+    - node1
+    exec_workflow: media_review_compose_api
+    init_state_workflow: media_default
+  user:
+    type: server
+    clients:
+    - node1
+    nodes:
+    - node2
+    - node3
+    - node4
+    exec_workflow: media_user
+    init_state_workflow: media_default
+    shimQuorumSize: 1
+    verifyResponseQuorumSize: 1
+    execVerifyQuorumSize: 2
+    phaseQuorumSize: 2
+    expectedExecVotes: 3
+    batcher_config:
+      batch_size: 24
+      batch_timeout_ms: 8
+  movie_id:
+    type: server
+    clients:
+    - node1
+    nodes:
+    - node5
+    - node6
+    - node7
+    exec_workflow: media_movie_id
+    init_state_workflow: media_default
+    shimQuorumSize: 1
+    verifyResponseQuorumSize: 1
+    execVerifyQuorumSize: 2
+    phaseQuorumSize: 2
+    expectedExecVotes: 3
+    batcher_config:
+      batch_size: 24
+      batch_timeout_ms: 8
+  text:
+    type: unreplicated_server
+    clients:
+    - node1
+    nodes:
+    - node8
+    exec_workflow: media_text
+    init_state_workflow: media_default
+  unique_id:
+    type: unreplicated_server
+    clients:
+    - node1
+    nodes:
+    - node9
+    exec_workflow: media_unique_id
+    init_state_workflow: media_default
+  rating:
+    type: server
+    clients:
+    - node5
+    - node6
+    - node7
+    nodes:
+    - node10
+    - node11
+    - node12
+    exec_workflow: media_rating
+    init_state_workflow: media_default
+    shimQuorumSize: 1
+    verifyResponseQuorumSize: 1
+    execVerifyQuorumSize: 2
+    phaseQuorumSize: 2
+    expectedExecVotes: 3
+    batcher_config:
+      batch_size: 16
+      batch_timeout_ms: 5
+  compose_review:
+    type: server
+    clients:
+    - node2
+    - node3
+    - node4
+    - node5
+    - node6
+    - node7
+    - node8
+    - node9
+    - node10
+    - node11
+    - node12
+    nodes:
+    - node13
+    - node14
+    - node15
+    exec_workflow: media_compose_review
+    init_state_workflow: media_default
+    shimQuorumSize: 1
+    verifyResponseQuorumSize: 1
+    execVerifyQuorumSize: 2
+    phaseQuorumSize: 2
+    expectedExecVotes: 3
+    batcher_config:
+      batch_size: 12
+      batch_timeout_ms: 4
+  review_storage:
+    type: server
+    clients:
+    - node13
+    - node14
+    - node15
+    nodes:
+    - node16
+    - node17
+    - node18
+    exec_workflow: media_review_storage
+    init_state_workflow: media_default
+    shimQuorumSize: 2
+    verifyResponseQuorumSize: 1
+    execVerifyQuorumSize: 2
+    phaseQuorumSize: 2
+    expectedExecVotes: 3
+    batcher_config:
+      batch_size: 12
+      batch_timeout_ms: 4
+  user_review:
+    type: server
+    clients:
+    - node13
+    - node14
+    - node15
+    nodes:
+    - node19
+    - node20
+    - node21
+    exec_workflow: media_user_review
+    init_state_workflow: media_default
+    shimQuorumSize: 2
+    verifyResponseQuorumSize: 1
+    execVerifyQuorumSize: 2
+    phaseQuorumSize: 2
+    expectedExecVotes: 3
+    batcher_config:
+      batch_size: 12
+      batch_timeout_ms: 4
+  movie_review:
+    type: server
+    clients:
+    - node13
+    - node14
+    - node15
+    nodes:
+    - node22
+    - node23
+    - node24
+    exec_workflow: media_movie_review
+    init_state_workflow: media_default
+    shimQuorumSize: 2
+    verifyResponseQuorumSize: 1
+    execVerifyQuorumSize: 2
+    phaseQuorumSize: 2
+    expectedExecVotes: 3
+    batcher_config:
+      batch_size: 12
+      batch_timeout_ms: 4
+nodes:
+  node0:
+    service: client
+  node1:
+    service: review_compose_api
+  node2:
+    service: user
+    is_primary_batcher: true
+  node3:
+    service: user
+    is_primary_batcher: false
+  node4:
+    service: user
+    is_primary_batcher: false
+  node5:
+    service: movie_id
+    is_primary_batcher: true
+  node6:
+    service: movie_id
+    is_primary_batcher: false
+  node7:
+    service: movie_id
+    is_primary_batcher: false
+  node8:
+    service: text
+  node9:
+    service: unique_id
+  node10:
+    service: rating
+    is_primary_batcher: true
+  node11:
+    service: rating
+    is_primary_batcher: false
+  node12:
+    service: rating
+    is_primary_batcher: false
+  node13:
+    service: compose_review
+    is_primary_batcher: true
+  node14:
+    service: compose_review
+    is_primary_batcher: false
+  node15:
+    service: compose_review
+    is_primary_batcher: false
+  node16:
+    service: review_storage
+    is_primary_batcher: true
+  node17:
+    service: review_storage
+    is_primary_batcher: false
+  node18:
+    service: review_storage
+    is_primary_batcher: false
+  node19:
+    service: user_review
+    is_primary_batcher: true
+  node20:
+    service: user_review
+    is_primary_batcher: false
+  node21:
+    service: user_review
+    is_primary_batcher: false
+  node22:
+    service: movie_review
+    is_primary_batcher: true
+  node23:
+    service: movie_review
+    is_primary_batcher: false
+  node24:
+    service: movie_review
+    is_primary_batcher: false

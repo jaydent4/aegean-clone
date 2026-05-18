@@ -1,5 +1,5 @@
 ---
-architecture: media_review_compose.yaml
+architecture: media_review_compose_aegean_eo.yaml
 
 # k6 config
 k6_qps: 40

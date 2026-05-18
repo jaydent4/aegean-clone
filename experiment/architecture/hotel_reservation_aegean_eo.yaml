@@ -4,7 +4,7 @@ services:
     type: client
     next:
     - node1
-    client_workflow: hotel_k6_open_hotels_client
+    client_workflow: hotel_k6_open_reservation_client
   frontend:
     type: unreplicated_server
     clients:
@@ -14,36 +14,24 @@ services:
     exec_workflow: hotel_frontend
     init_state_workflow: hotel_default
   search:
-    type: server
+    type: unreplicated_server
     clients:
     - node1
     nodes:
     - node2
-    - node3
-    - node4
     exec_workflow: hotel_search
     init_state_workflow: hotel_default
-    shimQuorumSize: 1
-    verifyResponseQuorumSize: 1
-    execVerifyQuorumSize: 2
-    phaseQuorumSize: 2
-    expectedExecVotes: 3
-    batcher_config:
-      batch_size: 20
-      batch_timeout_ms: 5
   geo:
     type: server
     clients:
     - node2
+    nodes:
     - node3
     - node4
-    nodes:
     - node5
-    - node6
-    - node7
     exec_workflow: hotel_geo
     init_state_workflow: hotel_default
-    shimQuorumSize: 2
+    shimQuorumSize: 1
     verifyResponseQuorumSize: 1
     execVerifyQuorumSize: 2
     phaseQuorumSize: 2
@@ -55,15 +43,13 @@ services:
     type: server
     clients:
     - node2
-    - node3
-    - node4
     nodes:
+    - node6
+    - node7
     - node8
-    - node9
-    - node10
     exec_workflow: hotel_rate
     init_state_workflow: hotel_default
-    shimQuorumSize: 2
+    shimQuorumSize: 1
     verifyResponseQuorumSize: 1
     execVerifyQuorumSize: 2
     phaseQuorumSize: 2
@@ -76,9 +62,9 @@ services:
     clients:
     - node1
     nodes:
+    - node9
+    - node10
     - node11
-    - node12
-    - node13
     exec_workflow: hotel_reservation
     init_state_workflow: hotel_default
     shimQuorumSize: 1
@@ -88,15 +74,15 @@ services:
     expectedExecVotes: 3
     batcher_config:
       batch_size: 10
-      batch_timeout_ms: 3
+      batch_timeout_ms: 4
   profile:
     type: server
     clients:
     - node1
     nodes:
+    - node12
+    - node13
     - node14
-    - node15
-    - node16
     exec_workflow: hotel_profile
     init_state_workflow: hotel_default
     shimQuorumSize: 1
@@ -112,9 +98,9 @@ services:
     clients:
     - node1
     nodes:
+    - node15
+    - node16
     - node17
-    - node18
-    - node19
     exec_workflow: hotel_recommendation
     init_state_workflow: hotel_default
     shimQuorumSize: 1
@@ -130,9 +116,9 @@ services:
     clients:
     - node1
     nodes:
+    - node18
+    - node19
     - node20
-    - node21
-    - node22
     exec_workflow: hotel_user
     init_state_workflow: hotel_default
     shimQuorumSize: 1
@@ -141,8 +127,8 @@ services:
     phaseQuorumSize: 2
     expectedExecVotes: 3
     batcher_config:
-      batch_size: 12
-      batch_timeout_ms: 4
+      batch_size: 16
+      batch_timeout_ms: 5
 nodes:
   node0:
     service: client
@@ -150,64 +136,57 @@ nodes:
     service: frontend
   node2:
     service: search
-    is_primary_batcher: true
   node3:
-    service: search
-    is_primary_batcher: false
+    service: geo
+    is_primary_batcher: true
   node4:
-    service: search
+    service: geo
     is_primary_batcher: false
   node5:
     service: geo
-    is_primary_batcher: true
-  node6:
-    service: geo
     is_primary_batcher: false
+  node6:
+    service: rate
+    is_primary_batcher: true
   node7:
-    service: geo
+    service: rate
     is_primary_batcher: false
   node8:
     service: rate
-    is_primary_batcher: true
-  node9:
-    service: rate
     is_primary_batcher: false
+  node9:
+    service: reservation
+    is_primary_batcher: true
   node10:
-    service: rate
+    service: reservation
     is_primary_batcher: false
   node11:
     service: reservation
-    is_primary_batcher: true
-  node12:
-    service: reservation
     is_primary_batcher: false
+  node12:
+    service: profile
+    is_primary_batcher: true
   node13:
-    service: reservation
+    service: profile
     is_primary_batcher: false
   node14:
     service: profile
-    is_primary_batcher: true
-  node15:
-    service: profile
     is_primary_batcher: false
+  node15:
+    service: recommendation
+    is_primary_batcher: true
   node16:
-    service: profile
+    service: recommendation
     is_primary_batcher: false
   node17:
     service: recommendation
-    is_primary_batcher: true
-  node18:
-    service: recommendation
     is_primary_batcher: false
+  node18:
+    service: user
+    is_primary_batcher: true
   node19:
-    service: recommendation
+    service: user
     is_primary_batcher: false
   node20:
-    service: user
-    is_primary_batcher: true
-  node21:
-    service: user
-    is_primary_batcher: false
-  node22:
     service: user
     is_primary_batcher: false

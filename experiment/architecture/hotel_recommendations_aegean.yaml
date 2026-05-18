@@ -42,7 +42,7 @@ services:
     - node6
     exec_workflow: hotel_profile
     init_state_workflow: hotel_default
-    shimQuorumSize: 1
+    shimQuorumSize: 2
     verifyResponseQuorumSize: 1
     execVerifyQuorumSize: 2
     phaseQuorumSize: 2

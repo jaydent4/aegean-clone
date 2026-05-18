@@ -1,5 +1,5 @@
 ---
-architecture: social_compose.yaml
+architecture: social_compose_aegean.yaml
 
 # k6 config
 k6_qps: 125
