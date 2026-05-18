@@ -2,7 +2,7 @@
 architecture: hotel_hotels_aegean.yaml
 
 # k6 config
-k6_qps: 10
+k6_qps: 40
 warmup_duration: 10s
 duration: 15s
 k6_graceful_stop: 0s

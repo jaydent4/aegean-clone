@@ -1,8 +1,8 @@
 ---
-architecture: hotel_hotels_pbeo.yaml
+architecture: hotel_hotels_aegean.yaml
 
 # k6 config
-k6_qps: 909
+k6_qps: 80
 warmup_duration: 10s
 duration: 15s
 k6_graceful_stop: 0s
@@ -15,20 +15,6 @@ hotel_user_count: 501
 hotel_search_radius_km: 10.0
 hotel_search_max_results: 5
 hotel_nested_send_all_replicas: true
-
-# EO configs
-eo_raft_send_batch_size: 256
-eo_disable_follower_elections: true
-nested_eo_request_quorum_timeout_ms: 5000
-
-# PBEO configs
-pbeo_raft_send_batch_size: 256
-pbeo_tick_interval_ms: 10
-pbeo_election_tick: 1000
-pbeo_heartbeat_tick: 1
-pbeo_max_executing_requests: 512
-pbeo_commit_drain_batch_size: 256
-pbeo_disable_follower_elections: true
 
 # Redis durable state config
 hotel_redis_enable: true
