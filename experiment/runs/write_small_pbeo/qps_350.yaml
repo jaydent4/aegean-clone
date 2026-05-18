@@ -2,7 +2,7 @@
 architecture: write_pbeo.yaml
 
 # K6 configs
-k6_qps: 300
+k6_qps: 350
 warmup_duration: 10s
 warmup_graceful_stop: 45s
 duration: 15s

@@ -2,7 +2,7 @@
 architecture: write_aegean.yaml
 
 # K6 configs
-k6_qps: 1000
+k6_qps: 120
 warmup_duration: 10s
 warmup_graceful_stop: 45s
 duration: 15s

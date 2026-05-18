@@ -1,8 +1,8 @@
 ---
-architecture: write_unreplicated.yaml
+architecture: write_aegean.yaml
 
 # K6 configs
-k6_qps: 8750
+k6_qps: 180
 warmup_duration: 10s
 warmup_graceful_stop: 45s
 duration: 15s
@@ -11,7 +11,6 @@ k6_max_vus: 10000
 
 # Write workflow configs
 write_value_size_bytes: 102400
-
 
 # Run & system configs
 run_timeout_seconds: 60
