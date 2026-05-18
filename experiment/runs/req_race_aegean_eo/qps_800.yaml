@@ -12,7 +12,7 @@ k6_max_vus: 10000
 # Nested exact-once dispatch
 eo_raft_send_batch_size: 1
 eo_tick_interval_ms: 10
-eo_election_tick: 10
+eo_election_tick: 1000
 eo_heartbeat_tick: 1
 eo_disable_follower_elections: true
 nested_use_eo: true
