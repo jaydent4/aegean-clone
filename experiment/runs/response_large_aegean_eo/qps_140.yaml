@@ -2,7 +2,7 @@
 architecture: response_aegean_eo.yaml
 
 # K6 configs
-k6_qps: 250
+k6_qps: 140
 warmup_duration: 10s
 duration: 15s
 k6_graceful_stop: 0s
