@@ -1,6 +1,5 @@
 ---
 run_config:
-  eo_raft_send_batch_size: 1
   hotel_recommendation_race_services:
   - recommendation_1
   - recommendation_2

@@ -1,8 +1,8 @@
 ---
-architecture: hotel_recommendations.yaml
+architecture: hotel_recommendations_aegean.yaml
 
 # k6 config
-k6_qps: 400
+k6_qps: 200
 warmup_duration: 10s
 duration: 15s
 k6_graceful_stop: 0s
