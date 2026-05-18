@@ -8,7 +8,7 @@ export const options = {
       rate: Number(__ENV.WORKER_RATE),
       timeUnit: '1s',
       duration: __ENV.WORKER_DURATION,
-      gracefulStop: __ENV.WORKER_GRACEFUL_STOP || '30s',
+      gracefulStop: __ENV.WORKER_GRACEFUL_STOP || '0s',
       preAllocatedVUs: Number(__ENV.WORKER_PRE_ALLOCATED_VUS || 1),
       maxVUs: Number(__ENV.WORKER_MAX_VUS || __ENV.WORKER_PRE_ALLOCATED_VUS || 1),
     },

@@ -8,7 +8,7 @@ export const options = {
       rate: Number(__ENV.EXTERNAL_SRV_RATE),
       timeUnit: '1s',
       duration: __ENV.EXTERNAL_SRV_DURATION,
-      gracefulStop: __ENV.EXTERNAL_SRV_GRACEFUL_STOP || '30s',
+      gracefulStop: __ENV.EXTERNAL_SRV_GRACEFUL_STOP || '0s',
       preAllocatedVUs: Number(__ENV.EXTERNAL_SRV_PRE_ALLOCATED_VUS || 1),
       maxVUs: Number(__ENV.EXTERNAL_SRV_MAX_VUS || __ENV.EXTERNAL_SRV_PRE_ALLOCATED_VUS || 1),
     },

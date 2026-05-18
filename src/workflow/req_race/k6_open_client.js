@@ -8,7 +8,7 @@ export const options = {
       rate: Number(__ENV.REQ_RACE_RATE),
       timeUnit: '1s',
       duration: __ENV.REQ_RACE_DURATION,
-      gracefulStop: __ENV.REQ_RACE_GRACEFUL_STOP || '30s',
+      gracefulStop: __ENV.REQ_RACE_GRACEFUL_STOP || '0s',
       preAllocatedVUs: Number(__ENV.REQ_RACE_PRE_ALLOCATED_VUS || 1),
       maxVUs: Number(__ENV.REQ_RACE_MAX_VUS || __ENV.REQ_RACE_PRE_ALLOCATED_VUS || 1),
     },

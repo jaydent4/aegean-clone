@@ -21,7 +21,7 @@ export const options = {
       executor: 'constant-vus',
       vus: Number(__ENV.AEGEAN_VUS || 1),
       duration: __ENV.AEGEAN_DURATION,
-      gracefulStop: __ENV.AEGEAN_GRACEFUL_STOP || '30s',
+      gracefulStop: __ENV.AEGEAN_GRACEFUL_STOP || '0s',
     },
   },
 };

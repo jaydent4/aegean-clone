@@ -18,7 +18,7 @@ func K6OpenClientRequestLogic(c *nodes.Client) {
 	k6QPS := common.MustInt(c.RunConfig, "k6_qps")
 	k6PreAllocatedVUs := common.K6PreAllocatedVUs(c.RunConfig, k6QPS)
 	k6MaxVUs := common.MustInt(c.RunConfig, "k6_max_vus")
-	k6GracefulStop := common.K6GracefulStop(c.RunConfig)
+	k6GracefulStop := common.K6MeasuredGracefulStop
 	k6CommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)
@@ -35,10 +35,11 @@ func K6OpenClientRequestLogic(c *nodes.Client) {
 		gracefulStop:    k6GracefulStop,
 	}
 
-	if err := warmup.RunWarmupThenMeasured(warmupDuration, duration, func(runDuration string, suppressOutput bool) error {
+	if err := warmup.RunWarmupThenMeasured(warmupDuration, duration, func(phase warmup.Phase) error {
 		config := baseConfig
-		config.duration = runDuration
-		config.suppressOutput = suppressOutput
+		config.duration = phase.Duration
+		config.gracefulStop = phase.GracefulStop
+		config.suppressOutput = phase.SuppressOutput
 		return runK6Open(config)
 	}, func() error {
 		return c.DrainPendingRequests(k6CommandDeadline)

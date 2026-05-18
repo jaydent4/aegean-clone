@@ -7,7 +7,7 @@ export const options = {
       executor: 'constant-vus',
       vus: Number(__ENV.REQ_RACE_VUS || 1),
       duration: __ENV.DURATION,
-      gracefulStop: __ENV.GRACEFUL_STOP || '30s',
+      gracefulStop: __ENV.GRACEFUL_STOP || '0s',
     },
   },
 };

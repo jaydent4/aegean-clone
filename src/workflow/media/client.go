@@ -20,7 +20,7 @@ func K6ClosedReviewComposeClientRequestLogic(c *nodes.Client) {
 	userCount := common.MustInt(c.RunConfig, "media_user_count")
 	movieCount := common.MustInt(c.RunConfig, "media_movie_count")
 	textLength := common.IntOrDefault(c.RunConfig, "media_review_text_length", 256)
-	k6GracefulStop := common.K6GracefulStop(c.RunConfig)
+	k6GracefulStop := common.K6MeasuredGracefulStop
 	k6CommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)
@@ -58,7 +58,7 @@ func K6OpenReviewComposeClientRequestLogic(c *nodes.Client) {
 	k6QPS := common.MustInt(c.RunConfig, "k6_qps")
 	k6PreAllocatedVUs := common.K6PreAllocatedVUs(c.RunConfig, k6QPS)
 	k6MaxVUs := common.MustInt(c.RunConfig, "k6_max_vus")
-	k6GracefulStop := common.K6GracefulStop(c.RunConfig)
+	k6GracefulStop := common.K6MeasuredGracefulStop
 	k6CommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)
@@ -80,10 +80,11 @@ func K6OpenReviewComposeClientRequestLogic(c *nodes.Client) {
 		},
 	}
 
-	if err := warmup.RunWarmupThenMeasured(warmupDuration, duration, func(runDuration string, suppressOutput bool) error {
+	if err := warmup.RunWarmupThenMeasured(warmupDuration, duration, func(phase warmup.Phase) error {
 		config := baseConfig
-		config.duration = runDuration
-		config.suppressOutput = suppressOutput
+		config.duration = phase.Duration
+		config.gracefulStop = phase.GracefulStop
+		config.suppressOutput = phase.SuppressOutput
 		return runMediaK6Open(config)
 	}, func() error {
 		return c.DrainPendingRequests(k6CommandDeadline)

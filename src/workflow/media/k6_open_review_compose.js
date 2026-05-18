@@ -21,7 +21,7 @@ export const options = {
       rate: Number(__ENV.MEDIA_RATE),
       timeUnit: '1s',
       duration: __ENV.MEDIA_DURATION,
-      gracefulStop: __ENV.MEDIA_GRACEFUL_STOP || '30s',
+      gracefulStop: __ENV.MEDIA_GRACEFUL_STOP || '0s',
       preAllocatedVUs: Number(__ENV.MEDIA_PRE_ALLOCATED_VUS || 1),
       maxVUs: Number(__ENV.MEDIA_MAX_VUS || __ENV.MEDIA_PRE_ALLOCATED_VUS || 1),
     },

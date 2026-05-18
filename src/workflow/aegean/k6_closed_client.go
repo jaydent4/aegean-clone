@@ -18,7 +18,7 @@ func K6ClosedClientRequestLogic(c *nodes.Client) {
 	readKeyMod := common.MustInt(c.RunConfig, "read_key_mod")
 	valueLength := common.MustInt(c.RunConfig, "value_length")
 	k6VUs := common.MustInt(c.RunConfig, "k6_vus")
-	k6GracefulStop := common.K6GracefulStop(c.RunConfig)
+	k6GracefulStop := common.K6MeasuredGracefulStop
 	k6CommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)

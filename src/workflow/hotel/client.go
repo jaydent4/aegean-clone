@@ -34,7 +34,7 @@ func K6OpenHotelsClientRequestLogic(c *nodes.Client) {
 	k6QPS := common.MustInt(c.RunConfig, "k6_qps")
 	k6PreAllocatedVUs := common.K6PreAllocatedVUs(c.RunConfig, k6QPS)
 	k6MaxVUs := common.MustInt(c.RunConfig, "k6_max_vus")
-	k6GracefulStop := common.K6GracefulStop(c.RunConfig)
+	k6GracefulStop := common.K6MeasuredGracefulStop
 	k6CommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)
@@ -55,10 +55,11 @@ func K6OpenHotelsClientRequestLogic(c *nodes.Client) {
 		},
 	}
 
-	if err := warmup.RunWarmupThenMeasured(warmupDuration, duration, func(runDuration string, suppressOutput bool) error {
+	if err := warmup.RunWarmupThenMeasured(warmupDuration, duration, func(phase warmup.Phase) error {
 		config := baseConfig
-		config.duration = runDuration
-		config.suppressOutput = suppressOutput
+		config.duration = phase.Duration
+		config.gracefulStop = phase.GracefulStop
+		config.suppressOutput = phase.SuppressOutput
 		return runHotelK6Open(config)
 	}, func() error {
 		return c.DrainPendingRequests(k6CommandDeadline)
@@ -80,7 +81,7 @@ func K6OpenRecommendationsClientRequestLogic(c *nodes.Client) {
 	k6QPS := common.MustInt(c.RunConfig, "k6_qps")
 	k6PreAllocatedVUs := common.K6PreAllocatedVUs(c.RunConfig, k6QPS)
 	k6MaxVUs := common.MustInt(c.RunConfig, "k6_max_vus")
-	k6GracefulStop := common.K6GracefulStop(c.RunConfig)
+	k6GracefulStop := common.K6MeasuredGracefulStop
 	k6CommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)
@@ -101,10 +102,11 @@ func K6OpenRecommendationsClientRequestLogic(c *nodes.Client) {
 		},
 	}
 
-	if err := warmup.RunWarmupThenMeasured(warmupDuration, duration, func(runDuration string, suppressOutput bool) error {
+	if err := warmup.RunWarmupThenMeasured(warmupDuration, duration, func(phase warmup.Phase) error {
 		config := baseConfig
-		config.duration = runDuration
-		config.suppressOutput = suppressOutput
+		config.duration = phase.Duration
+		config.gracefulStop = phase.GracefulStop
+		config.suppressOutput = phase.SuppressOutput
 		return runHotelK6Open(config)
 	}, func() error {
 		return c.DrainPendingRequests(k6CommandDeadline)
@@ -126,7 +128,7 @@ func K6OpenReservationClientRequestLogic(c *nodes.Client) {
 	k6QPS := common.MustInt(c.RunConfig, "k6_qps")
 	k6PreAllocatedVUs := common.K6PreAllocatedVUs(c.RunConfig, k6QPS)
 	k6MaxVUs := common.MustInt(c.RunConfig, "k6_max_vus")
-	k6GracefulStop := common.K6GracefulStop(c.RunConfig)
+	k6GracefulStop := common.K6MeasuredGracefulStop
 	k6CommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)
@@ -147,10 +149,11 @@ func K6OpenReservationClientRequestLogic(c *nodes.Client) {
 		},
 	}
 
-	if err := warmup.RunWarmupThenMeasured(warmupDuration, duration, func(runDuration string, suppressOutput bool) error {
+	if err := warmup.RunWarmupThenMeasured(warmupDuration, duration, func(phase warmup.Phase) error {
 		config := baseConfig
-		config.duration = runDuration
-		config.suppressOutput = suppressOutput
+		config.duration = phase.Duration
+		config.gracefulStop = phase.GracefulStop
+		config.suppressOutput = phase.SuppressOutput
 		return runHotelK6Open(config)
 	}, func() error {
 		return c.DrainPendingRequests(k6CommandDeadline)
@@ -169,7 +172,7 @@ func runHotelClosedClient(c *nodes.Client, scriptPath string) {
 	k6VUs := common.MustInt(c.RunConfig, "k6_vus")
 	userCount := common.MustInt(c.RunConfig, "hotel_user_count")
 	hotelCount := common.MustInt(c.RunConfig, "hotel_hotel_count")
-	k6GracefulStop := common.K6GracefulStop(c.RunConfig)
+	k6GracefulStop := common.K6MeasuredGracefulStop
 	k6CommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)

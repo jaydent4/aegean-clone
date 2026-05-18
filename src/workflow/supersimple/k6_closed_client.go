@@ -16,7 +16,7 @@ func K6ClosedClientRequestLogic(c *nodes.Client) {
 	duration := common.MustString(c.RunConfig, "duration")
 	runTimeoutSeconds := common.MustInt(c.RunConfig, "run_timeout_seconds")
 	k6VUs := common.MustInt(c.RunConfig, "k6_vus")
-	k6GracefulStop := common.K6GracefulStop(c.RunConfig)
+	k6GracefulStop := common.K6MeasuredGracefulStop
 	k6CommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)
