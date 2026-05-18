@@ -1,16 +1,20 @@
 ---
-architecture: write_aegean_eo.yaml
+architecture: social_compose.yaml
 
-# K6 configs
-k6_qps: 3
+# k6 config
+k6_qps: 40
 warmup_duration: 10s
 warmup_graceful_stop: 45s
 duration: 15s
 k6_pre_allocated_vus: 0
 k6_max_vus: 10000
 
-# Write workflow configs
-write_value_size_bytes: 10485760
+# Social workflow config
+social_user_count: 32
+social_followers_per_user: 3
+social_post_text_length: 96
+social_nested_send_all_replicas: true
+social_mixer_mode: no_home_fanout_key
 
 # Nested exact-once dispatch
 eo_raft_send_batch_size: 1
@@ -19,7 +23,7 @@ eo_election_tick: 1000
 eo_heartbeat_tick: 1
 eo_disable_follower_elections: true
 nested_use_eo: true
-write_nested_use_eo: true
+social_nested_use_eo: true
 use_eo_after_quorum: true
 nested_eo_request_quorum_timeout_ms: 5000
 
