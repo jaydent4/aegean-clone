@@ -193,6 +193,22 @@ func (c *Client) WaitForRequestCompletion(requestID any) {
 	}
 }
 
+func (c *Client) DrainPendingRequests(timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		c.mu.Lock()
+		pending := len(c.pending)
+		c.mu.Unlock()
+		if pending == 0 {
+			return nil
+		}
+		if timeout > 0 && time.Now().After(deadline) {
+			return fmt.Errorf("timed out draining %d pending request(s) after %s", pending, timeout)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
 func (c *Client) WaitForNodesReady(nodeNames []string) {
 	for {
 		allReady := true

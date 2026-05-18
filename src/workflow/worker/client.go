@@ -38,6 +38,8 @@ func K6OpenClientRequestLogic(c *nodes.Client) {
 		config.duration = runDuration
 		config.suppressOutput = suppressOutput
 		return runK6Open(config)
+	}, func() error {
+		return c.DrainPendingRequests(k6CommandDeadline)
 	}); err != nil {
 		if err == context.DeadlineExceeded {
 			log.Printf("worker k6 client request logic timed out after %s", k6CommandDeadline)

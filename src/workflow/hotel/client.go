@@ -60,6 +60,8 @@ func K6OpenHotelsClientRequestLogic(c *nodes.Client) {
 		config.duration = runDuration
 		config.suppressOutput = suppressOutput
 		return runHotelK6Open(config)
+	}, func() error {
+		return c.DrainPendingRequests(k6CommandDeadline)
 	}); err != nil {
 		if err == context.DeadlineExceeded {
 			log.Printf("hotel k6 open hotels client timed out after %s", k6CommandDeadline)
@@ -102,6 +104,8 @@ func K6OpenRecommendationsClientRequestLogic(c *nodes.Client) {
 		config.duration = runDuration
 		config.suppressOutput = suppressOutput
 		return runHotelK6Open(config)
+	}, func() error {
+		return c.DrainPendingRequests(k6CommandDeadline)
 	}); err != nil {
 		if err == context.DeadlineExceeded {
 			log.Printf("hotel k6 open recommendations client timed out after %s", k6CommandDeadline)
@@ -144,6 +148,8 @@ func K6OpenReservationClientRequestLogic(c *nodes.Client) {
 		config.duration = runDuration
 		config.suppressOutput = suppressOutput
 		return runHotelK6Open(config)
+	}, func() error {
+		return c.DrainPendingRequests(k6CommandDeadline)
 	}); err != nil {
 		if err == context.DeadlineExceeded {
 			log.Printf("hotel k6 open reservation client timed out after %s", k6CommandDeadline)

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 )
@@ -32,10 +33,20 @@ func Run(ctx context.Context, args []string, suppressOutput bool) error {
 	return nil
 }
 
-func RunWarmupThenMeasured(warmupDuration string, measuredDuration string, run func(duration string, suppressOutput bool) error) error {
+func RunWarmupThenMeasured(warmupDuration string, measuredDuration string, run func(duration string, suppressOutput bool) error, afterWarmup ...func() error) error {
 	if warmupDuration != "" && warmupDuration != "0s" {
 		if err := run(warmupDuration, true); err != nil {
 			return err
+		}
+		for _, hook := range afterWarmup {
+			if hook == nil {
+				continue
+			}
+			log.Printf("warmup complete; draining pending work before measured run")
+			if err := hook(); err != nil {
+				return fmt.Errorf("drain warmup work: %w", err)
+			}
+			log.Printf("warmup drain complete")
 		}
 	}
 	return run(measuredDuration, false)

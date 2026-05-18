@@ -77,6 +77,8 @@ func K6OpenClientRequestLogic(c *nodes.Client) {
 		config.duration = runDuration
 		config.suppressOutput = suppressOutput
 		return runK6Open(config)
+	}, func() error {
+		return c.DrainPendingRequests(k6CommandDeadline)
 	}); err != nil {
 		if err == context.DeadlineExceeded {
 			log.Printf("social k6 open client timed out after %s", k6CommandDeadline)
@@ -146,6 +148,8 @@ func K6OpenReadUserTimelineClientRequestLogic(c *nodes.Client) {
 		config.duration = runDuration
 		config.suppressOutput = suppressOutput
 		return runK6Open(config)
+	}, func() error {
+		return c.DrainPendingRequests(k6CommandDeadline)
 	}); err != nil {
 		if err == context.DeadlineExceeded {
 			log.Printf("social k6 open read user timeline client timed out after %s", k6CommandDeadline)
@@ -215,6 +219,8 @@ func K6OpenReadHomeTimelineClientRequestLogic(c *nodes.Client) {
 		config.duration = runDuration
 		config.suppressOutput = suppressOutput
 		return runK6Open(config)
+	}, func() error {
+		return c.DrainPendingRequests(k6CommandDeadline)
 	}); err != nil {
 		if err == context.DeadlineExceeded {
 			log.Printf("social k6 open read home timeline client timed out after %s", k6CommandDeadline)
