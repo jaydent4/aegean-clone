@@ -13,7 +13,8 @@ OUTPUT_PATH = RESULTS_ROOT / "write_medium" / "latency_vs_throughput.png"
 
 SERIES = [
     ("Aegean", RESULTS_ROOT / "write_medium_aegean", [5, 10, 15, 20, 22], "#08306b"),
-    ("PBEO", RESULTS_ROOT / "write_medium_pbeo", [5, 10, 15, 20, 22, 24], "#238b45"),
+    ("Aegean+EO", RESULTS_ROOT / "write_medium_aegean_eo", [25, 50, 75], "#6baed6"),
+    ("Unreplicated", RESULTS_ROOT / "write_medium_unreplicated", [25, 50, 75], "#555555"),
 ]
 
 
@@ -36,25 +37,28 @@ def main() -> int:
         throughputs = [point[1] for point in points]
         medians = [point[2] for point in points]
         p90s = [point[3] for point in points]
+        is_unreplicated = label == "Unreplicated"
 
         ax.plot(
             throughputs,
             medians,
             marker="o",
-            linewidth=2.4,
-            markersize=6,
+            linewidth=3.2 if is_unreplicated else 2.4,
+            markersize=7 if is_unreplicated else 6,
             color=color,
             label=f"{label} Median",
+            zorder=4 if is_unreplicated else 2,
         )
         ax.plot(
             throughputs,
             p90s,
             marker="s",
-            linewidth=2.4,
-            markersize=5,
+            linewidth=3.2 if is_unreplicated else 2.4,
+            markersize=6 if is_unreplicated else 5,
             linestyle=":",
             color=color,
             label=f"{label} P90",
+            zorder=4 if is_unreplicated else 2,
         )
 
     ax.set_xlabel("Realized Throughput (req/s)")

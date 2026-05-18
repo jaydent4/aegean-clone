@@ -25,8 +25,8 @@ def main() -> None:
         title="Non-Idempotent External Service Latency vs Realized Throughput",
         output_path=args.results_root / "nonidem_external_srv" / args.filename,
         series_specs=[
-            SeriesSpec("Aegean", args.results_root / "nonidem_external_srv"),
-            SeriesSpec("Aegean+EO", args.results_root / "nonidem_external_srv_eo"),
+            SeriesSpec("Aegean", args.results_root / "nonidem_external_srv_aegean"),
+            SeriesSpec("Aegean+EO", args.results_root / "nonidem_external_srv_aegean_eo"),
             SeriesSpec("Unreplicated", args.results_root / "nonidem_external_srv_unreplicated"),
         ],
     )

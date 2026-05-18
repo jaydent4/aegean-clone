@@ -9,12 +9,33 @@ from plot_utils import parse_metrics_log
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 RESULTS_ROOT = REPO_ROOT / "results"
-OUTPUT_PATH = RESULTS_ROOT / "write_small" / "latency_vs_throughput.png"
+OUTPUT_PATH = RESULTS_ROOT / "response_small" / "latency_vs_throughput.png"
 
 SERIES = [
-    ("Aegean", RESULTS_ROOT / "write_small_aegean", [100, 105, 110], "#08306b"),
-    ("Aegean+EO", RESULTS_ROOT / "write_small_aegean_eo", [100, 200, 300], "#6baed6"),
-    ("Unreplicated", RESULTS_ROOT / "write_small_unreplicated", [100, 200, 300], "#555555"),
+    (
+        "Aegean",
+        RESULTS_ROOT / "response_small_aegean",
+        [1000, 1500, 2000, 2500, 3000],
+        "#08306b",
+    ),
+    (
+        "Aegean+EO",
+        RESULTS_ROOT / "response_small_aegean_eo",
+        [500, 1000, 1500, 2000, 2500],
+        "#6baed6",
+    ),
+    (
+        "PBEO",
+        RESULTS_ROOT / "response_small_pbeo",
+        [1500, 3000, 5500, 6000, 6300],
+        "#238b45",
+    ),
+    (
+        "Unreplicated",
+        RESULTS_ROOT / "response_small_unreplicated",
+        [3000, 6000, 8000, 9000],
+        "#555555",
+    ),
 ]
 
 
@@ -63,7 +84,7 @@ def main() -> int:
 
     ax.set_xlabel("Realized Throughput (req/s)")
     ax.set_ylabel("Latency (ms)")
-    ax.set_title("Write Small Latency vs Realized Throughput")
+    ax.set_title("Response Small Latency vs Realized Throughput")
     ax.set_xlim(left=0)
     ax.set_ylim(0, 1000)
     ax.grid(True, linestyle="--", alpha=0.35)

@@ -33,6 +33,12 @@ SERIES_COLORS = {
     "PBEO": "#238b45",
     "Unreplicated": "#555555",
 }
+SERIES_SUFFIXES = [
+    ("Aegean", "_aegean"),
+    ("Aegean+EO", "_aegean_eo"),
+    ("PBEO", "_pbeo"),
+    ("Unreplicated", "_unreplicated"),
+]
 
 
 def humanize_workload_name(workload_name: str) -> str:
@@ -40,6 +46,9 @@ def humanize_workload_name(workload_name: str) -> str:
 
 
 def series_label(series_dir: Path, workload_name: str) -> str:
+    for label, suffix in SERIES_SUFFIXES:
+        if series_dir.name == f"{workload_name}{suffix}":
+            return label
     if series_dir.name == f"{workload_name}_eo":
         return "Aegean+EO"
     if series_dir.name == f"{workload_name}_unreplicated":
@@ -49,9 +58,9 @@ def series_label(series_dir: Path, workload_name: str) -> str:
 
 def existing_series_dirs(results_root: Path, workload_name: str) -> list[Path]:
     candidates = [
+        *(results_root / f"{workload_name}{suffix}" for _, suffix in SERIES_SUFFIXES),
         results_root / workload_name,
         results_root / f"{workload_name}_eo",
-        results_root / f"{workload_name}_unreplicated",
     ]
     return [path for path in candidates if path.is_dir()]
 
@@ -131,41 +140,46 @@ def plot_latency_vs_throughput(
     output_path: Path,
     title: str,
 ) -> None:
-    plt.figure(figsize=(9, 6))
+    fig, ax = plt.subplots(figsize=(8.5, 5.4))
 
     for label, points in series.items():
         throughput = [point.throughput for point in points]
         median_ms = [point.median_ms for point in points]
         p90_ms = [point.p90_ms for point in points]
         color = SERIES_COLORS.get(label)
+        is_unreplicated = label == "Unreplicated"
 
-        plt.plot(
+        ax.plot(
             throughput,
             median_ms,
             marker="o",
-            linewidth=2,
-            linestyle="-",
+            linewidth=3.2 if is_unreplicated else 2.4,
+            markersize=7 if is_unreplicated else 6,
             color=color,
             label=f"{label} Median",
+            zorder=4 if is_unreplicated else 2,
         )
-        plt.plot(
+        ax.plot(
             throughput,
             p90_ms,
             marker="s",
-            linewidth=2,
+            linewidth=3.2 if is_unreplicated else 2.4,
+            markersize=6 if is_unreplicated else 5,
             linestyle=":",
             color=color,
             label=f"{label} P90",
+            zorder=4 if is_unreplicated else 2,
         )
 
-    plt.xlabel("Realized Throughput (req/s)")
-    plt.ylabel("Latency (ms)")
-    plt.title(title)
-    plt.grid(True, linestyle="--", alpha=0.4)
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=200)
-    plt.close()
+    ax.set_xlabel("Realized Throughput (req/s)")
+    ax.set_ylabel("Latency (ms)")
+    ax.set_title(title)
+    ax.set_xlim(left=0)
+    ax.grid(True, linestyle="--", alpha=0.35)
+    ax.legend(frameon=True, loc="upper left")
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=220)
+    plt.close(fig)
 
 
 def output_path_for(results_root: Path, workload_name: str, filename: str) -> Path:

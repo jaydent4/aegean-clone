@@ -25,8 +25,8 @@ def main() -> None:
         title="Req Race Latency vs Realized Throughput",
         output_path=args.results_root / "req_race" / args.filename,
         series_specs=[
-            SeriesSpec("Aegean", args.results_root / "req_race"),
-            SeriesSpec("Aegean+EO", args.results_root / "req_race_eo"),
+            SeriesSpec("Aegean", args.results_root / "req_race_aegean"),
+            SeriesSpec("Aegean+EO", args.results_root / "req_race_aegean_eo"),
             SeriesSpec("Unreplicated", args.results_root / "req_race_unreplicated"),
         ],
     )
