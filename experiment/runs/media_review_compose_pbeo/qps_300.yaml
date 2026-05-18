@@ -1,16 +1,20 @@
 ---
-architecture: worker_pbeo.yaml
+architecture: media_review_compose_pbeo.yaml
 
-# K6 configs
-k6_qps: 100
+# k6 config
+k6_qps: 300
 warmup_duration: 10s
 warmup_graceful_stop: 45s
 duration: 15s
 k6_pre_allocated_vus: 0
 k6_max_vus: 10000
 
-# Worker workflow configs
-worker_spin_ms: 1
+# Media review-compose workflow config
+media_user_count: 1000
+media_movie_count: 1000
+media_review_text_length: 256
+media_max_reviews_per_index: 100
+media_nested_send_all_replicas: true
 
 # EO configs
 eo_raft_send_batch_size: 256
@@ -25,6 +29,10 @@ pbeo_heartbeat_tick: 1
 pbeo_max_executing_requests: 512
 pbeo_commit_drain_batch_size: 256
 pbeo_disable_follower_elections: true
+
+# Redis durable state config. Redis runs locally inside stateful replica nodes.
+media_redis_enable: true
+media_redis_addr: 127.0.0.1:6379
 
 # Run & system configs
 run_timeout_seconds: 60
