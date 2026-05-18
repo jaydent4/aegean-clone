@@ -2,7 +2,7 @@
 architecture: response_unreplicated.yaml
 
 # K6 configs
-k6_qps: 2000
+k6_qps: 300
 warmup_duration: 10s
 warmup_graceful_stop: 45s
 duration: 15s
