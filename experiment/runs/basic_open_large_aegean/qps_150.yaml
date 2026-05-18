@@ -1,4 +1,5 @@
 ---
+skipped: true
 architecture: basic_open.yaml
 k6_qps: 150
 warmup_duration: 10s

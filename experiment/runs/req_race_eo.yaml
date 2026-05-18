@@ -1,4 +1,5 @@
 ---
+skipped: true
 architecture: req_race_eo.yaml
 
 # K6 configs

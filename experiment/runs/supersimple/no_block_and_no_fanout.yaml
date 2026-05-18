@@ -1,4 +1,5 @@
 ---
+skipped: true
 architecture: supersimple.yaml
 
 # K6 configs

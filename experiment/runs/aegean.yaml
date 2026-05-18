@@ -1,4 +1,5 @@
 ---
+skipped: true
 architecture: aegean.yaml
 
 # K6 configs

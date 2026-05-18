@@ -1,4 +1,5 @@
 ---
+skipped: true
 architecture: external_srv_open.yaml
 
 # K6 configs

@@ -1,4 +1,5 @@
 ---
+skipped: true
 architecture: basic_open_eo.yaml
 k6_qps: 100
 warmup_duration: 10s
