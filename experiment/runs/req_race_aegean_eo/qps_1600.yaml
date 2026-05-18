@@ -4,6 +4,7 @@ architecture: req_race_eo_open.yaml
 # K6 configs
 k6_qps: 1600
 warmup_duration: 10s
+warmup_graceful_stop: 45s
 duration: 15s
 k6_pre_allocated_vus: 0
 k6_max_vus: 10000

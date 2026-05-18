@@ -49,6 +49,7 @@ func K6ClosedClientRequestLogic(c *nodes.Client) {
 func K6OpenClientRequestLogic(c *nodes.Client) {
 	duration := common.MustString(c.RunConfig, "duration")
 	warmupDuration := common.StringOrDefault(c.RunConfig, "warmup_duration", "0s")
+	warmupGracefulStop := common.K6WarmupGracefulStop(c.RunConfig)
 	runTimeoutSeconds := common.MustInt(c.RunConfig, "run_timeout_seconds")
 	userCount := common.MustInt(c.RunConfig, "social_user_count")
 	postTextLength := common.IntOrDefault(c.RunConfig, "social_post_text_length", 64)
@@ -76,7 +77,7 @@ func K6OpenClientRequestLogic(c *nodes.Client) {
 		},
 	}
 
-	if err := warmup.RunWarmupThenMeasured(warmupDuration, duration, func(phase warmup.Phase) error {
+	if err := warmup.RunWarmupThenMeasured(warmupDuration, warmupGracefulStop, duration, func(phase warmup.Phase) error {
 		config := baseConfig
 		config.duration = phase.Duration
 		config.gracefulStop = phase.GracefulStop
@@ -127,6 +128,7 @@ func K6ClosedReadUserTimelineClientRequestLogic(c *nodes.Client) {
 func K6OpenReadUserTimelineClientRequestLogic(c *nodes.Client) {
 	duration := common.MustString(c.RunConfig, "duration")
 	warmupDuration := common.StringOrDefault(c.RunConfig, "warmup_duration", "0s")
+	warmupGracefulStop := common.K6WarmupGracefulStop(c.RunConfig)
 	runTimeoutSeconds := common.MustInt(c.RunConfig, "run_timeout_seconds")
 	userCount := common.MustInt(c.RunConfig, "social_user_count")
 	k6QPS := common.MustInt(c.RunConfig, "k6_qps")
@@ -152,7 +154,7 @@ func K6OpenReadUserTimelineClientRequestLogic(c *nodes.Client) {
 		},
 	}
 
-	if err := warmup.RunWarmupThenMeasured(warmupDuration, duration, func(phase warmup.Phase) error {
+	if err := warmup.RunWarmupThenMeasured(warmupDuration, warmupGracefulStop, duration, func(phase warmup.Phase) error {
 		config := baseConfig
 		config.duration = phase.Duration
 		config.gracefulStop = phase.GracefulStop
@@ -203,6 +205,7 @@ func K6ClosedReadHomeTimelineClientRequestLogic(c *nodes.Client) {
 func K6OpenReadHomeTimelineClientRequestLogic(c *nodes.Client) {
 	duration := common.MustString(c.RunConfig, "duration")
 	warmupDuration := common.StringOrDefault(c.RunConfig, "warmup_duration", "0s")
+	warmupGracefulStop := common.K6WarmupGracefulStop(c.RunConfig)
 	runTimeoutSeconds := common.MustInt(c.RunConfig, "run_timeout_seconds")
 	userCount := common.MustInt(c.RunConfig, "social_user_count")
 	k6QPS := common.MustInt(c.RunConfig, "k6_qps")
@@ -228,7 +231,7 @@ func K6OpenReadHomeTimelineClientRequestLogic(c *nodes.Client) {
 		},
 	}
 
-	if err := warmup.RunWarmupThenMeasured(warmupDuration, duration, func(phase warmup.Phase) error {
+	if err := warmup.RunWarmupThenMeasured(warmupDuration, warmupGracefulStop, duration, func(phase warmup.Phase) error {
 		config := baseConfig
 		config.duration = phase.Duration
 		config.gracefulStop = phase.GracefulStop

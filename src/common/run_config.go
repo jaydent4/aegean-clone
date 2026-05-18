@@ -103,9 +103,13 @@ func K6PreAllocatedVUs(config map[string]any, rate int) int {
 }
 
 const (
-	K6WarmupGracefulStop   = "30s"
-	K6MeasuredGracefulStop = "0s"
+	DefaultK6WarmupGracefulStop = "30s"
+	K6MeasuredGracefulStop      = "0s"
 )
+
+func K6WarmupGracefulStop(config map[string]any) string {
+	return StringOrDefault(config, "warmup_graceful_stop", DefaultK6WarmupGracefulStop)
+}
 
 func BoolOrDefault(config map[string]any, key string, defaultValue bool) bool {
 	value, ok := config[key]

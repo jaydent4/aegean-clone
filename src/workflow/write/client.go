@@ -14,6 +14,7 @@ import (
 func K6OpenClientRequestLogic(c *nodes.Client) {
 	duration := common.MustString(c.RunConfig, "duration")
 	warmupDuration := common.StringOrDefault(c.RunConfig, "warmup_duration", "0s")
+	warmupGracefulStop := common.K6WarmupGracefulStop(c.RunConfig)
 	runTimeoutSeconds := common.MustInt(c.RunConfig, "run_timeout_seconds")
 	k6QPS := common.MustInt(c.RunConfig, "k6_qps")
 	k6PreAllocatedVUs := common.K6PreAllocatedVUs(c.RunConfig, k6QPS)
@@ -34,7 +35,7 @@ func K6OpenClientRequestLogic(c *nodes.Client) {
 		gracefulStop:    k6GracefulStop,
 	}
 
-	if err := warmup.RunWarmupThenMeasured(warmupDuration, duration, func(phase warmup.Phase) error {
+	if err := warmup.RunWarmupThenMeasured(warmupDuration, warmupGracefulStop, duration, func(phase warmup.Phase) error {
 		config := baseConfig
 		config.duration = phase.Duration
 		config.gracefulStop = phase.GracefulStop

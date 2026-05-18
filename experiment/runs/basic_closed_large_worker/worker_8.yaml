@@ -3,6 +3,7 @@ architecture: basic_closed.yaml
 
 # K6 configs
 duration: 15s
+warmup_graceful_stop: 45s
 k6_vus: 50
 
 # Aegean workflow configs

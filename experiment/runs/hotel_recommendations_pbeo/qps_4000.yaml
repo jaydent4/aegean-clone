@@ -4,6 +4,7 @@ architecture: hotel_recommendations_pbeo.yaml
 # k6 config
 k6_qps: 4000
 warmup_duration: 10s
+warmup_graceful_stop: 45s
 duration: 15s
 k6_pre_allocated_vus: 0
 k6_max_vus: 10000

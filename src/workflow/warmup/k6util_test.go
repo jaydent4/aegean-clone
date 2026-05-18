@@ -7,7 +7,7 @@ import (
 
 func TestRunWarmupThenMeasuredDrainsBeforeMeasured(t *testing.T) {
 	var events []string
-	err := RunWarmupThenMeasured("1s", "2s", func(phase Phase) error {
+	err := RunWarmupThenMeasured("1s", "45s", "2s", func(phase Phase) error {
 		if phase.SuppressOutput {
 			events = append(events, "run:"+phase.Duration+":"+phase.GracefulStop+":suppressed")
 			return nil
@@ -22,7 +22,7 @@ func TestRunWarmupThenMeasuredDrainsBeforeMeasured(t *testing.T) {
 		t.Fatalf("RunWarmupThenMeasured returned error: %v", err)
 	}
 
-	want := []string{"run:1s:30s:suppressed", "drain", "run:2s:0s:measured"}
+	want := []string{"run:1s:45s:suppressed", "drain", "run:2s:0s:measured"}
 	if !reflect.DeepEqual(events, want) {
 		t.Fatalf("events = %#v, want %#v", events, want)
 	}
@@ -30,7 +30,7 @@ func TestRunWarmupThenMeasuredDrainsBeforeMeasured(t *testing.T) {
 
 func TestRunWarmupThenMeasuredSkipsDrainWithoutWarmup(t *testing.T) {
 	var events []string
-	err := RunWarmupThenMeasured("0s", "2s", func(phase Phase) error {
+	err := RunWarmupThenMeasured("0s", "30s", "2s", func(phase Phase) error {
 		events = append(events, "run:"+phase.Duration+":"+phase.GracefulStop)
 		return nil
 	}, func() error {

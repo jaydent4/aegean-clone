@@ -40,11 +40,11 @@ type Phase struct {
 	SuppressOutput bool
 }
 
-func RunWarmupThenMeasured(warmupDuration string, measuredDuration string, run func(Phase) error, afterWarmup ...func() error) error {
+func RunWarmupThenMeasured(warmupDuration string, warmupGracefulStop string, measuredDuration string, run func(Phase) error, afterWarmup ...func() error) error {
 	if warmupDuration != "" && warmupDuration != "0s" {
 		if err := run(Phase{
 			Duration:       warmupDuration,
-			GracefulStop:   common.K6WarmupGracefulStop,
+			GracefulStop:   warmupGracefulStop,
 			SuppressOutput: true,
 		}); err != nil {
 			return err

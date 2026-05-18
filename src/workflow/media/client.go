@@ -51,6 +51,7 @@ func K6ClosedReviewComposeClientRequestLogic(c *nodes.Client) {
 func K6OpenReviewComposeClientRequestLogic(c *nodes.Client) {
 	duration := common.MustString(c.RunConfig, "duration")
 	warmupDuration := common.StringOrDefault(c.RunConfig, "warmup_duration", "0s")
+	warmupGracefulStop := common.K6WarmupGracefulStop(c.RunConfig)
 	runTimeoutSeconds := common.MustInt(c.RunConfig, "run_timeout_seconds")
 	userCount := common.MustInt(c.RunConfig, "media_user_count")
 	movieCount := common.MustInt(c.RunConfig, "media_movie_count")
@@ -80,7 +81,7 @@ func K6OpenReviewComposeClientRequestLogic(c *nodes.Client) {
 		},
 	}
 
-	if err := warmup.RunWarmupThenMeasured(warmupDuration, duration, func(phase warmup.Phase) error {
+	if err := warmup.RunWarmupThenMeasured(warmupDuration, warmupGracefulStop, duration, func(phase warmup.Phase) error {
 		config := baseConfig
 		config.duration = phase.Duration
 		config.gracefulStop = phase.GracefulStop
