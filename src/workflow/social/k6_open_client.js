@@ -20,6 +20,7 @@ export const options = {
       rate: Number(__ENV.SOCIAL_RATE),
       timeUnit: '1s',
       duration: __ENV.SOCIAL_DURATION,
+      gracefulStop: __ENV.SOCIAL_GRACEFUL_STOP || '30s',
       preAllocatedVUs: Number(__ENV.SOCIAL_PRE_ALLOCATED_VUS || 1),
       maxVUs: Number(__ENV.SOCIAL_MAX_VUS || __ENV.SOCIAL_PRE_ALLOCATED_VUS || 1),
     },

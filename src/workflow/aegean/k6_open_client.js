@@ -22,6 +22,7 @@ export const options = {
       rate: Number(__ENV.AEGEAN_RATE),
       timeUnit: '1s',
       duration: __ENV.AEGEAN_DURATION,
+      gracefulStop: __ENV.AEGEAN_GRACEFUL_STOP || '30s',
       preAllocatedVUs: Number(__ENV.AEGEAN_PRE_ALLOCATED_VUS || 1),
       maxVUs: Number(__ENV.AEGEAN_MAX_VUS || __ENV.AEGEAN_PRE_ALLOCATED_VUS || 1),
     },

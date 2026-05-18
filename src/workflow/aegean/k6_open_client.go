@@ -22,6 +22,7 @@ func K6OpenClientRequestLogic(c *nodes.Client) {
 	warmupDuration := common.StringOrDefault(c.RunConfig, "warmup_duration", "0s")
 	k6PreAllocatedVUs := common.K6PreAllocatedVUs(c.RunConfig, k6QPS)
 	k6MaxVUs := common.MustInt(c.RunConfig, "k6_max_vus")
+	k6GracefulStop := common.K6GracefulStop(c.RunConfig)
 	k6CommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)
@@ -35,6 +36,7 @@ func K6OpenClientRequestLogic(c *nodes.Client) {
 		deadline:        k6CommandDeadline,
 		sender:          c.Name,
 		scriptPath:      "workflow/aegean/k6_open_client.js",
+		gracefulStop:    k6GracefulStop,
 		extraEnv: []string{
 			"SPIN_TIME_SECONDS=" + fmt.Sprintf("%g", spinTimeSeconds),
 			"WRITE_KEY_MOD=" + strconv.Itoa(writeKeyMod),
@@ -68,6 +70,7 @@ type k6RunConfig struct {
 	deadline        time.Duration
 	sender          string
 	scriptPath      string
+	gracefulStop    string
 	extraEnv        []string
 	suppressOutput  bool
 }
@@ -82,6 +85,7 @@ func runK6(config k6RunConfig) error {
 		"-e", "AEGEAN_SENDER=" + config.sender,
 		"-e", "AEGEAN_RATE=" + strconv.Itoa(config.rate),
 		"-e", "AEGEAN_DURATION=" + config.duration,
+		"-e", "AEGEAN_GRACEFUL_STOP=" + config.gracefulStop,
 		"-e", "AEGEAN_PRE_ALLOCATED_VUS=" + strconv.Itoa(config.preAllocatedVUs),
 		"-e", "AEGEAN_MAX_VUS=" + strconv.Itoa(config.maxVUs),
 	}

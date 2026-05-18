@@ -2,7 +2,7 @@
 architecture: response_pbeo.yaml
 
 # K6 configs
-k6_qps: 520
+k6_qps: 400
 warmup_duration: 10s
 duration: 15s
 k6_graceful_stop: 0s

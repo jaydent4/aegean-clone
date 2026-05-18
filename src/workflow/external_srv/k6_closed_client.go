@@ -17,17 +17,19 @@ func K6ClosedClientRequestLogic(c *nodes.Client) {
 	duration := common.MustString(c.RunConfig, "duration")
 	runTimeoutSeconds := common.MustInt(c.RunConfig, "run_timeout_seconds")
 	k6VUs := common.MustInt(c.RunConfig, "k6_vus")
+	k6GracefulStop := common.K6GracefulStop(c.RunConfig)
 	k6CommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)
 	k6TargetURL := fmt.Sprintf("http://%s:8000/", c.Name)
 
 	if err := runK6(k6RunConfig{
-		duration:   duration,
-		targetURL:  k6TargetURL,
-		deadline:   k6CommandDeadline,
-		sender:     c.Name,
-		scriptPath: "workflow/external_srv/k6_closed_client.js",
+		duration:     duration,
+		targetURL:    k6TargetURL,
+		deadline:     k6CommandDeadline,
+		sender:       c.Name,
+		scriptPath:   "workflow/external_srv/k6_closed_client.js",
+		gracefulStop: k6GracefulStop,
 		extraEnv: []string{
 			"EXTERNAL_SRV_VUS=" + strconv.Itoa(k6VUs),
 		},
@@ -47,6 +49,7 @@ func K6OpenClientRequestLogic(c *nodes.Client) {
 	k6QPS := common.MustInt(c.RunConfig, "k6_qps")
 	k6PreAllocatedVUs := common.K6PreAllocatedVUs(c.RunConfig, k6QPS)
 	k6MaxVUs := common.MustInt(c.RunConfig, "k6_max_vus")
+	k6GracefulStop := common.K6GracefulStop(c.RunConfig)
 	k6CommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)
@@ -60,6 +63,7 @@ func K6OpenClientRequestLogic(c *nodes.Client) {
 		deadline:        k6CommandDeadline,
 		sender:          c.Name,
 		scriptPath:      "workflow/external_srv/k6_open_client.js",
+		gracefulStop:    k6GracefulStop,
 	}
 
 	if err := warmup.RunWarmupThenMeasured(warmupDuration, duration, func(runDuration string, suppressOutput bool) error {
@@ -79,12 +83,13 @@ func K6OpenClientRequestLogic(c *nodes.Client) {
 }
 
 type k6RunConfig struct {
-	duration   string
-	targetURL  string
-	deadline   time.Duration
-	sender     string
-	scriptPath string
-	extraEnv   []string
+	duration     string
+	targetURL    string
+	deadline     time.Duration
+	sender       string
+	scriptPath   string
+	gracefulStop string
+	extraEnv     []string
 }
 
 type k6OpenRunConfig struct {
@@ -96,6 +101,7 @@ type k6OpenRunConfig struct {
 	deadline        time.Duration
 	sender          string
 	scriptPath      string
+	gracefulStop    string
 	extraEnv        []string
 	suppressOutput  bool
 }
@@ -109,6 +115,7 @@ func runK6(config k6RunConfig) error {
 		"-e", "TARGET_URL=" + config.targetURL,
 		"-e", "SENDER=" + config.sender,
 		"-e", "DURATION=" + config.duration,
+		"-e", "GRACEFUL_STOP=" + config.gracefulStop,
 	}
 	for _, envVar := range config.extraEnv {
 		args = append(args, "-e", envVar)
@@ -139,6 +146,7 @@ func runK6Open(config k6OpenRunConfig) error {
 		"-e", "EXTERNAL_SRV_SENDER=" + config.sender,
 		"-e", "EXTERNAL_SRV_RATE=" + strconv.Itoa(config.rate),
 		"-e", "EXTERNAL_SRV_DURATION=" + config.duration,
+		"-e", "EXTERNAL_SRV_GRACEFUL_STOP=" + config.gracefulStop,
 		"-e", "EXTERNAL_SRV_PRE_ALLOCATED_VUS=" + strconv.Itoa(config.preAllocatedVUs),
 		"-e", "EXTERNAL_SRV_MAX_VUS=" + strconv.Itoa(config.maxVUs),
 	}

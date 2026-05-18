@@ -12,6 +12,7 @@ export const options = {
       rate: Number(__ENV.HOTEL_RATE),
       timeUnit: '1s',
       duration: __ENV.HOTEL_DURATION,
+      gracefulStop: __ENV.HOTEL_GRACEFUL_STOP || '30s',
       preAllocatedVUs: Number(__ENV.HOTEL_PRE_ALLOCATED_VUS || 1),
       maxVUs: Number(__ENV.HOTEL_MAX_VUS || __ENV.HOTEL_PRE_ALLOCATED_VUS || 1),
     },

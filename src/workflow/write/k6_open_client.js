@@ -8,6 +8,7 @@ export const options = {
       rate: Number(__ENV.WRITE_RATE),
       timeUnit: '1s',
       duration: __ENV.WRITE_DURATION,
+      gracefulStop: __ENV.WRITE_GRACEFUL_STOP || '30s',
       preAllocatedVUs: Number(__ENV.WRITE_PRE_ALLOCATED_VUS || 1),
       maxVUs: Number(__ENV.WRITE_MAX_VUS || __ENV.WRITE_PRE_ALLOCATED_VUS || 1),
     },

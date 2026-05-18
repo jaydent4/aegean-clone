@@ -18,6 +18,7 @@ func K6OpenClientRequestLogic(c *nodes.Client) {
 	k6QPS := common.MustInt(c.RunConfig, "k6_qps")
 	k6PreAllocatedVUs := common.K6PreAllocatedVUs(c.RunConfig, k6QPS)
 	k6MaxVUs := common.MustInt(c.RunConfig, "k6_max_vus")
+	k6GracefulStop := common.K6GracefulStop(c.RunConfig)
 	k6CommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)
@@ -30,6 +31,7 @@ func K6OpenClientRequestLogic(c *nodes.Client) {
 		targetURL:       k6TargetURL,
 		deadline:        k6CommandDeadline,
 		scriptPath:      "workflow/write/k6_open_client.js",
+		gracefulStop:    k6GracefulStop,
 	}
 
 	if err := warmup.RunWarmupThenMeasured(warmupDuration, duration, func(runDuration string, suppressOutput bool) error {
@@ -56,6 +58,7 @@ type writeK6OpenRunConfig struct {
 	targetURL       string
 	deadline        time.Duration
 	scriptPath      string
+	gracefulStop    string
 	suppressOutput  bool
 }
 
@@ -68,6 +71,7 @@ func runK6Open(config writeK6OpenRunConfig) error {
 		"-e", "WRITE_TARGET_URL=" + config.targetURL,
 		"-e", "WRITE_RATE=" + strconv.Itoa(config.rate),
 		"-e", "WRITE_DURATION=" + config.duration,
+		"-e", "WRITE_GRACEFUL_STOP=" + config.gracefulStop,
 		"-e", "WRITE_PRE_ALLOCATED_VUS=" + strconv.Itoa(config.preAllocatedVUs),
 		"-e", "WRITE_MAX_VUS=" + strconv.Itoa(config.maxVUs),
 		config.scriptPath,

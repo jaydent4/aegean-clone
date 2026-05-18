@@ -16,17 +16,19 @@ func K6ClosedClientRequestLogic(c *nodes.Client) {
 	duration := common.MustString(c.RunConfig, "duration")
 	runTimeoutSeconds := common.MustInt(c.RunConfig, "run_timeout_seconds")
 	k6VUs := common.MustInt(c.RunConfig, "k6_vus")
+	k6GracefulStop := common.K6GracefulStop(c.RunConfig)
 	k6CommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)
 	k6TargetURL := fmt.Sprintf("http://%s:8000/", c.Name)
 
 	if err := runK6(k6RunConfig{
-		duration:   duration,
-		targetURL:  k6TargetURL,
-		deadline:   k6CommandDeadline,
-		sender:     c.Name,
-		scriptPath: "workflow/supersimple/k6_closed_client.js",
+		duration:     duration,
+		targetURL:    k6TargetURL,
+		deadline:     k6CommandDeadline,
+		sender:       c.Name,
+		scriptPath:   "workflow/supersimple/k6_closed_client.js",
+		gracefulStop: k6GracefulStop,
 		extraEnv: []string{
 			"SUPERSIMPLE_VUS=" + strconv.Itoa(k6VUs),
 		},
@@ -40,12 +42,13 @@ func K6ClosedClientRequestLogic(c *nodes.Client) {
 }
 
 type k6RunConfig struct {
-	duration   string
-	targetURL  string
-	deadline   time.Duration
-	sender     string
-	scriptPath string
-	extraEnv   []string
+	duration     string
+	targetURL    string
+	deadline     time.Duration
+	sender       string
+	scriptPath   string
+	gracefulStop string
+	extraEnv     []string
 }
 
 func runK6(config k6RunConfig) error {
@@ -57,6 +60,7 @@ func runK6(config k6RunConfig) error {
 		"-e", "TARGET_URL=" + config.targetURL,
 		"-e", "SENDER=" + config.sender,
 		"-e", "DURATION=" + config.duration,
+		"-e", "GRACEFUL_STOP=" + config.gracefulStop,
 	}
 	for _, envVar := range config.extraEnv {
 		args = append(args, "-e", envVar)

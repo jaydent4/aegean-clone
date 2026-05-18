@@ -102,6 +102,10 @@ func K6PreAllocatedVUs(config map[string]any, rate int) int {
 	return 1
 }
 
+func K6GracefulStop(config map[string]any) string {
+	return StringOrDefault(config, "k6_graceful_stop", "30s")
+}
+
 func BoolOrDefault(config map[string]any, key string, defaultValue bool) bool {
 	value, ok := config[key]
 	if !ok {

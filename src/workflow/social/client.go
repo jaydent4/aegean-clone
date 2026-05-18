@@ -19,17 +19,19 @@ func K6ClosedClientRequestLogic(c *nodes.Client) {
 	k6VUs := common.MustInt(c.RunConfig, "k6_vus")
 	userCount := common.MustInt(c.RunConfig, "social_user_count")
 	postTextLength := common.IntOrDefault(c.RunConfig, "social_post_text_length", 64)
+	k6GracefulStop := common.K6GracefulStop(c.RunConfig)
 	k6CommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)
 	k6TargetURL := fmt.Sprintf("http://%s:8000/", c.Name)
 
 	if err := runK6(k6RunConfig{
-		duration:   duration,
-		targetURL:  k6TargetURL,
-		deadline:   k6CommandDeadline,
-		sender:     c.Name,
-		scriptPath: "workflow/social/k6_closed_client.js",
+		duration:     duration,
+		targetURL:    k6TargetURL,
+		deadline:     k6CommandDeadline,
+		sender:       c.Name,
+		scriptPath:   "workflow/social/k6_closed_client.js",
+		gracefulStop: k6GracefulStop,
 		extraEnv: []string{
 			"SOCIAL_VUS=" + strconv.Itoa(k6VUs),
 			"SOCIAL_USER_COUNT=" + strconv.Itoa(userCount),
@@ -53,6 +55,7 @@ func K6OpenClientRequestLogic(c *nodes.Client) {
 	k6QPS := common.MustInt(c.RunConfig, "k6_qps")
 	k6PreAllocatedVUs := common.K6PreAllocatedVUs(c.RunConfig, k6QPS)
 	k6MaxVUs := common.MustInt(c.RunConfig, "k6_max_vus")
+	k6GracefulStop := common.K6GracefulStop(c.RunConfig)
 	k6CommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)
@@ -66,6 +69,7 @@ func K6OpenClientRequestLogic(c *nodes.Client) {
 		deadline:        k6CommandDeadline,
 		sender:          c.Name,
 		scriptPath:      "workflow/social/k6_open_client.js",
+		gracefulStop:    k6GracefulStop,
 		extraEnv: []string{
 			"SOCIAL_USER_COUNT=" + strconv.Itoa(userCount),
 			"SOCIAL_POST_TEXT_LENGTH=" + strconv.Itoa(postTextLength),
@@ -93,17 +97,19 @@ func K6ClosedReadUserTimelineClientRequestLogic(c *nodes.Client) {
 	runTimeoutSeconds := common.MustInt(c.RunConfig, "run_timeout_seconds")
 	k6VUs := common.MustInt(c.RunConfig, "k6_vus")
 	userCount := common.MustInt(c.RunConfig, "social_user_count")
+	k6GracefulStop := common.K6GracefulStop(c.RunConfig)
 	k6CommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)
 	k6TargetURL := fmt.Sprintf("http://%s:8000/", c.Name)
 
 	if err := runK6(k6RunConfig{
-		duration:   duration,
-		targetURL:  k6TargetURL,
-		deadline:   k6CommandDeadline,
-		sender:     c.Name,
-		scriptPath: "workflow/social/k6_closed_read_user_timeline.js",
+		duration:     duration,
+		targetURL:    k6TargetURL,
+		deadline:     k6CommandDeadline,
+		sender:       c.Name,
+		scriptPath:   "workflow/social/k6_closed_read_user_timeline.js",
+		gracefulStop: k6GracefulStop,
 		extraEnv: []string{
 			"SOCIAL_VUS=" + strconv.Itoa(k6VUs),
 			"SOCIAL_USER_COUNT=" + strconv.Itoa(userCount),
@@ -125,6 +131,7 @@ func K6OpenReadUserTimelineClientRequestLogic(c *nodes.Client) {
 	k6QPS := common.MustInt(c.RunConfig, "k6_qps")
 	k6PreAllocatedVUs := common.K6PreAllocatedVUs(c.RunConfig, k6QPS)
 	k6MaxVUs := common.MustInt(c.RunConfig, "k6_max_vus")
+	k6GracefulStop := common.K6GracefulStop(c.RunConfig)
 	k6CommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)
@@ -138,6 +145,7 @@ func K6OpenReadUserTimelineClientRequestLogic(c *nodes.Client) {
 		deadline:        k6CommandDeadline,
 		sender:          c.Name,
 		scriptPath:      "workflow/social/k6_open_read_user_timeline.js",
+		gracefulStop:    k6GracefulStop,
 		extraEnv: []string{
 			"SOCIAL_USER_COUNT=" + strconv.Itoa(userCount),
 		},
@@ -164,17 +172,19 @@ func K6ClosedReadHomeTimelineClientRequestLogic(c *nodes.Client) {
 	runTimeoutSeconds := common.MustInt(c.RunConfig, "run_timeout_seconds")
 	k6VUs := common.MustInt(c.RunConfig, "k6_vus")
 	userCount := common.MustInt(c.RunConfig, "social_user_count")
+	k6GracefulStop := common.K6GracefulStop(c.RunConfig)
 	k6CommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)
 	k6TargetURL := fmt.Sprintf("http://%s:8000/", c.Name)
 
 	if err := runK6(k6RunConfig{
-		duration:   duration,
-		targetURL:  k6TargetURL,
-		deadline:   k6CommandDeadline,
-		sender:     c.Name,
-		scriptPath: "workflow/social/k6_closed_read_home_timeline.js",
+		duration:     duration,
+		targetURL:    k6TargetURL,
+		deadline:     k6CommandDeadline,
+		sender:       c.Name,
+		scriptPath:   "workflow/social/k6_closed_read_home_timeline.js",
+		gracefulStop: k6GracefulStop,
 		extraEnv: []string{
 			"SOCIAL_VUS=" + strconv.Itoa(k6VUs),
 			"SOCIAL_USER_COUNT=" + strconv.Itoa(userCount),
@@ -196,6 +206,7 @@ func K6OpenReadHomeTimelineClientRequestLogic(c *nodes.Client) {
 	k6QPS := common.MustInt(c.RunConfig, "k6_qps")
 	k6PreAllocatedVUs := common.K6PreAllocatedVUs(c.RunConfig, k6QPS)
 	k6MaxVUs := common.MustInt(c.RunConfig, "k6_max_vus")
+	k6GracefulStop := common.K6GracefulStop(c.RunConfig)
 	k6CommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)
@@ -209,6 +220,7 @@ func K6OpenReadHomeTimelineClientRequestLogic(c *nodes.Client) {
 		deadline:        k6CommandDeadline,
 		sender:          c.Name,
 		scriptPath:      "workflow/social/k6_open_read_home_timeline.js",
+		gracefulStop:    k6GracefulStop,
 		extraEnv: []string{
 			"SOCIAL_USER_COUNT=" + strconv.Itoa(userCount),
 		},
@@ -231,12 +243,13 @@ func K6OpenReadHomeTimelineClientRequestLogic(c *nodes.Client) {
 }
 
 type k6RunConfig struct {
-	duration   string
-	targetURL  string
-	deadline   time.Duration
-	sender     string
-	scriptPath string
-	extraEnv   []string
+	duration     string
+	targetURL    string
+	deadline     time.Duration
+	sender       string
+	scriptPath   string
+	gracefulStop string
+	extraEnv     []string
 }
 
 type k6OpenRunConfig struct {
@@ -248,6 +261,7 @@ type k6OpenRunConfig struct {
 	deadline        time.Duration
 	sender          string
 	scriptPath      string
+	gracefulStop    string
 	extraEnv        []string
 	suppressOutput  bool
 }
@@ -261,6 +275,7 @@ func runK6(config k6RunConfig) error {
 		"-e", "TARGET_URL=" + config.targetURL,
 		"-e", "SENDER=" + config.sender,
 		"-e", "DURATION=" + config.duration,
+		"-e", "GRACEFUL_STOP=" + config.gracefulStop,
 	}
 	for _, envVar := range config.extraEnv {
 		args = append(args, "-e", envVar)
@@ -291,6 +306,7 @@ func runK6Open(config k6OpenRunConfig) error {
 		"-e", "SOCIAL_SENDER=" + config.sender,
 		"-e", "SOCIAL_RATE=" + strconv.Itoa(config.rate),
 		"-e", "SOCIAL_DURATION=" + config.duration,
+		"-e", "SOCIAL_GRACEFUL_STOP=" + config.gracefulStop,
 		"-e", "SOCIAL_PRE_ALLOCATED_VUS=" + strconv.Itoa(config.preAllocatedVUs),
 		"-e", "SOCIAL_MAX_VUS=" + strconv.Itoa(config.maxVUs),
 	}

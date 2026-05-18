@@ -18,6 +18,7 @@ func K6OpenClientRequestLogic(c *nodes.Client) {
 	k6QPS := common.MustInt(c.RunConfig, "k6_qps")
 	k6PreAllocatedVUs := common.K6PreAllocatedVUs(c.RunConfig, k6QPS)
 	k6MaxVUs := common.MustInt(c.RunConfig, "k6_max_vus")
+	k6GracefulStop := common.K6GracefulStop(c.RunConfig)
 	k6CommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)
@@ -31,6 +32,7 @@ func K6OpenClientRequestLogic(c *nodes.Client) {
 		deadline:        k6CommandDeadline,
 		sender:          c.Name,
 		scriptPath:      "workflow/worker/k6_open_client.js",
+		gracefulStop:    k6GracefulStop,
 	}
 
 	if err := warmup.RunWarmupThenMeasured(warmupDuration, duration, func(runDuration string, suppressOutput bool) error {
@@ -58,6 +60,7 @@ type workerK6OpenRunConfig struct {
 	deadline        time.Duration
 	sender          string
 	scriptPath      string
+	gracefulStop    string
 	suppressOutput  bool
 }
 
@@ -71,6 +74,7 @@ func runK6Open(config workerK6OpenRunConfig) error {
 		"-e", "WORKER_SENDER=" + config.sender,
 		"-e", "WORKER_RATE=" + strconv.Itoa(config.rate),
 		"-e", "WORKER_DURATION=" + config.duration,
+		"-e", "WORKER_GRACEFUL_STOP=" + config.gracefulStop,
 		"-e", "WORKER_PRE_ALLOCATED_VUS=" + strconv.Itoa(config.preAllocatedVUs),
 		"-e", "WORKER_MAX_VUS=" + strconv.Itoa(config.maxVUs),
 		config.scriptPath,

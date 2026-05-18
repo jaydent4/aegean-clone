@@ -34,7 +34,7 @@ func K6OpenHotelsClientRequestLogic(c *nodes.Client) {
 	k6QPS := common.MustInt(c.RunConfig, "k6_qps")
 	k6PreAllocatedVUs := common.K6PreAllocatedVUs(c.RunConfig, k6QPS)
 	k6MaxVUs := common.MustInt(c.RunConfig, "k6_max_vus")
-	k6GracefulStop := common.StringOrDefault(c.RunConfig, "k6_graceful_stop", "30s")
+	k6GracefulStop := common.K6GracefulStop(c.RunConfig)
 	k6CommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)
@@ -48,10 +48,10 @@ func K6OpenHotelsClientRequestLogic(c *nodes.Client) {
 		deadline:        k6CommandDeadline,
 		sender:          c.Name,
 		scriptPath:      "workflow/hotel/k6_open_hotels_client.js",
+		gracefulStop:    k6GracefulStop,
 		extraEnv: []string{
 			"HOTEL_USER_COUNT=" + strconv.Itoa(userCount),
 			"HOTEL_HOTEL_COUNT=" + strconv.Itoa(hotelCount),
-			"HOTEL_GRACEFUL_STOP=" + k6GracefulStop,
 		},
 	}
 
@@ -80,6 +80,7 @@ func K6OpenRecommendationsClientRequestLogic(c *nodes.Client) {
 	k6QPS := common.MustInt(c.RunConfig, "k6_qps")
 	k6PreAllocatedVUs := common.K6PreAllocatedVUs(c.RunConfig, k6QPS)
 	k6MaxVUs := common.MustInt(c.RunConfig, "k6_max_vus")
+	k6GracefulStop := common.K6GracefulStop(c.RunConfig)
 	k6CommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)
@@ -93,6 +94,7 @@ func K6OpenRecommendationsClientRequestLogic(c *nodes.Client) {
 		deadline:        k6CommandDeadline,
 		sender:          c.Name,
 		scriptPath:      "workflow/hotel/k6_open_recommendations_client.js",
+		gracefulStop:    k6GracefulStop,
 		extraEnv: []string{
 			"HOTEL_USER_COUNT=" + strconv.Itoa(userCount),
 			"HOTEL_HOTEL_COUNT=" + strconv.Itoa(hotelCount),
@@ -124,6 +126,7 @@ func K6OpenReservationClientRequestLogic(c *nodes.Client) {
 	k6QPS := common.MustInt(c.RunConfig, "k6_qps")
 	k6PreAllocatedVUs := common.K6PreAllocatedVUs(c.RunConfig, k6QPS)
 	k6MaxVUs := common.MustInt(c.RunConfig, "k6_max_vus")
+	k6GracefulStop := common.K6GracefulStop(c.RunConfig)
 	k6CommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)
@@ -137,6 +140,7 @@ func K6OpenReservationClientRequestLogic(c *nodes.Client) {
 		deadline:        k6CommandDeadline,
 		sender:          c.Name,
 		scriptPath:      "workflow/hotel/k6_open_reservation_client.js",
+		gracefulStop:    k6GracefulStop,
 		extraEnv: []string{
 			"HOTEL_USER_COUNT=" + strconv.Itoa(userCount),
 			"HOTEL_HOTEL_COUNT=" + strconv.Itoa(hotelCount),
@@ -165,17 +169,19 @@ func runHotelClosedClient(c *nodes.Client, scriptPath string) {
 	k6VUs := common.MustInt(c.RunConfig, "k6_vus")
 	userCount := common.MustInt(c.RunConfig, "hotel_user_count")
 	hotelCount := common.MustInt(c.RunConfig, "hotel_hotel_count")
+	k6GracefulStop := common.K6GracefulStop(c.RunConfig)
 	k6CommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)
 	k6TargetURL := fmt.Sprintf("http://%s:8000/", c.Name)
 
 	if err := runHotelK6(hotelK6RunConfig{
-		duration:   duration,
-		targetURL:  k6TargetURL,
-		deadline:   k6CommandDeadline,
-		sender:     c.Name,
-		scriptPath: scriptPath,
+		duration:     duration,
+		targetURL:    k6TargetURL,
+		deadline:     k6CommandDeadline,
+		sender:       c.Name,
+		scriptPath:   scriptPath,
+		gracefulStop: k6GracefulStop,
 		extraEnv: []string{
 			"HOTEL_VUS=" + strconv.Itoa(k6VUs),
 			"HOTEL_USER_COUNT=" + strconv.Itoa(userCount),
@@ -191,12 +197,13 @@ func runHotelClosedClient(c *nodes.Client, scriptPath string) {
 }
 
 type hotelK6RunConfig struct {
-	duration   string
-	targetURL  string
-	deadline   time.Duration
-	sender     string
-	scriptPath string
-	extraEnv   []string
+	duration     string
+	targetURL    string
+	deadline     time.Duration
+	sender       string
+	scriptPath   string
+	gracefulStop string
+	extraEnv     []string
 }
 
 type hotelK6OpenRunConfig struct {
@@ -208,6 +215,7 @@ type hotelK6OpenRunConfig struct {
 	deadline        time.Duration
 	sender          string
 	scriptPath      string
+	gracefulStop    string
 	extraEnv        []string
 	suppressOutput  bool
 }
@@ -221,6 +229,7 @@ func runHotelK6(config hotelK6RunConfig) error {
 		"-e", "TARGET_URL=" + config.targetURL,
 		"-e", "SENDER=" + config.sender,
 		"-e", "DURATION=" + config.duration,
+		"-e", "GRACEFUL_STOP=" + config.gracefulStop,
 	}
 	for _, envVar := range config.extraEnv {
 		args = append(args, "-e", envVar)
@@ -250,6 +259,7 @@ func runHotelK6Open(config hotelK6OpenRunConfig) error {
 		"-e", "HOTEL_SENDER=" + config.sender,
 		"-e", "HOTEL_RATE=" + strconv.Itoa(config.rate),
 		"-e", "HOTEL_DURATION=" + config.duration,
+		"-e", "HOTEL_GRACEFUL_STOP=" + config.gracefulStop,
 		"-e", "HOTEL_PRE_ALLOCATED_VUS=" + strconv.Itoa(config.preAllocatedVUs),
 		"-e", "HOTEL_MAX_VUS=" + strconv.Itoa(config.maxVUs),
 	}

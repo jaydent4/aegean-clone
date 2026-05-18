@@ -18,17 +18,19 @@ func K6ClosedClientRequestLogic(c *nodes.Client) {
 	readKeyMod := common.MustInt(c.RunConfig, "read_key_mod")
 	valueLength := common.MustInt(c.RunConfig, "value_length")
 	k6VUs := common.MustInt(c.RunConfig, "k6_vus")
+	k6GracefulStop := common.K6GracefulStop(c.RunConfig)
 	k6CommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)
 	k6TargetURL := fmt.Sprintf("http://%s:8000/", c.Name)
 
 	if err := runK6(k6RunConfig{
-		duration:   duration,
-		targetURL:  k6TargetURL,
-		deadline:   k6CommandDeadline,
-		sender:     c.Name,
-		scriptPath: "workflow/aegean/k6_closed_client.js",
+		duration:     duration,
+		targetURL:    k6TargetURL,
+		deadline:     k6CommandDeadline,
+		sender:       c.Name,
+		scriptPath:   "workflow/aegean/k6_closed_client.js",
+		gracefulStop: k6GracefulStop,
 		extraEnv: []string{
 			"SPIN_TIME_SECONDS=" + fmt.Sprintf("%g", spinTimeSeconds),
 			"WRITE_KEY_MOD=" + strconv.Itoa(writeKeyMod),

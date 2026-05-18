@@ -20,17 +20,19 @@ func K6ClosedReviewComposeClientRequestLogic(c *nodes.Client) {
 	userCount := common.MustInt(c.RunConfig, "media_user_count")
 	movieCount := common.MustInt(c.RunConfig, "media_movie_count")
 	textLength := common.IntOrDefault(c.RunConfig, "media_review_text_length", 256)
+	k6GracefulStop := common.K6GracefulStop(c.RunConfig)
 	k6CommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)
 	k6TargetURL := fmt.Sprintf("http://%s:8000/", c.Name)
 
 	if err := runMediaK6(mediaK6RunConfig{
-		duration:   duration,
-		targetURL:  k6TargetURL,
-		deadline:   k6CommandDeadline,
-		sender:     c.Name,
-		scriptPath: "workflow/media/k6_closed_review_compose.js",
+		duration:     duration,
+		targetURL:    k6TargetURL,
+		deadline:     k6CommandDeadline,
+		sender:       c.Name,
+		scriptPath:   "workflow/media/k6_closed_review_compose.js",
+		gracefulStop: k6GracefulStop,
 		extraEnv: []string{
 			"MEDIA_VUS=" + strconv.Itoa(k6VUs),
 			"MEDIA_USER_COUNT=" + strconv.Itoa(userCount),
@@ -56,6 +58,7 @@ func K6OpenReviewComposeClientRequestLogic(c *nodes.Client) {
 	k6QPS := common.MustInt(c.RunConfig, "k6_qps")
 	k6PreAllocatedVUs := common.K6PreAllocatedVUs(c.RunConfig, k6QPS)
 	k6MaxVUs := common.MustInt(c.RunConfig, "k6_max_vus")
+	k6GracefulStop := common.K6GracefulStop(c.RunConfig)
 	k6CommandDeadline := time.Duration(runTimeoutSeconds) * time.Second
 
 	c.WaitForNodesReady(c.ReadyNodes)
@@ -69,6 +72,7 @@ func K6OpenReviewComposeClientRequestLogic(c *nodes.Client) {
 		deadline:        k6CommandDeadline,
 		sender:          c.Name,
 		scriptPath:      "workflow/media/k6_open_review_compose.js",
+		gracefulStop:    k6GracefulStop,
 		extraEnv: []string{
 			"MEDIA_USER_COUNT=" + strconv.Itoa(userCount),
 			"MEDIA_MOVIE_COUNT=" + strconv.Itoa(movieCount),
@@ -93,12 +97,13 @@ func K6OpenReviewComposeClientRequestLogic(c *nodes.Client) {
 }
 
 type mediaK6RunConfig struct {
-	duration   string
-	targetURL  string
-	deadline   time.Duration
-	sender     string
-	scriptPath string
-	extraEnv   []string
+	duration     string
+	targetURL    string
+	deadline     time.Duration
+	sender       string
+	scriptPath   string
+	gracefulStop string
+	extraEnv     []string
 }
 
 type mediaK6OpenRunConfig struct {
@@ -110,6 +115,7 @@ type mediaK6OpenRunConfig struct {
 	deadline        time.Duration
 	sender          string
 	scriptPath      string
+	gracefulStop    string
 	extraEnv        []string
 	suppressOutput  bool
 }
@@ -123,6 +129,7 @@ func runMediaK6(config mediaK6RunConfig) error {
 		"-e", "TARGET_URL=" + config.targetURL,
 		"-e", "SENDER=" + config.sender,
 		"-e", "DURATION=" + config.duration,
+		"-e", "GRACEFUL_STOP=" + config.gracefulStop,
 	}
 	for _, envVar := range config.extraEnv {
 		args = append(args, "-e", envVar)
@@ -152,6 +159,7 @@ func runMediaK6Open(config mediaK6OpenRunConfig) error {
 		"-e", "MEDIA_SENDER=" + config.sender,
 		"-e", "MEDIA_RATE=" + strconv.Itoa(config.rate),
 		"-e", "MEDIA_DURATION=" + config.duration,
+		"-e", "MEDIA_GRACEFUL_STOP=" + config.gracefulStop,
 		"-e", "MEDIA_PRE_ALLOCATED_VUS=" + strconv.Itoa(config.preAllocatedVUs),
 		"-e", "MEDIA_MAX_VUS=" + strconv.Itoa(config.maxVUs),
 	}
