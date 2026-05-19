@@ -2,7 +2,7 @@
 architecture: write_unreplicated.yaml
 
 # K6 configs
-k6_qps: 1100
+k6_qps: 500
 warmup_duration: 10s
 warmup_graceful_stop: 45s
 duration: 15s
