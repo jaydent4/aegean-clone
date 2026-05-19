@@ -155,6 +155,10 @@ def load_run_config(run_config_path):
             "run config field 'nested_eo_request_quorum_timeout_ms' must be a positive integer"
         )
 
+    clear_local_redis_on_start = data.get("clear_local_redis_on_start")
+    if clear_local_redis_on_start is not None and not isinstance(clear_local_redis_on_start, bool):
+        raise ValueError("run config field 'clear_local_redis_on_start' must be a bool")
+
     architecture_path = os.path.normpath(os.path.join(architecture_dir, architecture))
     return resolved_run_config_path, relative_run_config_path, architecture_path, data
 
@@ -474,6 +478,8 @@ def launch_nodes(
         )
         if redis_needed:
             redis_data_dir = f"/tmp/aegean-redis-{name}"
+            if run_config.get("clear_local_redis_on_start", True):
+                redis_setup += f"rm -rf {shlex.quote(redis_data_dir)} || exit 1; "
             redis_setup += (
                 f"mkdir -p {shlex.quote(redis_data_dir)} || exit 1; "
                 f"redis-server --bind 127.0.0.1 --port 6379 "
