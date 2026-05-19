@@ -1,6 +1,6 @@
 ---
 architecture: hotel_reservation_unreplicated.yaml
-k6_qps: 2997
+k6_qps: 3000
 warmup_duration: 10s
 warmup_graceful_stop: 45s
 duration: 15s
