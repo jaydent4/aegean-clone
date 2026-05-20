@@ -277,10 +277,9 @@ func (e *Exec) finalizeBatchMerkleContext() {
 		}
 		sort.Strings(keys)
 		for _, key := range keys {
-			value := e.batchCtx.pendingNew[key]
-			e.workingState.KVStore[key] = value
-			e.workingState.Merkle.Set(key, value)
+			e.workingState.KVStore[key] = e.batchCtx.pendingNew[key]
 		}
+		e.workingState.Merkle.SetNewKeysSorted(keys, e.batchCtx.pendingNew)
 	}
 	e.workingState.MerkleRoot = e.workingState.Merkle.Root()
 	e.batchCtx = nil

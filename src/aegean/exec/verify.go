@@ -2,6 +2,7 @@ package exec
 
 import (
 	"log"
+	"time"
 
 	netx "aegean/net"
 	"aegean/telemetry"
@@ -18,6 +19,7 @@ func (e *Exec) flushNextVerify() bool {
 	e.mu.Unlock()
 	// Compute token with committed prevHash to avoid divergence for the next sequence.
 	if ok && seq == stableSeqNum+1 && !pending.verifySent {
+		verifyStart := time.Now()
 		for _, request := range e.requestPayloadsForSeq(seq) {
 			e.endRequestSpan(request["request_id"], postNestedVerifyGateWaitSpanContextKey)
 			e.endRequestSpan(request["request_id"], requestVerifyGateWaitSpanContextKey)
@@ -42,7 +44,9 @@ func (e *Exec) flushNextVerify() bool {
 			)
 			pending.verifySpan = verifySpan
 		}
+		computeStart := time.Now()
 		token := e.computeStateHash(pending.merkleRoot, pending.outputs, prevHash, seq)
+		computeDuration := time.Since(computeStart)
 		pending.token = token
 		pending.verifySent = true
 		e.mu.Lock()
@@ -89,22 +93,49 @@ func (e *Exec) flushNextVerify() bool {
 			)
 		}
 
+		sendStart := time.Now()
+		remoteVerifiers := 0
 		for _, verifier := range e.Verifiers {
 			if verifier == e.Name && e.VerifierCh != nil {
 				e.VerifierCh <- verifyMsg
 				continue
 			}
+			remoteVerifiers++
 			_, _ = netx.SendMessage(verifier, 8000, verifyMsg)
 		}
+		sendDuration := time.Since(sendStart)
+		totalDuration := time.Since(verifyStart)
+		if pending.verifySpan != nil {
+			pending.verifySpan.SetAttributes(
+				attribute.Int64("exec.verify.compute_hash_us", computeDuration.Microseconds()),
+				attribute.Int64("exec.verify.send_us", sendDuration.Microseconds()),
+				attribute.Int64("exec.verify.total_us", totalDuration.Microseconds()),
+				attribute.Int("exec.verify.output_count", len(pending.outputs)),
+				attribute.Int("exec.verify.remote_verifier_count", remoteVerifiers),
+			)
+		}
+		log.Printf(
+			"%s: exec_verify_timing seq_num=%d output_count=%d compute_hash_us=%d send_verify_us=%d total_us=%d verifiers=%d remote_verifiers=%d",
+			e.Name,
+			seq,
+			len(pending.outputs),
+			computeDuration.Microseconds(),
+			sendDuration.Microseconds(),
+			totalDuration.Microseconds(),
+			len(e.Verifiers),
+			remoteVerifiers,
+		)
 		return true
 	}
 	return false
 }
 
 func (e *Exec) finalizeCommit(seqNum int, pending pendingExecResult, agreedToken string) {
+	commitStart := time.Now()
 	if pending.verifySpan != nil {
 		pending.verifySpan.End()
 	}
+	stateStart := time.Now()
 	e.mu.Lock()
 	delete(e.pendingExecResults, seqNum)
 	e.stableState = State{
@@ -123,7 +154,9 @@ func (e *Exec) finalizeCommit(seqNum int, pending pendingExecResult, agreedToken
 	}
 	e.forceSequential = false
 	e.mu.Unlock()
+	stateDuration := time.Since(stateStart)
 
+	responseStart := time.Now()
 	for _, output := range pending.outputs {
 		requestID := output["request_id"]
 		e.endRequestSpan(requestID, requestVerifyWaitSpanContextKey)
@@ -142,7 +175,21 @@ func (e *Exec) finalizeCommit(seqNum int, pending pendingExecResult, agreedToken
 			e.ShimCh <- responseMsg
 		}
 	}
+	responseDuration := time.Since(responseStart)
+	gcStart := time.Now()
 	e.gcCommittedNestedResponses(pending.outputs)
+	gcDuration := time.Since(gcStart)
+	totalDuration := time.Since(commitStart)
+	log.Printf(
+		"%s: exec_commit_timing seq_num=%d output_count=%d state_update_us=%d response_send_us=%d gc_us=%d total_us=%d",
+		e.Name,
+		seqNum,
+		len(pending.outputs),
+		stateDuration.Microseconds(),
+		responseDuration.Microseconds(),
+		gcDuration.Microseconds(),
+		totalDuration.Microseconds(),
+	)
 }
 
 func (e *Exec) gcCommittedNestedResponses(outputs []map[string]any) {

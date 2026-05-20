@@ -108,6 +108,75 @@ func (t *MerkleTree) Set(key, value string) {
 	t.insertLeafAt(insertAt, key, leaf)
 }
 
+// SetNewKeysSorted applies a sorted batch of pending writes while rebuilding
+// the tree levels only once for genuinely new keys.
+func (t *MerkleTree) SetNewKeysSorted(keys []string, values map[string]string) {
+	if t == nil || len(keys) == 0 {
+		return
+	}
+
+	newKeys := make([]string, 0, len(keys))
+	newLeafHashes := make(map[string]string, len(keys))
+	for _, key := range keys {
+		if _, ok := newLeafHashes[key]; ok {
+			continue
+		}
+		if _, ok := t.keyIndex[key]; ok {
+			t.Set(key, values[key])
+			continue
+		}
+		value := values[key]
+		t.kv[key] = value
+		leaf := hashHex("leaf|" + key + "|" + value)
+		t.leafHashes[key] = leaf
+		newLeafHashes[key] = leaf
+		newKeys = append(newKeys, key)
+	}
+	if len(newKeys) == 0 {
+		return
+	}
+
+	mergedKeys := make([]string, 0, len(t.sortedKeys)+len(newKeys))
+	leafLevel := make([]string, 0, len(t.sortedKeys)+len(newKeys))
+	existingIdx := 0
+	newIdx := 0
+	for existingIdx < len(t.sortedKeys) || newIdx < len(newKeys) {
+		if existingIdx >= len(t.sortedKeys) {
+			key := newKeys[newIdx]
+			mergedKeys = append(mergedKeys, key)
+			leafLevel = append(leafLevel, newLeafHashes[key])
+			newIdx++
+			continue
+		}
+		if newIdx >= len(newKeys) {
+			key := t.sortedKeys[existingIdx]
+			mergedKeys = append(mergedKeys, key)
+			leafLevel = append(leafLevel, t.leafHashes[key])
+			existingIdx++
+			continue
+		}
+
+		existingKey := t.sortedKeys[existingIdx]
+		newKey := newKeys[newIdx]
+		if existingKey < newKey {
+			mergedKeys = append(mergedKeys, existingKey)
+			leafLevel = append(leafLevel, t.leafHashes[existingKey])
+			existingIdx++
+		} else {
+			mergedKeys = append(mergedKeys, newKey)
+			leafLevel = append(leafLevel, newLeafHashes[newKey])
+			newIdx++
+		}
+	}
+
+	t.sortedKeys = mergedKeys
+	t.keyIndex = make(map[string]int, len(mergedKeys))
+	for idx, key := range mergedKeys {
+		t.keyIndex[key] = idx
+	}
+	t.rebuildLevelsFromLeafLevel(leafLevel)
+}
+
 func (t *MerkleTree) Delete(key string) {
 	if t == nil {
 		return

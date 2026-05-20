@@ -1,6 +1,9 @@
 package exec
 
-import "testing"
+import (
+	"sort"
+	"testing"
+)
 
 func TestMerkleIncrementalSetExistingKeyMatchesCanonicalRebuild(t *testing.T) {
 	base := map[string]string{
@@ -41,5 +44,92 @@ func TestMerkleIncrementalInsertDeleteMatchesCanonicalRebuild(t *testing.T) {
 	})
 	if tree.Root() != expected.Root() {
 		t.Fatalf("expected insert/delete root to match canonical rebuild, got %s vs %s", tree.Root(), expected.Root())
+	}
+}
+
+func TestMerkleBulkInsertMatchesCanonicalRebuild(t *testing.T) {
+	tree := NewMerkleTreeFromMap(map[string]string{
+		"b": "2",
+		"d": "4",
+		"f": "6",
+	})
+	pending := map[string]string{
+		"a": "1",
+		"c": "3",
+		"e": "5",
+	}
+	keys := make([]string, 0, len(pending))
+	for key := range pending {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	tree.SetNewKeysSorted(keys, pending)
+
+	expected := NewMerkleTreeFromMap(map[string]string{
+		"a": "1",
+		"b": "2",
+		"c": "3",
+		"d": "4",
+		"e": "5",
+		"f": "6",
+	})
+	if tree.Root() != expected.Root() {
+		t.Fatalf("expected bulk insert root to match canonical rebuild, got %s vs %s", tree.Root(), expected.Root())
+	}
+	if got := tree.Get("e"); got != "5" {
+		t.Fatalf("expected inserted value, got %q", got)
+	}
+}
+
+func TestMerkleBulkInsertWithExistingKeyMatchesCanonicalRebuild(t *testing.T) {
+	tree := NewMerkleTreeFromMap(map[string]string{
+		"b": "2",
+		"d": "4",
+	})
+	pending := map[string]string{
+		"a": "1",
+		"b": "20",
+		"c": "3",
+	}
+	keys := make([]string, 0, len(pending))
+	for key := range pending {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	tree.SetNewKeysSorted(keys, pending)
+
+	expected := NewMerkleTreeFromMap(map[string]string{
+		"a": "1",
+		"b": "20",
+		"c": "3",
+		"d": "4",
+	})
+	if tree.Root() != expected.Root() {
+		t.Fatalf("expected mixed bulk insert root to match canonical rebuild, got %s vs %s", tree.Root(), expected.Root())
+	}
+	if got := tree.Get("b"); got != "20" {
+		t.Fatalf("expected updated value, got %q", got)
+	}
+}
+
+func TestMerkleBulkInsertEmptyTreeMatchesCanonicalRebuild(t *testing.T) {
+	tree := NewMerkleTreeFromMap(nil)
+	pending := map[string]string{
+		"b": "2",
+		"a": "1",
+	}
+	keys := make([]string, 0, len(pending))
+	for key := range pending {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	tree.SetNewKeysSorted(keys, pending)
+
+	expected := NewMerkleTreeFromMap(pending)
+	if tree.Root() != expected.Root() {
+		t.Fatalf("expected empty-tree bulk insert root to match canonical rebuild, got %s vs %s", tree.Root(), expected.Root())
 	}
 }

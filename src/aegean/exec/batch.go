@@ -86,6 +86,7 @@ func (e *Exec) flushNextBatch() bool {
 }
 
 func (e *Exec) executeBatch(payload map[string]any) *batchExecutionResult {
+	totalStart := time.Now()
 	seqNum := common.GetInt(payload, "seq_num")
 	parallelBatchesAny, _ := payload["parallel_batches"]
 	ndSeed := common.GetInt64(payload, "nd_seed")
@@ -99,6 +100,7 @@ func (e *Exec) executeBatch(payload map[string]any) *batchExecutionResult {
 		return &batchExecutionResult{seqNum: seqNum, payload: payload}
 	}
 	requestCount := batchRequestCount(parallelBatches)
+	contextStart := time.Now()
 	for parallelBatchIdx, batch := range parallelBatches {
 		for requestIdx, request := range batch {
 			_ = e.SetRequestContextValue(request["request_id"], requestBatchSeqContextKey, seqNum)
@@ -109,27 +111,48 @@ func (e *Exec) executeBatch(payload map[string]any) *batchExecutionResult {
 			_ = e.SetRequestContextValue(request["request_id"], "batch_request_count", requestCount)
 		}
 	}
+	contextDuration := time.Since(contextStart)
 	log.Printf("%s: received batch seq_num=%d request_ids=%v", e.Name, seqNum, batchRequestIDs(parallelBatches))
 
 	// Defer insertion of new keys to end-of-batch deterministic phase.
+	beginMerkleStart := time.Now()
 	e.beginBatchMerkleContext()
+	beginMerkleDuration := time.Since(beginMerkleStart)
 	// Execute all parallelBatches and collect outputs.
 	e.mu.Lock()
 	forceSequential := e.forceSequential
 	e.mu.Unlock()
 	var outputs []map[string]any
+	executeStart := time.Now()
 	if forceSequential {
 		outputs = e.executeSequentialBatches(parallelBatches, ndSeed, ndTimestamp)
 	} else {
 		outputs = e.executeParallelBatches(parallelBatches, ndSeed, ndTimestamp)
 	}
-	e.finalizeBatchMerkleContext()
+	executeDuration := time.Since(executeStart)
 
+	e.stateMu.Lock()
+	pendingNewKeys := 0
+	baseKeys := 0
+	if e.batchCtx != nil {
+		pendingNewKeys = len(e.batchCtx.pendingNew)
+		baseKeys = len(e.batchCtx.baseKeys)
+	}
+	e.stateMu.Unlock()
+
+	finalizeMerkleStart := time.Now()
+	e.finalizeBatchMerkleContext()
+	finalizeMerkleDuration := time.Since(finalizeMerkleStart)
+
+	snapshotStart := time.Now()
 	e.stateMu.Lock()
 	e.workingState.EnsureMerkle()
 	stateSnapshot := common.CopyStringMap(e.workingState.KVStore)
 	stateRoot := e.workingState.MerkleRoot
+	stateKeys := len(e.workingState.KVStore)
 	e.stateMu.Unlock()
+	snapshotDuration := time.Since(snapshotStart)
+	totalDuration := time.Since(totalStart)
 
 	var batchServiceSpan trace.Span
 	if spanAny, ok := payload["_batch_service_span"]; ok {
@@ -138,6 +161,39 @@ func (e *Exec) executeBatch(payload map[string]any) *batchExecutionResult {
 		}
 		delete(payload, "_batch_service_span")
 	}
+	if batchServiceSpan != nil {
+		batchServiceSpan.SetAttributes(
+			attribute.Int64("exec.batch.context_us", contextDuration.Microseconds()),
+			attribute.Int64("exec.batch.begin_merkle_us", beginMerkleDuration.Microseconds()),
+			attribute.Int64("exec.batch.execute_us", executeDuration.Microseconds()),
+			attribute.Int("exec.batch.pending_new_keys", pendingNewKeys),
+			attribute.Int("exec.batch.base_keys", baseKeys),
+			attribute.Int64("exec.batch.finalize_merkle_us", finalizeMerkleDuration.Microseconds()),
+			attribute.Int64("exec.batch.snapshot_us", snapshotDuration.Microseconds()),
+			attribute.Int("exec.batch.state_keys", stateKeys),
+			attribute.Int64("exec.batch.total_us", totalDuration.Microseconds()),
+			attribute.Int("exec.batch.output_count", len(outputs)),
+			attribute.Bool("exec.batch.force_sequential", forceSequential),
+		)
+	}
+	log.Printf(
+		"%s: exec_batch_timing seq_num=%d request_count=%d parallel_batches=%d output_count=%d force_sequential=%t context_us=%d begin_merkle_us=%d execute_us=%d pending_new_keys=%d base_keys=%d finalize_merkle_us=%d snapshot_us=%d state_keys=%d total_us=%d",
+		e.Name,
+		seqNum,
+		requestCount,
+		len(parallelBatches),
+		len(outputs),
+		forceSequential,
+		contextDuration.Microseconds(),
+		beginMerkleDuration.Microseconds(),
+		executeDuration.Microseconds(),
+		pendingNewKeys,
+		baseKeys,
+		finalizeMerkleDuration.Microseconds(),
+		snapshotDuration.Microseconds(),
+		stateKeys,
+		totalDuration.Microseconds(),
+	)
 
 	return &batchExecutionResult{
 		seqNum:           seqNum,
