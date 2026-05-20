@@ -5,7 +5,7 @@ Source: [../architecture/hotel_hotels_pbeo.yaml](../architecture/hotel_hotels_pb
 ```mermaid
 flowchart LR
   client["client<br/>client"]
-  frontend["frontend<br/>pbeo"]
+  frontend["frontend<br/>unreplicated"]
   search["search<br/>pbeo"]
   geo["geo<br/>pbeo"]
   rate["rate<br/>pbeo"]

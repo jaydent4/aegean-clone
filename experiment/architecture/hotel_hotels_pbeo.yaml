@@ -6,13 +6,13 @@ services:
     - node1
     client_workflow: hotel_k6_open_hotels_client
   frontend:
-    type: pbeo_server
+    type: unreplicated_server
     clients:
     - node0
     nodes:
     - node1
-    exec_workflow: hotel_frontend_pbeo
-    init_state_workflow: hotel_pbeo_default
+    exec_workflow: hotel_frontend
+    init_state_workflow: hotel_default
   search:
     type: pbeo_server
     clients:
