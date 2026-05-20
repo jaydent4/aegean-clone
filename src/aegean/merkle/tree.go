@@ -1,4 +1,4 @@
-package exec
+package merkle
 
 import (
 	"crypto/sha256"
@@ -8,9 +8,9 @@ import (
 	"sync"
 )
 
-// We would like this merkle tree implementation to be: deterministic, parallelized for performance
-// and updated incrementally
-type MerkleTree struct {
+// Tree is a deterministic in-memory Merkle tree for string key/value state.
+// Roots are canonical for a final key/value map, independent of write order.
+type Tree struct {
 	kv         map[string]string
 	leafHashes map[string]string
 	sortedKeys []string
@@ -25,8 +25,9 @@ const (
 	merkleParallelLeafFloor = 64
 )
 
-func NewMerkleTreeFromMap(kv map[string]string) *MerkleTree {
-	tree := &MerkleTree{
+// NewTreeFromMap builds a canonical tree from a key/value snapshot.
+func NewTreeFromMap(kv map[string]string) *Tree {
+	tree := &Tree{
 		kv:         make(map[string]string),
 		leafHashes: make(map[string]string),
 		keyIndex:   make(map[string]int),
@@ -39,11 +40,11 @@ func NewMerkleTreeFromMap(kv map[string]string) *MerkleTree {
 	return tree
 }
 
-func (t *MerkleTree) Clone() *MerkleTree {
+func (t *Tree) Clone() *Tree {
 	if t == nil {
-		return NewMerkleTreeFromMap(nil)
+		return NewTreeFromMap(nil)
 	}
-	clone := &MerkleTree{
+	clone := &Tree{
 		kv:         make(map[string]string, len(t.kv)),
 		leafHashes: make(map[string]string, len(t.leafHashes)),
 		sortedKeys: append([]string(nil), t.sortedKeys...),
@@ -66,21 +67,21 @@ func (t *MerkleTree) Clone() *MerkleTree {
 	return clone
 }
 
-func (t *MerkleTree) Root() string {
+func (t *Tree) Root() string {
 	if t == nil {
 		return strings.Repeat("0", 64)
 	}
 	return t.root
 }
 
-func (t *MerkleTree) Get(key string) string {
+func (t *Tree) Get(key string) string {
 	if t == nil {
 		return ""
 	}
 	return t.kv[key]
 }
 
-func (t *MerkleTree) Set(key, value string) {
+func (t *Tree) Set(key, value string) {
 	if t == nil {
 		return
 	}
@@ -110,7 +111,7 @@ func (t *MerkleTree) Set(key, value string) {
 
 // SetNewKeysSorted applies a sorted batch of pending writes while rebuilding
 // the tree levels only once for genuinely new keys.
-func (t *MerkleTree) SetNewKeysSorted(keys []string, values map[string]string) {
+func (t *Tree) SetNewKeysSorted(keys []string, values map[string]string) {
 	if t == nil || len(keys) == 0 {
 		return
 	}
@@ -177,7 +178,7 @@ func (t *MerkleTree) SetNewKeysSorted(keys []string, values map[string]string) {
 	t.rebuildLevelsFromLeafLevel(leafLevel)
 }
 
-func (t *MerkleTree) Delete(key string) {
+func (t *Tree) Delete(key string) {
 	if t == nil {
 		return
 	}
@@ -190,7 +191,7 @@ func (t *MerkleTree) Delete(key string) {
 	t.removeLeafAt(idx)
 }
 
-func (t *MerkleTree) SnapshotMap() map[string]string {
+func (t *Tree) SnapshotMap() map[string]string {
 	out := make(map[string]string, len(t.kv))
 	for key, value := range t.kv {
 		out[key] = value
@@ -198,7 +199,7 @@ func (t *MerkleTree) SnapshotMap() map[string]string {
 	return out
 }
 
-func (t *MerkleTree) LeafHashes() map[string]string {
+func (t *Tree) LeafHashes() map[string]string {
 	out := make(map[string]string, len(t.leafHashes))
 	for key, hash := range t.leafHashes {
 		out[key] = hash
@@ -206,7 +207,7 @@ func (t *MerkleTree) LeafHashes() map[string]string {
 	return out
 }
 
-func (t *MerkleTree) DiffFromLeafHashes(remoteLeafHashes map[string]string) (map[string]string, []string) {
+func (t *Tree) DiffFromLeafHashes(remoteLeafHashes map[string]string) (map[string]string, []string) {
 	if remoteLeafHashes == nil {
 		remoteLeafHashes = map[string]string{}
 	}
@@ -227,7 +228,7 @@ func (t *MerkleTree) DiffFromLeafHashes(remoteLeafHashes map[string]string) (map
 	return updates, deletes
 }
 
-func (t *MerkleTree) rebuildFromKV() {
+func (t *Tree) rebuildFromKV() {
 	t.leafHashes = make(map[string]string, len(t.kv))
 	t.keyIndex = make(map[string]int, len(t.kv))
 	t.sortedKeys = t.sortedKeys[:0]
@@ -260,7 +261,7 @@ func (t *MerkleTree) rebuildFromKV() {
 	t.rebuildLevelsFromLeafLevel(leafLevel)
 }
 
-func (t *MerkleTree) rebuildLevelsFromLeafLevel(leafLevel []string) {
+func (t *Tree) rebuildLevelsFromLeafLevel(leafLevel []string) {
 	if len(leafLevel) == 0 {
 		t.levels = nil
 		t.root = strings.Repeat("0", 64)
@@ -290,7 +291,7 @@ func (t *MerkleTree) rebuildLevelsFromLeafLevel(leafLevel []string) {
 	t.root = t.levels[len(t.levels)-1][0]
 }
 
-func (t *MerkleTree) hashLevelParallel(level []string, next []string) {
+func (t *Tree) hashLevelParallel(level []string, next []string) {
 	workerCount := merkleHashWorkers
 	if workerCount > len(next) {
 		workerCount = len(next)
@@ -321,7 +322,7 @@ func (t *MerkleTree) hashLevelParallel(level []string, next []string) {
 	wg.Wait()
 }
 
-func (t *MerkleTree) hashLeafLevelParallel(keys []string, leafLevel []string) {
+func (t *Tree) hashLeafLevelParallel(keys []string, leafLevel []string) {
 	workerCount := merkleHashWorkers
 	if workerCount > len(keys) {
 		workerCount = len(keys)
@@ -352,7 +353,7 @@ func (t *MerkleTree) hashLeafLevelParallel(keys []string, leafLevel []string) {
 	}
 }
 
-func (t *MerkleTree) recomputePath(leafIdx int) {
+func (t *Tree) recomputePath(leafIdx int) {
 	if len(t.levels) == 0 {
 		t.root = strings.Repeat("0", 64)
 		return
@@ -373,7 +374,7 @@ func (t *MerkleTree) recomputePath(leafIdx int) {
 	t.root = t.levels[len(t.levels)-1][0]
 }
 
-func (t *MerkleTree) insertLeafAt(idx int, key string, leaf string) {
+func (t *Tree) insertLeafAt(idx int, key string, leaf string) {
 	t.sortedKeys = append(t.sortedKeys, "")
 	copy(t.sortedKeys[idx+1:], t.sortedKeys[idx:])
 	t.sortedKeys[idx] = key
@@ -392,7 +393,7 @@ func (t *MerkleTree) insertLeafAt(idx int, key string, leaf string) {
 	t.rebuildLevelsFromLeafLevel(leafLevel)
 }
 
-func (t *MerkleTree) removeLeafAt(idx int) {
+func (t *Tree) removeLeafAt(idx int) {
 	removedKey := t.sortedKeys[idx]
 	t.sortedKeys = append(t.sortedKeys[:idx], t.sortedKeys[idx+1:]...)
 	delete(t.keyIndex, removedKey)
@@ -407,7 +408,7 @@ func (t *MerkleTree) removeLeafAt(idx int) {
 	t.rebuildLevelsFromLeafLevel(leafLevel)
 }
 
-func (t *MerkleTree) reindexFrom(start int) {
+func (t *Tree) reindexFrom(start int) {
 	for i := start; i < len(t.sortedKeys); i++ {
 		t.keyIndex[t.sortedKeys[i]] = i
 	}

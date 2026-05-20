@@ -5,6 +5,7 @@ import (
 	"sort"
 	"time"
 
+	"aegean/aegean/merkle"
 	"aegean/common"
 	netx "aegean/net"
 )
@@ -104,7 +105,7 @@ func (e *Exec) requestStateTransfer(minStableSeq int, _ int) bool {
 			e.mu.Unlock()
 			continue
 		}
-		mergedMerkle := NewMerkleTreeFromMap(merged)
+		mergedMerkle := merkle.NewTreeFromMap(merged)
 		if mergedMerkle.Root() != transferredStateRoot {
 			e.mu.Unlock()
 			continue

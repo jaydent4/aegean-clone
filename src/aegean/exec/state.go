@@ -1,8 +1,10 @@
 package exec
 
+import "aegean/aegean/merkle"
+
 type State struct {
 	KVStore    map[string]string
-	Merkle     *MerkleTree
+	Merkle     *merkle.Tree
 	MerkleRoot string
 	SeqNum     int
 	PrevHash   string
@@ -14,7 +16,7 @@ func (s *State) EnsureMerkle() {
 		if s.KVStore == nil {
 			s.KVStore = make(map[string]string)
 		}
-		s.Merkle = NewMerkleTreeFromMap(s.KVStore)
+		s.Merkle = merkle.NewTreeFromMap(s.KVStore)
 		s.MerkleRoot = s.Merkle.Root()
 		return
 	}

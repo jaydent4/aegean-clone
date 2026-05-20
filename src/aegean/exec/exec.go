@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"aegean/aegean/merkle"
 	"aegean/common"
 	"aegean/telemetry"
 
@@ -166,7 +167,7 @@ func NewExec(name string, verifiers []string, peers []string, verifierCh chan<- 
 			initialKV = common.CopyStringMap(customKV)
 		}
 	}
-	initialMerkle := NewMerkleTreeFromMap(initialKV)
+	initialMerkle := merkle.NewTreeFromMap(initialKV)
 	stable := State{
 		KVStore:    common.CopyStringMap(initialKV),
 		Merkle:     initialMerkle.Clone(),

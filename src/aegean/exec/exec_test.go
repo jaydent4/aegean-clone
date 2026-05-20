@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"aegean/aegean/merkle"
 	"aegean/common"
 	netx "aegean/net"
 )
@@ -512,7 +513,7 @@ func TestExecVerifyCommitStabilizesAndResponds(t *testing.T) {
 // Token mismatch triggers state transfer and applies a newer stable state
 func TestExecVerifyMismatchTriggersStateTransfer(t *testing.T) {
 	transferredState := map[string]any{"a": "10", "b": "20"}
-	transferredMerkle := NewMerkleTreeFromMap(map[string]string{"a": "10", "b": "20"})
+	transferredMerkle := merkle.NewTreeFromMap(map[string]string{"a": "10", "b": "20"})
 	ts := startTestServer(t, func(req map[string]any) map[string]any {
 		if req["type"] == "state_transfer_request" {
 			return map[string]any{
@@ -750,7 +751,7 @@ func TestExecBuffersVerifyBeforeBatch(t *testing.T) {
 				"state":          map[string]any{"stable": "yes"},
 				"stable_seq_num": 3,
 				"prev_hash":      "token-3",
-				"state_root":     NewMerkleTreeFromMap(map[string]string{"stable": "yes"}).Root(),
+				"state_root":     merkle.NewTreeFromMap(map[string]string{"stable": "yes"}).Root(),
 			}
 		}
 		return map[string]any{"status": "ok"}
@@ -798,7 +799,7 @@ func TestExecVerifyMismatchFallbackRollback(t *testing.T) {
 				"state":          map[string]any{"stable": "yes"},
 				"stable_seq_num": 5,
 				"prev_hash":      "token-5",
-				"state_root":     NewMerkleTreeFromMap(map[string]string{"stable": "yes"}).Root(),
+				"state_root":     merkle.NewTreeFromMap(map[string]string{"stable": "yes"}).Root(),
 			}
 		}
 		return map[string]any{"status": "ok"}
@@ -842,7 +843,7 @@ func TestExecVerifyMismatchFallbackRollback(t *testing.T) {
 func TestExecRollbackDecisionForcesSequential(t *testing.T) {
 	exec, _, _ := newTestExec("exec1", nil, nil)
 	checkpointKV := map[string]string{"stable": "yes"}
-	checkpointMerkle := NewMerkleTreeFromMap(checkpointKV)
+	checkpointMerkle := merkle.NewTreeFromMap(checkpointKV)
 	exec.storeCheckpoint(4, "t1", checkpointMerkle.SnapshotMap(), checkpointMerkle.Root())
 	exec.pendingExecResults[4] = pendingExecResult{
 		outputs: []map[string]any{{"request_id": "r1", "status": "ok"}},
@@ -874,7 +875,7 @@ func TestExecRollbackDecisionForcesSequential(t *testing.T) {
 func TestExecRollbackAtStableSeqAppliesForceSequential(t *testing.T) {
 	exec, _, _ := newTestExec("exec1", nil, nil)
 	stableKV := map[string]string{"stable": "yes"}
-	stableMerkle := NewMerkleTreeFromMap(stableKV)
+	stableMerkle := merkle.NewTreeFromMap(stableKV)
 	exec.stableState = State{
 		KVStore:    common.CopyStringMap(stableKV),
 		Merkle:     stableMerkle.Clone(),
@@ -924,7 +925,7 @@ func TestExecRollbackAtStableSeqAppliesForceSequential(t *testing.T) {
 func TestExecHandleVerifyResponseMessageProcessesStableSeqRollbackImmediately(t *testing.T) {
 	exec, _, _ := newTestExec("exec1", nil, nil)
 	stableKV := map[string]string{"stable": "yes"}
-	stableMerkle := NewMerkleTreeFromMap(stableKV)
+	stableMerkle := merkle.NewTreeFromMap(stableKV)
 	exec.stableState = State{
 		KVStore:    common.CopyStringMap(stableKV),
 		Merkle:     stableMerkle.Clone(),
@@ -986,7 +987,7 @@ func TestExecRollbackReplaysUncommittedBatch(t *testing.T) {
 		requiredExecRunConfig(),
 	)
 	stableKV := map[string]string{"stable": "yes"}
-	stableMerkle := NewMerkleTreeFromMap(stableKV)
+	stableMerkle := merkle.NewTreeFromMap(stableKV)
 	exec.stableState = State{
 		KVStore:    common.CopyStringMap(stableKV),
 		Merkle:     stableMerkle.Clone(),
@@ -1052,8 +1053,8 @@ func TestComputeStateHashDeterministicOrdering(t *testing.T) {
 	outputsA := []map[string]any{{"z": 1, "a": 2}}
 	outputsB := []map[string]any{{"a": 2, "z": 1}}
 
-	rootA := NewMerkleTreeFromMap(stateA).Root()
-	rootB := NewMerkleTreeFromMap(stateB).Root()
+	rootA := merkle.NewTreeFromMap(stateA).Root()
+	rootB := merkle.NewTreeFromMap(stateB).Root()
 	hashA := exec.computeStateHash(rootA, outputsA, "prev", 1)
 	hashB := exec.computeStateHash(rootB, outputsB, "prev", 1)
 
