@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from pathlib import Path
 import shlex
 import socket
 import subprocess
 import sys
+import time
 
 
 BEGIN_MARKER = "# BEGIN AEGEAN NODE HOSTS"
@@ -136,39 +139,92 @@ $SUDO cp "$tmp" "$target"
     return f"bash -lc {shell_quote(script)}"
 
 
-def sync_remote_nodes(mode: str, block: str) -> int:
+def format_output(stdout: str, stderr: str) -> str:
+    combined = "\n".join(part.strip() for part in (stdout, stderr) if part.strip()).strip()
+    if not combined:
+        return "(no output)"
+    lines = combined.splitlines()
+    if len(lines) <= 12:
+        return combined
+    return "\n".join(lines[-12:])
+
+
+@dataclass(frozen=True)
+class RemoteSyncResult:
+    name: str
+    result: subprocess.CompletedProcess[str]
+    elapsed_sec: float
+
+
+def sync_remote_node(name: str, hostname: str, remote_command: str) -> RemoteSyncResult:
+    started_at = time.monotonic()
+    result = subprocess.run(
+        [
+            "ssh",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=10",
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-o",
+            "UserKnownHostsFile=/dev/null",
+            "-o",
+            "LogLevel=ERROR",
+            f"gjl@{hostname}",
+            remote_command,
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    return RemoteSyncResult(name, result, time.monotonic() - started_at)
+
+
+def sync_remote_nodes(mode: str, source_text: str, block: str) -> int:
     if mode != "distributed":
         return 0
 
-    source_text = (Path(__file__).resolve().parent / SOURCE_FILES[mode]).read_text()
     remote_command = build_remote_sync_command(block)
-    failures = []
-    for name, hostname in parse_nodes(source_text):
-        result = subprocess.run(
-            [
-                "ssh",
-                "-o",
-                "StrictHostKeyChecking=no",
-                "-o",
-                "UserKnownHostsFile=/dev/null",
-                "-o",
-                "LogLevel=ERROR",
-                f"gjl@{hostname}",
-                remote_command,
-            ],
-            check=False,
-        )
-        if result.returncode != 0:
-            failures.append(name)
+    failures: list[str] = []
+    nodes = parse_nodes(source_text)
+    if not nodes:
+        print("Updated remote /etc/hosts on 0 nodes")
+        return 0
+
+    with ThreadPoolExecutor(max_workers=len(nodes)) as executor:
+        futures = {
+            executor.submit(sync_remote_node, name, hostname, remote_command): name
+            for name, hostname in nodes
+        }
+        for future in as_completed(futures):
+            name = futures[future]
+            try:
+                remote_result = future.result()
+            except Exception as exc:  # noqa: BLE001
+                failures.append(f"{name}: hosts update failed unexpectedly\n{exc}")
+                print(f"{name}: failed unexpectedly")
+                continue
+
+            result = remote_result.result
+            if result.returncode == 0:
+                print(f"{remote_result.name}: updated /etc/hosts ({remote_result.elapsed_sec:.1f}s)")
+                continue
+
+            failures.append(
+                f"{remote_result.name}: hosts update failed (exit {result.returncode})\n"
+                f"{format_output(result.stdout, result.stderr)}"
+            )
+            print(f"{remote_result.name}: failed ({remote_result.elapsed_sec:.1f}s)")
 
     if failures:
         print(
-            f"Failed to update remote /etc/hosts on: {', '.join(failures)}",
+            "\n\n".join(failures),
             file=sys.stderr,
         )
         return 1
 
-    print(f"Updated remote /etc/hosts on {len(parse_nodes(source_text))} nodes")
+    print(f"Updated remote /etc/hosts on {len(nodes)} nodes")
     return 0
 
 
@@ -213,7 +269,7 @@ def main() -> int:
     print(f"Updated {TARGET} with {mode} config")
 
     if not local_only:
-        return sync_remote_nodes(mode, block)
+        return sync_remote_nodes(mode, source_text, block)
 
     return 0
 
