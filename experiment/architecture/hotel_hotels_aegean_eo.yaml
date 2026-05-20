@@ -29,8 +29,8 @@ services:
     phaseQuorumSize: 2
     expectedExecVotes: 3
     batcher_config:
-      batch_size: 20
-      batch_timeout_ms: 5
+      batch_size: 40
+      batch_timeout_ms: 30
   geo:
     type: server
     clients:
@@ -87,7 +87,7 @@ services:
     phaseQuorumSize: 2
     expectedExecVotes: 3
     batcher_config:
-      batch_size: 10
+      batch_size: 16
       batch_timeout_ms: 3
   profile:
     type: server
@@ -105,7 +105,7 @@ services:
     phaseQuorumSize: 2
     expectedExecVotes: 3
     batcher_config:
-      batch_size: 12
+      batch_size: 16
       batch_timeout_ms: 4
   recommendation:
     type: server
@@ -123,7 +123,7 @@ services:
     phaseQuorumSize: 2
     expectedExecVotes: 3
     batcher_config:
-      batch_size: 12
+      batch_size: 16
       batch_timeout_ms: 4
   user:
     type: server
@@ -141,7 +141,7 @@ services:
     phaseQuorumSize: 2
     expectedExecVotes: 3
     batcher_config:
-      batch_size: 12
+      batch_size: 16
       batch_timeout_ms: 4
 nodes:
   node0:
