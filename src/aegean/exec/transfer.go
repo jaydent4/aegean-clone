@@ -5,7 +5,6 @@ import (
 	"sort"
 	"time"
 
-	"aegean/aegean/merkle"
 	"aegean/common"
 	netx "aegean/net"
 )
@@ -37,7 +36,7 @@ func (e *Exec) requestStateTransfer(minStableSeq int, _ int) bool {
 	// Request state transfer from a replica that has the correct state
 	for _, sourceExec := range e.Peers {
 		e.mu.Lock()
-		e.stableState.EnsureMerkle()
+		e.ensureStableMerkle()
 		knownSeq := e.stableState.SeqNum
 		knownPrevHash := e.stableState.PrevHash
 		knownRoot := e.stableState.MerkleRoot
@@ -76,7 +75,7 @@ func (e *Exec) requestStateTransfer(minStableSeq int, _ int) bool {
 		}
 
 		e.mu.Lock()
-		e.stableState.EnsureMerkle()
+		e.ensureStableMerkle()
 		merged := e.stableState.Merkle.SnapshotMap()
 		switch mode {
 		case "delta":
@@ -105,7 +104,7 @@ func (e *Exec) requestStateTransfer(minStableSeq int, _ int) bool {
 			e.mu.Unlock()
 			continue
 		}
-		mergedMerkle := merkle.NewTreeFromMap(merged)
+		mergedMerkle := e.newMerkleTreeFromMap(merged)
 		if mergedMerkle.Root() != transferredStateRoot {
 			e.mu.Unlock()
 			continue
@@ -160,7 +159,7 @@ func (e *Exec) handleStateTransferRequest(payload map[string]any) map[string]any
 		}
 	}
 	e.mu.Lock()
-	e.stableState.EnsureMerkle()
+	e.ensureStableMerkle()
 	stableMerkle := e.stableState.Merkle.Clone()
 	stableSeq := e.stableState.SeqNum
 	stablePrevHash := e.stableState.PrevHash

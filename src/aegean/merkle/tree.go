@@ -8,9 +8,22 @@ import (
 	"sync"
 )
 
-// Tree is a deterministic in-memory Merkle tree for string key/value state.
+// Tree is the state Merkle interface used by exec state management.
+type Tree interface {
+	Clone() Tree
+	Root() string
+	Get(key string) string
+	Set(key, value string)
+	SetNewKeysSorted(keys []string, values map[string]string)
+	Delete(key string)
+	SnapshotMap() map[string]string
+	LeafHashes() map[string]string
+	DiffFromLeafHashes(remoteLeafHashes map[string]string) (map[string]string, []string)
+}
+
+// CanonicalTree is a deterministic in-memory Merkle tree for string key/value state.
 // Roots are canonical for a final key/value map, independent of write order.
-type Tree struct {
+type CanonicalTree struct {
 	kv         map[string]string
 	leafHashes map[string]string
 	sortedKeys []string
@@ -25,9 +38,16 @@ const (
 	merkleParallelLeafFloor = 64
 )
 
+var _ Tree = (*CanonicalTree)(nil)
+
 // NewTreeFromMap builds a canonical tree from a key/value snapshot.
-func NewTreeFromMap(kv map[string]string) *Tree {
-	tree := &Tree{
+func NewTreeFromMap(kv map[string]string) Tree {
+	return NewCanonicalTreeFromMap(kv)
+}
+
+// NewCanonicalTreeFromMap builds the default canonical tree implementation.
+func NewCanonicalTreeFromMap(kv map[string]string) *CanonicalTree {
+	tree := &CanonicalTree{
 		kv:         make(map[string]string),
 		leafHashes: make(map[string]string),
 		keyIndex:   make(map[string]int),
@@ -40,11 +60,11 @@ func NewTreeFromMap(kv map[string]string) *Tree {
 	return tree
 }
 
-func (t *Tree) Clone() *Tree {
+func (t *CanonicalTree) Clone() Tree {
 	if t == nil {
 		return NewTreeFromMap(nil)
 	}
-	clone := &Tree{
+	clone := &CanonicalTree{
 		kv:         make(map[string]string, len(t.kv)),
 		leafHashes: make(map[string]string, len(t.leafHashes)),
 		sortedKeys: append([]string(nil), t.sortedKeys...),
@@ -67,27 +87,27 @@ func (t *Tree) Clone() *Tree {
 	return clone
 }
 
-func (t *Tree) Root() string {
+func (t *CanonicalTree) Root() string {
 	if t == nil {
 		return strings.Repeat("0", 64)
 	}
 	return t.root
 }
 
-func (t *Tree) Get(key string) string {
+func (t *CanonicalTree) Get(key string) string {
 	if t == nil {
 		return ""
 	}
 	return t.kv[key]
 }
 
-func (t *Tree) Set(key, value string) {
+func (t *CanonicalTree) Set(key, value string) {
 	if t == nil {
 		return
 	}
 	if idx, ok := t.keyIndex[key]; ok {
 		t.kv[key] = value
-		leaf := hashHex("leaf|" + key + "|" + value)
+		leaf := LeafHash(key, value)
 		if t.leafHashes[key] == leaf {
 			return
 		}
@@ -103,7 +123,7 @@ func (t *Tree) Set(key, value string) {
 	}
 
 	t.kv[key] = value
-	leaf := hashHex("leaf|" + key + "|" + value)
+	leaf := LeafHash(key, value)
 	t.leafHashes[key] = leaf
 	insertAt := sort.SearchStrings(t.sortedKeys, key)
 	t.insertLeafAt(insertAt, key, leaf)
@@ -111,7 +131,7 @@ func (t *Tree) Set(key, value string) {
 
 // SetNewKeysSorted applies a sorted batch of pending writes while rebuilding
 // the tree levels only once for genuinely new keys.
-func (t *Tree) SetNewKeysSorted(keys []string, values map[string]string) {
+func (t *CanonicalTree) SetNewKeysSorted(keys []string, values map[string]string) {
 	if t == nil || len(keys) == 0 {
 		return
 	}
@@ -128,7 +148,7 @@ func (t *Tree) SetNewKeysSorted(keys []string, values map[string]string) {
 		}
 		value := values[key]
 		t.kv[key] = value
-		leaf := hashHex("leaf|" + key + "|" + value)
+		leaf := LeafHash(key, value)
 		t.leafHashes[key] = leaf
 		newLeafHashes[key] = leaf
 		newKeys = append(newKeys, key)
@@ -178,7 +198,7 @@ func (t *Tree) SetNewKeysSorted(keys []string, values map[string]string) {
 	t.rebuildLevelsFromLeafLevel(leafLevel)
 }
 
-func (t *Tree) Delete(key string) {
+func (t *CanonicalTree) Delete(key string) {
 	if t == nil {
 		return
 	}
@@ -191,7 +211,7 @@ func (t *Tree) Delete(key string) {
 	t.removeLeafAt(idx)
 }
 
-func (t *Tree) SnapshotMap() map[string]string {
+func (t *CanonicalTree) SnapshotMap() map[string]string {
 	out := make(map[string]string, len(t.kv))
 	for key, value := range t.kv {
 		out[key] = value
@@ -199,7 +219,7 @@ func (t *Tree) SnapshotMap() map[string]string {
 	return out
 }
 
-func (t *Tree) LeafHashes() map[string]string {
+func (t *CanonicalTree) LeafHashes() map[string]string {
 	out := make(map[string]string, len(t.leafHashes))
 	for key, hash := range t.leafHashes {
 		out[key] = hash
@@ -207,7 +227,7 @@ func (t *Tree) LeafHashes() map[string]string {
 	return out
 }
 
-func (t *Tree) DiffFromLeafHashes(remoteLeafHashes map[string]string) (map[string]string, []string) {
+func (t *CanonicalTree) DiffFromLeafHashes(remoteLeafHashes map[string]string) (map[string]string, []string) {
 	if remoteLeafHashes == nil {
 		remoteLeafHashes = map[string]string{}
 	}
@@ -228,7 +248,7 @@ func (t *Tree) DiffFromLeafHashes(remoteLeafHashes map[string]string) (map[strin
 	return updates, deletes
 }
 
-func (t *Tree) rebuildFromKV() {
+func (t *CanonicalTree) rebuildFromKV() {
 	t.leafHashes = make(map[string]string, len(t.kv))
 	t.keyIndex = make(map[string]int, len(t.kv))
 	t.sortedKeys = t.sortedKeys[:0]
@@ -250,7 +270,7 @@ func (t *Tree) rebuildFromKV() {
 		t.hashLeafLevelParallel(keys, leafLevel)
 	} else {
 		for i, key := range keys {
-			leaf := hashHex("leaf|" + key + "|" + t.kv[key])
+			leaf := LeafHash(key, t.kv[key])
 			t.leafHashes[key] = leaf
 			leafLevel[i] = leaf
 		}
@@ -261,7 +281,7 @@ func (t *Tree) rebuildFromKV() {
 	t.rebuildLevelsFromLeafLevel(leafLevel)
 }
 
-func (t *Tree) rebuildLevelsFromLeafLevel(leafLevel []string) {
+func (t *CanonicalTree) rebuildLevelsFromLeafLevel(leafLevel []string) {
 	if len(leafLevel) == 0 {
 		t.levels = nil
 		t.root = strings.Repeat("0", 64)
@@ -291,7 +311,7 @@ func (t *Tree) rebuildLevelsFromLeafLevel(leafLevel []string) {
 	t.root = t.levels[len(t.levels)-1][0]
 }
 
-func (t *Tree) hashLevelParallel(level []string, next []string) {
+func (t *CanonicalTree) hashLevelParallel(level []string, next []string) {
 	workerCount := merkleHashWorkers
 	if workerCount > len(next) {
 		workerCount = len(next)
@@ -322,7 +342,7 @@ func (t *Tree) hashLevelParallel(level []string, next []string) {
 	wg.Wait()
 }
 
-func (t *Tree) hashLeafLevelParallel(keys []string, leafLevel []string) {
+func (t *CanonicalTree) hashLeafLevelParallel(keys []string, leafLevel []string) {
 	workerCount := merkleHashWorkers
 	if workerCount > len(keys) {
 		workerCount = len(keys)
@@ -338,7 +358,7 @@ func (t *Tree) hashLeafLevelParallel(keys []string, leafLevel []string) {
 			defer wg.Done()
 			for idx := range workCh {
 				key := keys[idx]
-				leaf := hashHex("leaf|" + key + "|" + t.kv[key])
+				leaf := LeafHash(key, t.kv[key])
 				leafLevel[idx] = leaf
 			}
 		}()
@@ -353,7 +373,7 @@ func (t *Tree) hashLeafLevelParallel(keys []string, leafLevel []string) {
 	}
 }
 
-func (t *Tree) recomputePath(leafIdx int) {
+func (t *CanonicalTree) recomputePath(leafIdx int) {
 	if len(t.levels) == 0 {
 		t.root = strings.Repeat("0", 64)
 		return
@@ -374,7 +394,7 @@ func (t *Tree) recomputePath(leafIdx int) {
 	t.root = t.levels[len(t.levels)-1][0]
 }
 
-func (t *Tree) insertLeafAt(idx int, key string, leaf string) {
+func (t *CanonicalTree) insertLeafAt(idx int, key string, leaf string) {
 	t.sortedKeys = append(t.sortedKeys, "")
 	copy(t.sortedKeys[idx+1:], t.sortedKeys[idx:])
 	t.sortedKeys[idx] = key
@@ -393,7 +413,7 @@ func (t *Tree) insertLeafAt(idx int, key string, leaf string) {
 	t.rebuildLevelsFromLeafLevel(leafLevel)
 }
 
-func (t *Tree) removeLeafAt(idx int) {
+func (t *CanonicalTree) removeLeafAt(idx int) {
 	removedKey := t.sortedKeys[idx]
 	t.sortedKeys = append(t.sortedKeys[:idx], t.sortedKeys[idx+1:]...)
 	delete(t.keyIndex, removedKey)
@@ -408,7 +428,7 @@ func (t *Tree) removeLeafAt(idx int) {
 	t.rebuildLevelsFromLeafLevel(leafLevel)
 }
 
-func (t *Tree) reindexFrom(start int) {
+func (t *CanonicalTree) reindexFrom(start int) {
 	for i := start; i < len(t.sortedKeys); i++ {
 		t.keyIndex[t.sortedKeys[i]] = i
 	}
@@ -417,4 +437,9 @@ func (t *Tree) reindexFrom(start int) {
 func hashHex(v string) string {
 	sum := sha256.Sum256([]byte(v))
 	return hex.EncodeToString(sum[:])
+}
+
+// LeafHash returns the per-key state hash used by state-transfer diffs.
+func LeafHash(key, value string) string {
+	return hashHex("leaf|" + key + "|" + value)
 }

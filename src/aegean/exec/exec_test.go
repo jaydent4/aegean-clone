@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"aegean/aegean/merkle"
+	"aegean/aegean/merkle_iavl"
 	"aegean/common"
 	netx "aegean/net"
 )
@@ -163,6 +164,27 @@ func TestExecRunConfigOverrides(t *testing.T) {
 	}
 	if exec.scheduler.parallelWindowK != 6 {
 		t.Fatalf("expected parallelWindowK 6, got %d", exec.scheduler.parallelWindowK)
+	}
+}
+
+func TestExecRunConfigCanUseIAVLMerkle(t *testing.T) {
+	verifierCh := make(chan map[string]any, 64)
+	shimCh := make(chan map[string]any, 64)
+	config := requiredExecRunConfig()
+	config[runConfigMerkleUseIAVL] = true
+
+	exec := NewExec("exec1", []string{"exec1"}, nil, verifierCh, shimCh, 1, testExecuteRequest, func(*Exec) map[string]string {
+		return map[string]string{"a": "1"}
+	}, config)
+
+	if _, ok := exec.workingState.Merkle.(*merkle_iavl.Tree); !ok {
+		t.Fatalf("expected working state to use iavl merkle, got %T", exec.workingState.Merkle)
+	}
+
+	exec.workingState.Merkle = nil
+	exec.ensureWorkingMerkle()
+	if _, ok := exec.workingState.Merkle.(*merkle_iavl.Tree); !ok {
+		t.Fatalf("expected lazy rebuild to use iavl merkle, got %T", exec.workingState.Merkle)
 	}
 }
 

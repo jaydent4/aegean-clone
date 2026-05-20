@@ -1,9 +1,6 @@
 package exec
 
-import (
-	"aegean/aegean/merkle"
-	"aegean/common"
-)
+import "aegean/common"
 
 type rollbackCheckpoint struct {
 	SeqNum         int
@@ -16,7 +13,7 @@ type rollbackCheckpoint struct {
 func (e *Exec) storeCheckpoint(seqNum int, token string, state map[string]string, merkleRoot string) {
 	stateCopy := common.CopyStringMap(state)
 	if merkleRoot == "" {
-		merkleRoot = merkle.NewTreeFromMap(stateCopy).Root()
+		merkleRoot = e.newMerkleTreeFromMap(stateCopy).Root()
 	}
 	e.checkpoints[seqNum] = rollbackCheckpoint{
 		SeqNum:         seqNum,

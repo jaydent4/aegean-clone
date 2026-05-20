@@ -146,7 +146,7 @@ func (e *Exec) executeBatch(payload map[string]any) *batchExecutionResult {
 
 	snapshotStart := time.Now()
 	e.stateMu.Lock()
-	e.workingState.EnsureMerkle()
+	e.ensureWorkingMerkle()
 	stateSnapshot := common.CopyStringMap(e.workingState.KVStore)
 	stateRoot := e.workingState.MerkleRoot
 	stateKeys := len(e.workingState.KVStore)

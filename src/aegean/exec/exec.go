@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"aegean/aegean/merkle"
 	"aegean/common"
 	"aegean/telemetry"
 
@@ -167,7 +166,7 @@ func NewExec(name string, verifiers []string, peers []string, verifierCh chan<- 
 			initialKV = common.CopyStringMap(customKV)
 		}
 	}
-	initialMerkle := merkle.NewTreeFromMap(initialKV)
+	initialMerkle := newMerkleTreeFromMap(initialKV, initialRunConfig)
 	stable := State{
 		KVStore:    common.CopyStringMap(initialKV),
 		Merkle:     initialMerkle.Clone(),
@@ -226,7 +225,7 @@ func responseTupleKey(view int, seqNum int, token string, forceSequential bool) 
 func (e *Exec) ReadKV(key string) string {
 	e.stateMu.Lock()
 	defer e.stateMu.Unlock()
-	e.workingState.EnsureMerkle()
+	e.ensureWorkingMerkle()
 	if e.batchCtx != nil {
 		if value, ok := e.batchCtx.pendingNew[key]; ok {
 			return value
@@ -238,7 +237,7 @@ func (e *Exec) ReadKV(key string) string {
 func (e *Exec) WriteKV(key, value string) {
 	e.stateMu.Lock()
 	defer e.stateMu.Unlock()
-	e.workingState.EnsureMerkle()
+	e.ensureWorkingMerkle()
 	if e.batchCtx != nil {
 		if _, ok := e.batchCtx.baseKeys[key]; !ok {
 			// Defer insertion of newly created keys to batch end and insert deterministically.
@@ -254,7 +253,7 @@ func (e *Exec) WriteKV(key, value string) {
 func (e *Exec) beginBatchMerkleContext() {
 	e.stateMu.Lock()
 	defer e.stateMu.Unlock()
-	e.workingState.EnsureMerkle()
+	e.ensureWorkingMerkle()
 	baseKeys := make(map[string]struct{}, len(e.workingState.KVStore))
 	for key := range e.workingState.KVStore {
 		baseKeys[key] = struct{}{}
