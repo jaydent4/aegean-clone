@@ -63,16 +63,25 @@ type drainReadyStats struct {
 	snapshots         int
 	hardStates        int
 	leaderTransitions int
+	storageNanos      int64
+	sendEnqueueNanos  int64
+	selfStepNanos     int64
+	learnDecodeNanos  int64
+	learnCloneNanos   int64
+	learnEnqueueNanos int64
+	learnNanos        int64
+	advanceNanos      int64
 }
 
 type raftConsensusBox struct {
-	name      string
-	selfID    uint64
-	peerIDs   map[string]uint64
-	peers     map[uint64]string
-	send      SendRaftFunc
-	sendBatch SendRaftBatchFunc
-	learn     LearnFunc
+	name       string
+	selfID     uint64
+	peerIDs    map[string]uint64
+	peers      map[uint64]string
+	send       SendRaftFunc
+	sendBatch  SendRaftBatchFunc
+	learn      LearnFunc
+	learnBatch LearnBatchFunc
 
 	leaderID    atomic.Uint64
 	learnedSlot uint64
@@ -82,6 +91,7 @@ type raftConsensusBox struct {
 	backgroundSteps chan stepRequest
 	sendQueues      map[uint64]chan raftpb.Message
 	sendBatchSize   int
+	learnBatchSize  int
 	learnQueue      chan asyncLearnRequest
 	unreachable     chan uint64
 	spans           map[string]trace.Span
@@ -94,11 +104,304 @@ type raftConsensusBox struct {
 }
 
 const (
-	raftProposalQueueSize    = 4096
-	raftAsyncSendQueueSize   = 1024
-	raftAsyncLearnQueueSize  = 4096
-	defaultRaftSendBatchSize = 64
+	raftProposalQueueSize     = 4096
+	raftAsyncSendQueueSize    = 1024
+	raftAsyncLearnQueueSize   = 4096
+	defaultRaftSendBatchSize  = 64
+	defaultRaftLearnBatchSize = 256
+	raftLoopTraceWindow       = time.Second
 )
+
+type raftLoopTraceWindowStats struct {
+	component      string
+	nodeName       string
+	selfID         uint64
+	start          time.Time
+	counts         map[string]int64
+	durations      map[string]time.Duration
+	durationCounts map[string]int64
+	maxDurations   map[string]time.Duration
+	lastGauges     map[string]int64
+	maxGauges      map[string]int64
+}
+
+func newRaftLoopTraceWindowStats(component string, nodeName string, selfID uint64) *raftLoopTraceWindowStats {
+	w := &raftLoopTraceWindowStats{
+		component: component,
+		nodeName:  nodeName,
+		selfID:    selfID,
+	}
+	w.reset(time.Now())
+	return w
+}
+
+func (w *raftLoopTraceWindowStats) reset(start time.Time) {
+	w.start = start
+	w.counts = make(map[string]int64)
+	w.durations = make(map[string]time.Duration)
+	w.durationCounts = make(map[string]int64)
+	w.maxDurations = make(map[string]time.Duration)
+	w.lastGauges = make(map[string]int64)
+	w.maxGauges = make(map[string]int64)
+}
+
+func (w *raftLoopTraceWindowStats) addCount(name string, value int64) {
+	if value == 0 {
+		return
+	}
+	w.counts[name] += value
+}
+
+func (w *raftLoopTraceWindowStats) addDuration(name string, duration time.Duration) {
+	if duration <= 0 {
+		return
+	}
+	w.durations[name] += duration
+	w.durationCounts[name]++
+	if duration > w.maxDurations[name] {
+		w.maxDurations[name] = duration
+	}
+}
+
+func (w *raftLoopTraceWindowStats) observeGauge(name string, value int) {
+	v := int64(value)
+	w.lastGauges[name] = v
+	if v > w.maxGauges[name] {
+		w.maxGauges[name] = v
+	}
+}
+
+func (w *raftLoopTraceWindowStats) recordQueues(proposals, prioritySteps, backgroundSteps, unreachable, learn int) {
+	w.observeGauge("proposals_queued", proposals)
+	w.observeGauge("priority_steps_queued", prioritySteps)
+	w.observeGauge("background_steps_queued", backgroundSteps)
+	w.observeGauge("unreachable_queued", unreachable)
+	w.observeGauge("learn_queued", learn)
+}
+
+func (w *raftLoopTraceWindowStats) recordDrain(stats drainReadyStats, duration time.Duration) {
+	w.addDuration("drain_ready", duration)
+	w.addCount("ready_batches", int64(stats.readyBatches))
+	w.addCount("ready_entries", int64(stats.entries))
+	w.addCount("ready_committed_entries", int64(stats.committedEntries))
+	w.addCount("ready_messages", int64(stats.messages))
+	w.addCount("ready_self_messages", int64(stats.selfMessages))
+	w.addCount("ready_sent_messages", int64(stats.sentMessages))
+	w.addCount("ready_conf_changes", int64(stats.confChanges))
+	w.addCount("ready_normal_entries", int64(stats.normalEntries))
+	w.addCount("ready_snapshots", int64(stats.snapshots))
+	w.addCount("ready_hard_states", int64(stats.hardStates))
+	w.addCount("ready_leader_transitions", int64(stats.leaderTransitions))
+	w.addDuration("storage", time.Duration(stats.storageNanos))
+	w.addDuration("send_enqueue", time.Duration(stats.sendEnqueueNanos))
+	w.addDuration("self_step", time.Duration(stats.selfStepNanos))
+	w.addDuration("learn_decode", time.Duration(stats.learnDecodeNanos))
+	w.addDuration("learn_clone", time.Duration(stats.learnCloneNanos))
+	w.addDuration("learn_enqueue", time.Duration(stats.learnEnqueueNanos))
+	w.addDuration("learn_committed", time.Duration(stats.learnNanos))
+	w.addDuration("advance", time.Duration(stats.advanceNanos))
+}
+
+func (w *raftLoopTraceWindowStats) maybeFlush(leaderID uint64, reason string) {
+	if time.Since(w.start) >= raftLoopTraceWindow {
+		w.flush(leaderID, reason)
+	}
+}
+
+func (w *raftLoopTraceWindowStats) flush(leaderID uint64, reason string) {
+	if w.counts["iterations"] == 0 {
+		w.reset(time.Now())
+		return
+	}
+	now := time.Now()
+	elapsed := now.Sub(w.start)
+	attrs := []attribute.KeyValue{
+		attribute.String("raft.loop.component", w.component),
+		attribute.String("node.name", w.nodeName),
+		attribute.Int64("raft.node_id", int64(w.selfID)),
+		attribute.Int64("raft.leader_id", int64(leaderID)),
+		attribute.Bool("raft.loop.is_leader", leaderID == w.selfID && w.selfID != 0),
+		attribute.String("raft.loop.flush_reason", reason),
+		attribute.Int64("raft.loop.window_us", elapsed.Microseconds()),
+		attribute.Float64("raft.loop.iterations_per_sec", float64(w.counts["iterations"])/elapsed.Seconds()),
+	}
+	for _, key := range sortedInt64MapKeys(w.counts) {
+		attrs = append(attrs, attribute.Int64("raft.loop.count."+key, w.counts[key]))
+	}
+	for _, key := range sortedDurationMapKeys(w.durations) {
+		total := w.durations[key]
+		count := w.durationCounts[key]
+		avg := time.Duration(0)
+		if count > 0 {
+			avg = total / time.Duration(count)
+		}
+		attrs = append(attrs,
+			attribute.Int64("raft.loop.duration."+key+".count", count),
+			attribute.Int64("raft.loop.duration."+key+".total_us", total.Microseconds()),
+			attribute.Int64("raft.loop.duration."+key+".avg_us", avg.Microseconds()),
+			attribute.Int64("raft.loop.duration."+key+".max_us", w.maxDurations[key].Microseconds()),
+		)
+	}
+	for _, key := range sortedInt64MapKeys(w.lastGauges) {
+		attrs = append(attrs,
+			attribute.Int64("raft.loop.gauge."+key+".last", w.lastGauges[key]),
+			attribute.Int64("raft.loop.gauge."+key+".max", w.maxGauges[key]),
+		)
+	}
+
+	_, span := telemetry.Tracer("aegean").Start(
+		context.Background(),
+		w.component+".raft.loop.window",
+		trace.WithTimestamp(w.start),
+		trace.WithAttributes(attrs...),
+	)
+	span.End(trace.WithTimestamp(now))
+	w.reset(now)
+}
+
+func sortedInt64MapKeys(values map[string]int64) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func sortedDurationMapKeys(values map[string]time.Duration) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+type raftLearnWorkerTraceWindowStats struct {
+	nodeName       string
+	selfID         uint64
+	start          time.Time
+	counts         map[string]int64
+	durations      map[string]time.Duration
+	durationCounts map[string]int64
+	maxDurations   map[string]time.Duration
+	lastGauges     map[string]int64
+	maxGauges      map[string]int64
+}
+
+func newRaftLearnWorkerTraceWindowStats(nodeName string, selfID uint64) *raftLearnWorkerTraceWindowStats {
+	w := &raftLearnWorkerTraceWindowStats{
+		nodeName: nodeName,
+		selfID:   selfID,
+	}
+	w.reset(time.Now())
+	return w
+}
+
+func (w *raftLearnWorkerTraceWindowStats) reset(start time.Time) {
+	w.start = start
+	w.counts = make(map[string]int64)
+	w.durations = make(map[string]time.Duration)
+	w.durationCounts = make(map[string]int64)
+	w.maxDurations = make(map[string]time.Duration)
+	w.lastGauges = make(map[string]int64)
+	w.maxGauges = make(map[string]int64)
+}
+
+func (w *raftLearnWorkerTraceWindowStats) addCount(name string, value int64) {
+	if value == 0 {
+		return
+	}
+	w.counts[name] += value
+}
+
+func (w *raftLearnWorkerTraceWindowStats) addDuration(name string, duration time.Duration) {
+	if duration <= 0 {
+		return
+	}
+	w.durations[name] += duration
+	w.durationCounts[name]++
+	if duration > w.maxDurations[name] {
+		w.maxDurations[name] = duration
+	}
+}
+
+func (w *raftLearnWorkerTraceWindowStats) observeGauge(name string, value int) {
+	v := int64(value)
+	w.lastGauges[name] = v
+	if v > w.maxGauges[name] {
+		w.maxGauges[name] = v
+	}
+}
+
+func (w *raftLearnWorkerTraceWindowStats) recordBatch(batch []asyncLearnRequest, queueDepthBeforeDrain int, queueDepthAfterDrain int, callbackDuration time.Duration) {
+	w.addCount("batches", 1)
+	w.addCount("entries", int64(len(batch)))
+	w.addDuration("callback", callbackDuration)
+	now := time.Now()
+	for _, request := range batch {
+		w.addDuration("queue_wait", now.Sub(request.enqueued))
+	}
+	w.observeGauge("batch_size", len(batch))
+	w.observeGauge("queue_depth_before_drain", queueDepthBeforeDrain)
+	w.observeGauge("queue_depth_after_drain", queueDepthAfterDrain)
+}
+
+func (w *raftLearnWorkerTraceWindowStats) maybeFlush(leaderID uint64, reason string) {
+	if time.Since(w.start) >= raftLoopTraceWindow {
+		w.flush(leaderID, reason)
+	}
+}
+
+func (w *raftLearnWorkerTraceWindowStats) flush(leaderID uint64, reason string) {
+	if w.counts["batches"] == 0 {
+		w.reset(time.Now())
+		return
+	}
+	now := time.Now()
+	elapsed := now.Sub(w.start)
+	attrs := []attribute.KeyValue{
+		attribute.String("raft.loop.component", "pbeo"),
+		attribute.String("node.name", w.nodeName),
+		attribute.Int64("raft.node_id", int64(w.selfID)),
+		attribute.Int64("raft.leader_id", int64(leaderID)),
+		attribute.Bool("raft.loop.is_leader", leaderID == w.selfID && w.selfID != 0),
+		attribute.String("pbeo.raft.learn_worker.flush_reason", reason),
+		attribute.Int64("pbeo.raft.learn_worker.window_us", elapsed.Microseconds()),
+	}
+	for _, key := range sortedInt64MapKeys(w.counts) {
+		attrs = append(attrs, attribute.Int64("pbeo.raft.learn_worker.count."+key, w.counts[key]))
+	}
+	for _, key := range sortedDurationMapKeys(w.durations) {
+		total := w.durations[key]
+		count := w.durationCounts[key]
+		avg := time.Duration(0)
+		if count > 0 {
+			avg = total / time.Duration(count)
+		}
+		attrs = append(attrs,
+			attribute.Int64("pbeo.raft.learn_worker.duration."+key+".count", count),
+			attribute.Int64("pbeo.raft.learn_worker.duration."+key+".total_us", total.Microseconds()),
+			attribute.Int64("pbeo.raft.learn_worker.duration."+key+".avg_us", avg.Microseconds()),
+			attribute.Int64("pbeo.raft.learn_worker.duration."+key+".max_us", w.maxDurations[key].Microseconds()),
+		)
+	}
+	for _, key := range sortedInt64MapKeys(w.lastGauges) {
+		attrs = append(attrs,
+			attribute.Int64("pbeo.raft.learn_worker.gauge."+key+".last", w.lastGauges[key]),
+			attribute.Int64("pbeo.raft.learn_worker.gauge."+key+".max", w.maxGauges[key]),
+		)
+	}
+
+	_, span := telemetry.Tracer("aegean").Start(
+		context.Background(),
+		"pbeo.raft.learn_worker.window",
+		trace.WithTimestamp(w.start),
+		trace.WithAttributes(attrs...),
+	)
+	span.End(trace.WithTimestamp(now))
+	w.reset(now)
+}
 
 func newRaftConsensusBox(cfg BoxConfig, onLearn LearnFunc) (ConsensusBox, error) {
 	peerIDs, peers, selfID, err := buildPeerIDs(cfg.Name, cfg.Peers)
@@ -147,6 +450,18 @@ func newRaftConsensusBox(cfg BoxConfig, onLearn LearnFunc) (ConsensusBox, error)
 	if sendBatchSize <= 0 {
 		sendBatchSize = defaultRaftSendBatchSize
 	}
+	learnBatchSize := cfg.LearnBatchSize
+	if learnBatchSize <= 0 {
+		learnBatchSize = defaultRaftLearnBatchSize
+	}
+	learnBatch := cfg.LearnBatch
+	if learnBatch == nil && onLearn != nil {
+		learnBatch = func(entries []CommittedEntry) {
+			for _, entry := range entries {
+				onLearn(entry.Slot, entry.Entry)
+			}
+		}
+	}
 
 	storage := raft.NewMemoryStorage()
 	rawNode, err := raft.NewRawNode(&raft.Config{
@@ -182,11 +497,13 @@ func newRaftConsensusBox(cfg BoxConfig, onLearn LearnFunc) (ConsensusBox, error)
 		send:            cfg.SendRaft,
 		sendBatch:       sendBatch,
 		learn:           onLearn,
+		learnBatch:      learnBatch,
 		proposals:       make(chan proposalRequest, raftProposalQueueSize),
 		prioritySteps:   make(chan stepRequest, 1024),
 		backgroundSteps: make(chan stepRequest, 1024),
 		sendQueues:      make(map[uint64]chan raftpb.Message),
 		sendBatchSize:   sendBatchSize,
+		learnBatchSize:  learnBatchSize,
 		learnQueue:      make(chan asyncLearnRequest, raftAsyncLearnQueueSize),
 		unreachable:     make(chan uint64, 1024),
 		spans:           make(map[string]trace.Span),
@@ -362,25 +679,45 @@ func (b *raftConsensusBox) runSendWorker(peerID uint64, queue <-chan raftpb.Mess
 }
 
 func (b *raftConsensusBox) runLearnWorker() {
+	batch := make([]asyncLearnRequest, 0, b.learnBatchSize)
+	committed := make([]CommittedEntry, 0, b.learnBatchSize)
+	workerTrace := newRaftLearnWorkerTraceWindowStats(b.name, b.selfID)
+	defer workerTrace.flush(b.leaderID.Load(), "stop")
+
 	for {
 		select {
 		case <-b.stopCh:
 			return
 		case request := <-b.learnQueue:
-			_, span := telemetry.StartSpanFromPayload(
-				request.entry.Response,
-				"pbeo.raft.learn_worker_iteration",
-				append(
-					b.entryTraceAttrs(request.entry),
-					attribute.Int64("pbeo.raft.commit_slot", int64(request.slot)),
-					attribute.Int("pbeo.raft.learn_queue_depth_on_dequeue", len(b.learnQueue)),
-					attribute.Int64("pbeo.raft.learn_queue_wait_us", time.Since(request.enqueued).Microseconds()),
-				)...,
-			)
-			if b.learn != nil {
-				b.learn(request.slot, request.entry)
+			batch = append(batch[:0], request)
+			queueDepthBeforeDrain := len(b.learnQueue)
+		drain:
+			for len(batch) < b.learnBatchSize {
+				select {
+				case <-b.stopCh:
+					return
+				case next := <-b.learnQueue:
+					batch = append(batch, next)
+				default:
+					break drain
+				}
 			}
-			endRequestTrace(span, "learned")
+			queueDepthAfterDrain := len(b.learnQueue)
+
+			callbackStart := time.Now()
+			if b.learnBatch != nil {
+				committed = committed[:0]
+				for _, request := range batch {
+					committed = append(committed, CommittedEntry{Slot: request.slot, Entry: request.entry})
+				}
+				b.learnBatch(committed)
+			} else if b.learn != nil {
+				for _, request := range batch {
+					b.learn(request.slot, request.entry)
+				}
+			}
+			workerTrace.recordBatch(batch, queueDepthBeforeDrain, queueDepthAfterDrain, time.Since(callbackStart))
+			workerTrace.maybeFlush(b.leaderID.Load(), "window")
 		}
 	}
 }
@@ -393,36 +730,75 @@ func (b *raftConsensusBox) run(rawNode *raft.RawNode, storage *raft.MemoryStorag
 	ticker := time.NewTicker(tickInterval)
 	defer ticker.Stop()
 
+	loopTrace := newRaftLoopTraceWindowStats("pbeo", b.name, b.selfID)
+	defer loopTrace.flush(b.leaderID.Load(), "stop")
+
 	b.drainReady(rawNode, storage)
 
 	for {
+		selectStart := time.Now()
 		select {
 		case request := <-b.prioritySteps:
-			b.processStep(rawNode, storage, request)
+			selectWait := time.Since(selectStart)
+			handlerStart := time.Now()
+			stepDuration, drainStats, drainDuration := b.processStep(rawNode, storage, request)
+			handlerDuration := time.Since(handlerStart)
+			loopTrace.addCount("iterations", 1)
+			loopTrace.addCount("priority_steps", 1)
+			loopTrace.addDuration("select_wait", selectWait)
+			loopTrace.addDuration("handler", handlerDuration)
+			loopTrace.addDuration("raw_step", stepDuration)
+			loopTrace.recordDrain(drainStats, drainDuration)
+			loopTrace.recordQueues(len(b.proposals), len(b.prioritySteps), len(b.backgroundSteps), len(b.unreachable), len(b.learnQueue))
+			loopTrace.maybeFlush(b.leaderID.Load(), "window")
 			continue
 		default:
 		}
 
+		selectStart = time.Now()
 		select {
 		case <-b.stopCh:
 			return
 		case <-ticker.C:
+			selectWait := time.Since(selectStart)
+			handlerStart := time.Now()
 			if shouldTickRaft(rawNode.Status(), disableFollowerElections) {
+				tickStart := time.Now()
 				rawNode.Tick()
-				b.drainReady(rawNode, storage)
+				tickDuration := time.Since(tickStart)
+				drainStats, drainDuration := b.drainReady(rawNode, storage)
+				loopTrace.addDuration("raw_tick", tickDuration)
+				loopTrace.recordDrain(drainStats, drainDuration)
+				loopTrace.addCount("ticks", 1)
+			} else {
+				loopTrace.addCount("ticks_skipped", 1)
 			}
+			loopTrace.addCount("iterations", 1)
+			loopTrace.addDuration("select_wait", selectWait)
+			loopTrace.addDuration("handler", time.Since(handlerStart))
+			loopTrace.recordQueues(len(b.proposals), len(b.prioritySteps), len(b.backgroundSteps), len(b.unreachable), len(b.learnQueue))
+			loopTrace.maybeFlush(b.leaderID.Load(), "window")
 		case request := <-b.proposals:
+			selectWait := time.Since(selectStart)
+			handlerStart := time.Now()
 			proposalSpan := b.startProposalLoopTrace(request.entry)
 			b.rememberRequestTrace(request.entry, request.span)
+			marshalStart := time.Now()
 			data, err := json.Marshal(request.entry)
+			marshalDuration := time.Since(marshalStart)
+			var proposeDuration time.Duration
+			var drainStats drainReadyStats
+			var drainDuration time.Duration
 			if err == nil {
 				addRequestTraceEvent(request.span, "propose")
+				proposeStart := time.Now()
 				err = rawNode.Propose(data)
+				proposeDuration = time.Since(proposeStart)
 				if err != nil {
 					endRequestTrace(request.span, "propose_error")
 					b.forgetRequestTrace(request.entry)
 				}
-				b.drainReady(rawNode, storage)
+				drainStats, drainDuration = b.drainReady(rawNode, storage)
 				if err == nil {
 					b.startCommitWaitTrace(request.entry)
 				}
@@ -437,13 +813,54 @@ func (b *raftConsensusBox) run(rawNode *raft.RawNode, storage *raft.MemoryStorag
 				proposalSpan.RecordError(err)
 			}
 			endRequestTrace(proposalSpan, "result_sent")
+			loopTrace.addCount("iterations", 1)
+			loopTrace.addCount("proposals", 1)
+			if err != nil {
+				loopTrace.addCount("proposal_errors", 1)
+			}
+			loopTrace.addDuration("select_wait", selectWait)
+			loopTrace.addDuration("handler", time.Since(handlerStart))
+			loopTrace.addDuration("marshal", marshalDuration)
+			loopTrace.addDuration("raw_propose", proposeDuration)
+			loopTrace.recordDrain(drainStats, drainDuration)
+			loopTrace.recordQueues(len(b.proposals), len(b.prioritySteps), len(b.backgroundSteps), len(b.unreachable), len(b.learnQueue))
+			loopTrace.maybeFlush(b.leaderID.Load(), "window")
 		case peerID := <-b.unreachable:
+			selectWait := time.Since(selectStart)
+			handlerStart := time.Now()
 			rawNode.ReportUnreachable(peerID)
-			b.drainReady(rawNode, storage)
+			drainStats, drainDuration := b.drainReady(rawNode, storage)
+			loopTrace.addCount("iterations", 1)
+			loopTrace.addCount("unreachable_reports", 1)
+			loopTrace.addDuration("select_wait", selectWait)
+			loopTrace.addDuration("handler", time.Since(handlerStart))
+			loopTrace.recordDrain(drainStats, drainDuration)
+			loopTrace.recordQueues(len(b.proposals), len(b.prioritySteps), len(b.backgroundSteps), len(b.unreachable), len(b.learnQueue))
+			loopTrace.maybeFlush(b.leaderID.Load(), "window")
 		case request := <-b.prioritySteps:
-			b.processStep(rawNode, storage, request)
+			selectWait := time.Since(selectStart)
+			handlerStart := time.Now()
+			stepDuration, drainStats, drainDuration := b.processStep(rawNode, storage, request)
+			loopTrace.addCount("iterations", 1)
+			loopTrace.addCount("priority_steps", 1)
+			loopTrace.addDuration("select_wait", selectWait)
+			loopTrace.addDuration("handler", time.Since(handlerStart))
+			loopTrace.addDuration("raw_step", stepDuration)
+			loopTrace.recordDrain(drainStats, drainDuration)
+			loopTrace.recordQueues(len(b.proposals), len(b.prioritySteps), len(b.backgroundSteps), len(b.unreachable), len(b.learnQueue))
+			loopTrace.maybeFlush(b.leaderID.Load(), "window")
 		case request := <-b.backgroundSteps:
-			b.processStep(rawNode, storage, request)
+			selectWait := time.Since(selectStart)
+			handlerStart := time.Now()
+			stepDuration, drainStats, drainDuration := b.processStep(rawNode, storage, request)
+			loopTrace.addCount("iterations", 1)
+			loopTrace.addCount("background_steps", 1)
+			loopTrace.addDuration("select_wait", selectWait)
+			loopTrace.addDuration("handler", time.Since(handlerStart))
+			loopTrace.addDuration("raw_step", stepDuration)
+			loopTrace.recordDrain(drainStats, drainDuration)
+			loopTrace.recordQueues(len(b.proposals), len(b.prioritySteps), len(b.backgroundSteps), len(b.unreachable), len(b.learnQueue))
+			loopTrace.maybeFlush(b.leaderID.Load(), "window")
 		}
 	}
 }
@@ -475,17 +892,22 @@ func (b *raftConsensusBox) endQueuedProposalTraces(event string) {
 	}
 }
 
-func (b *raftConsensusBox) processStep(rawNode *raft.RawNode, storage *raft.MemoryStorage, request stepRequest) {
+func (b *raftConsensusBox) processStep(rawNode *raft.RawNode, storage *raft.MemoryStorage, request stepRequest) (time.Duration, drainReadyStats, time.Duration) {
 	message := request.message
 	commitBefore := rawNode.Status().Commit
+	stepStart := time.Now()
 	if err := rawNode.Step(message); err == nil {
+		stepDuration := time.Since(stepStart)
 		b.finishAppendAckSignals(message)
 		b.trackAckToCommitSignal(message, commitBefore, rawNode.Status().Commit)
-		b.drainReady(rawNode, storage)
+		drainStats, drainDuration := b.drainReady(rawNode, storage)
+		return stepDuration, drainStats, drainDuration
 	}
+	return time.Since(stepStart), drainReadyStats{}, 0
 }
 
-func (b *raftConsensusBox) drainReady(rawNode *raft.RawNode, storage *raft.MemoryStorage) {
+func (b *raftConsensusBox) drainReady(rawNode *raft.RawNode, storage *raft.MemoryStorage) (drainReadyStats, time.Duration) {
+	start := time.Now()
 	stats := drainReadyStats{}
 
 	for rawNode.HasReady() {
@@ -501,20 +923,28 @@ func (b *raftConsensusBox) drainReady(rawNode *raft.RawNode, storage *raft.Memor
 		}
 		if !raft.IsEmptySnap(ready.Snapshot) {
 			stats.snapshots++
+			storageStart := time.Now()
 			_ = storage.ApplySnapshot(ready.Snapshot)
+			stats.storageNanos += time.Since(storageStart).Nanoseconds()
 		}
 		if !raft.IsEmptyHardState(ready.HardState) {
 			stats.hardStates++
+			storageStart := time.Now()
 			_ = storage.SetHardState(ready.HardState)
+			stats.storageNanos += time.Since(storageStart).Nanoseconds()
 		}
 		if len(ready.Entries) > 0 {
+			storageStart := time.Now()
 			_ = storage.Append(ready.Entries)
+			stats.storageNanos += time.Since(storageStart).Nanoseconds()
 		}
 
 		for _, message := range ready.Messages {
 			if message.To == b.selfID {
 				stats.selfMessages++
+				selfStepStart := time.Now()
 				_ = rawNode.Step(message)
+				stats.selfStepNanos += time.Since(selfStepStart).Nanoseconds()
 				continue
 			}
 			_, ok := b.peers[message.To]
@@ -525,11 +955,13 @@ func (b *raftConsensusBox) drainReady(rawNode *raft.RawNode, storage *raft.Memor
 			if queue == nil {
 				continue
 			}
+			sendStart := time.Now()
 			select {
 			case <-b.stopCh:
-				return
+				return stats, time.Since(start)
 			case queue <- message:
 			}
+			stats.sendEnqueueNanos += time.Since(sendStart).Nanoseconds()
 			b.trackAppendAckSignals(message)
 			if isCommitIndexMessage(message) {
 				b.finishCommitSignals(message.To, message.Commit)
@@ -538,11 +970,16 @@ func (b *raftConsensusBox) drainReady(rawNode *raft.RawNode, storage *raft.Memor
 		}
 
 		for _, entry := range ready.CommittedEntries {
+			learnStart := time.Now()
 			b.learnCommittedEntry(rawNode, entry, &stats)
+			stats.learnNanos += time.Since(learnStart).Nanoseconds()
 		}
 
+		advanceStart := time.Now()
 		rawNode.Advance(ready)
+		stats.advanceNanos += time.Since(advanceStart).Nanoseconds()
 	}
+	return stats, time.Since(start)
 }
 
 func (b *raftConsensusBox) stepQueue(message raftpb.Message) chan stepRequest {
@@ -593,22 +1030,36 @@ func (b *raftConsensusBox) learnCommittedEntry(rawNode *raft.RawNode, entry raft
 			return
 		}
 		var value Entry
-		if err := json.Unmarshal(entry.Data, &value); err != nil {
+		decodeStart := time.Now()
+		err := json.Unmarshal(entry.Data, &value)
+		if stats != nil {
+			stats.learnDecodeNanos += time.Since(decodeStart).Nanoseconds()
+		}
+		if err != nil {
 			return
 		}
 		b.learnedSlot++
 		b.finishCommittedRequestTrace(b.learnedSlot, value)
-		request := asyncLearnRequest{slot: b.learnedSlot, entry: cloneEntry(value), enqueued: time.Now()}
+		cloneStart := time.Now()
+		cloned := cloneEntry(value)
+		if stats != nil {
+			stats.learnCloneNanos += time.Since(cloneStart).Nanoseconds()
+		}
+		request := asyncLearnRequest{slot: b.learnedSlot, entry: cloned, enqueued: time.Now()}
+		enqueueStart := time.Now()
 		select {
 		case <-b.stopCh:
 			return
 		case b.learnQueue <- request:
 		}
+		if stats != nil {
+			stats.learnEnqueueNanos += time.Since(enqueueStart).Nanoseconds()
+		}
 	}
 }
 
 func (b *raftConsensusBox) startRequestTrace(entry Entry) trace.Span {
-	if entry.RequestID == "" {
+	if entry.RequestID == "" || !telemetry.DetailedSpansEnabled() {
 		return nil
 	}
 	_, span := telemetry.StartSpanFromPayload(
@@ -624,7 +1075,7 @@ func (b *raftConsensusBox) startRequestTrace(entry Entry) trace.Span {
 }
 
 func (b *raftConsensusBox) startProposeChannelSendTrace(entry Entry) trace.Span {
-	if entry.RequestID == "" {
+	if entry.RequestID == "" || !telemetry.DetailedSpansEnabled() {
 		return nil
 	}
 	_, span := telemetry.StartSpanFromPayload(
@@ -639,7 +1090,7 @@ func (b *raftConsensusBox) startProposeChannelSendTrace(entry Entry) trace.Span 
 }
 
 func (b *raftConsensusBox) startProposeResultWaitTrace(entry Entry) trace.Span {
-	if entry.RequestID == "" {
+	if entry.RequestID == "" || !telemetry.DetailedSpansEnabled() {
 		return nil
 	}
 	_, span := telemetry.StartSpanFromPayload(
@@ -669,7 +1120,7 @@ func (b *raftConsensusBox) forgetRequestTrace(entry Entry) {
 }
 
 func (b *raftConsensusBox) finishCommittedRequestTrace(slot uint64, entry Entry) {
-	if entry.RequestID == "" {
+	if entry.RequestID == "" || !telemetry.DetailedSpansEnabled() {
 		return
 	}
 	b.finishCommitWaitTrace(slot, entry)
@@ -719,7 +1170,7 @@ func (b *raftConsensusBox) endOpenRequestTraces(event string) {
 }
 
 func (b *raftConsensusBox) startProposalLoopTrace(entry Entry) trace.Span {
-	if entry.RequestID == "" {
+	if entry.RequestID == "" || !telemetry.DetailedSpansEnabled() {
 		return nil
 	}
 	_, span := telemetry.StartSpanFromPayload(
@@ -736,7 +1187,7 @@ func (b *raftConsensusBox) startProposalLoopTrace(entry Entry) trace.Span {
 }
 
 func (b *raftConsensusBox) startCommitWaitTrace(entry Entry) {
-	if entry.RequestID == "" {
+	if entry.RequestID == "" || !telemetry.DetailedSpansEnabled() {
 		return
 	}
 	_, span := telemetry.StartSpanFromPayload(
@@ -762,7 +1213,7 @@ func (b *raftConsensusBox) finishCommitWaitTrace(slot uint64, entry Entry) {
 }
 
 func (b *raftConsensusBox) trackAppendAckSignals(message raftpb.Message) {
-	if message.Type != raftpb.MsgApp || len(message.Entries) == 0 || !b.IsLeader() {
+	if !telemetry.DetailedSpansEnabled() || message.Type != raftpb.MsgApp || len(message.Entries) == 0 || !b.IsLeader() {
 		return
 	}
 	peer := b.peers[message.To]
@@ -822,7 +1273,7 @@ func (b *raftConsensusBox) finishAppendAckSignals(message raftpb.Message) {
 }
 
 func (b *raftConsensusBox) trackAckToCommitSignal(message raftpb.Message, commitBefore uint64, commitAfter uint64) {
-	if message.Type != raftpb.MsgAppResp || message.Reject || message.Index == 0 || !b.IsLeader() {
+	if !telemetry.DetailedSpansEnabled() || message.Type != raftpb.MsgAppResp || message.Reject || message.Index == 0 || !b.IsLeader() {
 		return
 	}
 	peer := b.peers[message.From]

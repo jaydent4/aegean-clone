@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"strings"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -70,10 +71,22 @@ func Tracer(name string) trace.Tracer {
 	return otel.Tracer(name)
 }
 
+func DetailedSpansEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("AEGEAN_TRACE_VERBOSE"))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
 func StartSpanFromPayload(payload map[string]any, name string, attrs ...attribute.KeyValue) (context.Context, trace.Span) {
 	ctx := context.Background()
 	if payload != nil {
 		ctx = ExtractContext(ctx, payload)
+	}
+	if !DetailedSpansEnabled() {
+		return ctx, trace.SpanFromContext(ctx)
 	}
 	ctx, span := Tracer("aegean").Start(ctx, name, trace.WithAttributes(attrs...))
 	return ctx, span
@@ -83,6 +96,9 @@ func StartLocalSpanFromPayload(payload map[string]any, name string, attrs ...att
 	ctx := context.Background()
 	if payload != nil {
 		ctx = ExtractContext(ctx, payload)
+	}
+	if !DetailedSpansEnabled() {
+		return ctx, trace.SpanFromContext(ctx)
 	}
 	ctx, span := Tracer("aegean").Start(ctx, name, trace.WithAttributes(attrs...))
 	return ctx, span

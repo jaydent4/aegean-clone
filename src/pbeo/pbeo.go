@@ -1,6 +1,7 @@
 package pbeo
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -28,6 +29,34 @@ type asyncConsensusBox interface {
 type committedResponseTask struct {
 	entry    Entry
 	enqueued time.Time
+}
+
+type pbeoApplyStats struct {
+	entries              int64
+	writes               int64
+	writeBytes           int64
+	responsesEnqueued    int64
+	stateWriteNanos      int64
+	clearStateNanos      int64
+	responseEnqueueNanos int64
+}
+
+type pbeoProcessStats struct {
+	entries          int64
+	processNanos     int64
+	processLockNanos int64
+	dequeueNanos     int64
+	applyNanos       int64
+	apply            pbeoApplyStats
+}
+
+type pbeoLearnBatchWindowStats struct {
+	nodeName       string
+	start          time.Time
+	counts         map[string]int64
+	durations      map[string]time.Duration
+	durationCounts map[string]int64
+	maxDurations   map[string]time.Duration
 }
 
 type PBEO struct {
@@ -65,6 +94,8 @@ type PBEO struct {
 	lifecycleSpans  map[string]trace.Span
 	executeSlots    chan struct{}
 	commitDrainSize int
+	learnTraceMu    sync.Mutex
+	learnTrace      *pbeoLearnBatchWindowStats
 }
 
 const (
@@ -72,6 +103,98 @@ const (
 	committedResponseQueueSize  = 4096
 	committedResponseWorkerSize = 16
 )
+
+func newPBEOLearnBatchWindowStats(nodeName string) *pbeoLearnBatchWindowStats {
+	w := &pbeoLearnBatchWindowStats{nodeName: nodeName}
+	w.reset(time.Now())
+	return w
+}
+
+func (w *pbeoLearnBatchWindowStats) reset(start time.Time) {
+	w.start = start
+	w.counts = make(map[string]int64)
+	w.durations = make(map[string]time.Duration)
+	w.durationCounts = make(map[string]int64)
+	w.maxDurations = make(map[string]time.Duration)
+}
+
+func (w *pbeoLearnBatchWindowStats) addCount(name string, value int64) {
+	if value == 0 {
+		return
+	}
+	w.counts[name] += value
+}
+
+func (w *pbeoLearnBatchWindowStats) addDuration(name string, duration time.Duration) {
+	if duration <= 0 {
+		return
+	}
+	w.durations[name] += duration
+	w.durationCounts[name]++
+	if duration > w.maxDurations[name] {
+		w.maxDurations[name] = duration
+	}
+}
+
+func (w *pbeoLearnBatchWindowStats) record(entries int, learned int, duplicates int, logUpdate time.Duration, processStats pbeoProcessStats, total time.Duration) {
+	w.addCount("batches", 1)
+	w.addCount("entries", int64(entries))
+	w.addCount("learned_entries", int64(learned))
+	w.addCount("duplicate_entries", int64(duplicates))
+	w.addCount("processed_entries", processStats.entries)
+	w.addCount("writes", processStats.apply.writes)
+	w.addCount("write_bytes", processStats.apply.writeBytes)
+	w.addCount("responses_enqueued", processStats.apply.responsesEnqueued)
+	w.addDuration("total", total)
+	w.addDuration("log_update", logUpdate)
+	w.addDuration("process", time.Duration(processStats.processNanos))
+	w.addDuration("process_lock", time.Duration(processStats.processLockNanos))
+	w.addDuration("dequeue", time.Duration(processStats.dequeueNanos))
+	w.addDuration("apply", time.Duration(processStats.applyNanos))
+	w.addDuration("state_write", time.Duration(processStats.apply.stateWriteNanos))
+	w.addDuration("clear_state", time.Duration(processStats.apply.clearStateNanos))
+	w.addDuration("response_enqueue", time.Duration(processStats.apply.responseEnqueueNanos))
+}
+
+func (w *pbeoLearnBatchWindowStats) flush(reason string) {
+	if w.counts["batches"] == 0 {
+		w.reset(time.Now())
+		return
+	}
+	now := time.Now()
+	elapsed := now.Sub(w.start)
+	attrs := []attribute.KeyValue{
+		attribute.String("node.name", w.nodeName),
+		attribute.String("pbeo.learn_batch.flush_reason", reason),
+		attribute.Int64("pbeo.learn_batch.window_us", elapsed.Microseconds()),
+	}
+	for _, key := range sortedInt64MapKeys(w.counts) {
+		attrs = append(attrs, attribute.Int64("pbeo.learn_batch.count."+key, w.counts[key]))
+	}
+	for _, key := range sortedDurationMapKeys(w.durations) {
+		total := w.durations[key]
+		count := w.durationCounts[key]
+		avg := time.Duration(0)
+		if count > 0 {
+			avg = total / time.Duration(count)
+		}
+		attrs = append(attrs,
+			attribute.Int64("pbeo.learn_batch.duration."+key+".count", count),
+			attribute.Int64("pbeo.learn_batch.duration."+key+".total_us", total.Microseconds()),
+			attribute.Int64("pbeo.learn_batch.duration."+key+".avg_us", avg.Microseconds()),
+			attribute.Int64("pbeo.learn_batch.duration."+key+".max_us", w.maxDurations[key].Microseconds()),
+		)
+	}
+
+	_, span := telemetry.Tracer("aegean").Start(
+		context.Background(),
+		"pbeo.learn_batch.window",
+		trace.WithTimestamp(w.start),
+		trace.WithAttributes(attrs...),
+	)
+	span.End(trace.WithTimestamp(now))
+	w.reset(now)
+}
 
 func NewPBEO(cfg Config) (*PBEO, error) {
 	if cfg.Name == "" {
@@ -136,6 +259,7 @@ func NewPBEO(cfg Config) (*PBEO, error) {
 		lifecycleSpans:    make(map[string]trace.Span),
 		executeSlots:      executeSlots,
 		commitDrainSize:   commitDrainSize,
+		learnTrace:        newPBEOLearnBatchWindowStats(cfg.Name),
 	}
 
 	box, err := factory(BoxConfig{
@@ -150,6 +274,8 @@ func NewPBEO(cfg Config) (*PBEO, error) {
 		MaxInflightMsgs:          cfg.MaxInflightMsgs,
 		MaxSizePerMsg:            cfg.MaxSizePerMsg,
 		RaftSendBatchSize:        cfg.RaftSendBatchSize,
+		LearnBatch:               p.LearnBatch,
+		LearnBatchSize:           common.IntOrDefault(cfg.RunConfig, "pbeo_learn_batch_size", defaultRaftLearnBatchSize),
 	}, p.Learn)
 	if err != nil {
 		return nil, err
@@ -363,31 +489,93 @@ func (p *PBEO) Learn(slot uint64, entry Entry) {
 			attribute.Int64("pbeo.commit_slot", int64(slot)),
 		)...,
 	)
-	p.mu.Lock()
-	if _, exists := p.learnedSlots[slot]; exists {
-		p.mu.Unlock()
+	learned := p.learnBatch([]CommittedEntry{{Slot: slot, Entry: entry}})
+	if !learned {
 		endPBEOTrace(learnSpan, "duplicate_slot")
 		return
 	}
-	p.learnedSlots[slot] = struct{}{}
-	p.log[slot] = cloneEntry(entry)
-	if slot > p.learned {
-		p.learned = slot
-	}
-	p.mu.Unlock()
-
-	p.Process()
 	endPBEOTrace(learnSpan, "processed")
 }
 
-func (p *PBEO) Process() {
+func (p *PBEO) LearnBatch(entries []CommittedEntry) {
+	p.learnBatch(entries)
+}
+
+func (p *PBEO) learnBatch(entries []CommittedEntry) bool {
+	if len(entries) == 0 {
+		return false
+	}
+	totalStart := time.Now()
+	logStart := time.Now()
+	p.mu.Lock()
+	learnedAny := false
+	learnedCount := 0
+	duplicateCount := 0
+	for _, committed := range entries {
+		if _, exists := p.learnedSlots[committed.Slot]; exists {
+			duplicateCount++
+			continue
+		}
+		p.learnedSlots[committed.Slot] = struct{}{}
+		p.log[committed.Slot] = cloneEntry(committed.Entry)
+		if committed.Slot > p.learned {
+			p.learned = committed.Slot
+		}
+		learnedCount++
+		learnedAny = true
+	}
+	p.mu.Unlock()
+	logDuration := time.Since(logStart)
+
+	var processStats pbeoProcessStats
+	if learnedAny {
+		processStats = p.Process()
+	}
+	p.recordLearnBatchTrace(len(entries), learnedCount, duplicateCount, logDuration, processStats, time.Since(totalStart))
+	return learnedAny
+}
+
+func (p *PBEO) recordLearnBatchTrace(entries int, learned int, duplicates int, logUpdate time.Duration, processStats pbeoProcessStats, total time.Duration) {
+	p.learnTraceMu.Lock()
+	defer p.learnTraceMu.Unlock()
+	if p.learnTrace == nil {
+		p.learnTrace = newPBEOLearnBatchWindowStats(p.name)
+	}
+	p.learnTrace.record(entries, learned, duplicates, logUpdate, processStats, total)
+	if time.Since(p.learnTrace.start) >= raftLoopTraceWindow {
+		p.learnTrace.flush("window")
+	}
+}
+
+func (p *PBEO) Process() pbeoProcessStats {
+	start := time.Now()
+	lockStart := time.Now()
 	p.processMu.Lock()
+	lockDuration := time.Since(lockStart)
 	defer p.processMu.Unlock()
 
+	dequeueStart := time.Now()
 	committed := p.dequeueCommittableEntries()
-	for _, entry := range committed {
-		p.applyCommittedEntry(entry)
+	dequeueDuration := time.Since(dequeueStart)
+	stats := pbeoProcessStats{
+		entries:          int64(len(committed)),
+		processLockNanos: lockDuration.Nanoseconds(),
+		dequeueNanos:     dequeueDuration.Nanoseconds(),
 	}
+	if len(committed) > 0 {
+		applyStart := time.Now()
+		applyStats := p.applyCommittedEntries(committed)
+		stats.applyNanos += time.Since(applyStart).Nanoseconds()
+		stats.apply.entries += applyStats.entries
+		stats.apply.writes += applyStats.writes
+		stats.apply.writeBytes += applyStats.writeBytes
+		stats.apply.responsesEnqueued += applyStats.responsesEnqueued
+		stats.apply.stateWriteNanos += applyStats.stateWriteNanos
+		stats.apply.clearStateNanos += applyStats.clearStateNanos
+		stats.apply.responseEnqueueNanos += applyStats.responseEnqueueNanos
+	}
+	stats.processNanos = time.Since(start).Nanoseconds()
+	return stats
 }
 
 func (p *PBEO) LearnedIndex() uint64 {
@@ -600,35 +788,73 @@ func (p *PBEO) dequeueCommittableEntries() []CommittedEntry {
 	}
 }
 
-func (p *PBEO) applyCommittedEntry(committed CommittedEntry) {
-	entry := committed.Entry
-	_, span := telemetry.StartSpanFromPayload(
-		entry.Response,
-		"pbeo.apply_committed_entry",
-		append(
-			p.entryAttrs(entry),
-			attribute.Int64("pbeo.commit_slot", int64(committed.Slot)),
-			attribute.Int("pbeo.write_count", len(entry.Writes)),
-			attribute.Int("pbeo.write_bytes", stringMapBytes(entry.Writes)),
-			attribute.Int("pbeo.client_count", len(p.clients)),
-		)...,
-	)
+func (p *PBEO) applyCommittedEntries(committed []CommittedEntry) pbeoApplyStats {
+	stats := pbeoApplyStats{
+		entries: int64(len(committed)),
+	}
+	if len(committed) == 0 {
+		return stats
+	}
+
+	type pendingApply struct {
+		entry Entry
+		span  trace.Span
+	}
+
+	pending := make([]pendingApply, 0, len(committed))
+	for _, committedEntry := range committed {
+		entry := committedEntry.Entry
+		writeBytes := stringMapBytes(entry.Writes)
+		stats.writes += int64(len(entry.Writes))
+		stats.writeBytes += int64(writeBytes)
+		_, span := telemetry.StartSpanFromPayload(
+			entry.Response,
+			"pbeo.apply_committed_entry",
+			append(
+				p.entryAttrs(entry),
+				attribute.Int64("pbeo.commit_slot", int64(committedEntry.Slot)),
+				attribute.Int("pbeo.write_count", len(entry.Writes)),
+				attribute.Int("pbeo.write_bytes", writeBytes),
+				attribute.Int("pbeo.client_count", len(p.clients)),
+			)...,
+		)
+		pending = append(pending, pendingApply{
+			entry: entry,
+			span:  span,
+		})
+	}
+
+	stateStart := time.Now()
 	p.stateMu.Lock()
-	for key, value := range entry.Writes {
-		p.kv[key] = value
+	for _, item := range pending {
+		for key, value := range item.entry.Writes {
+			p.kv[key] = value
+		}
 	}
 	p.stateMu.Unlock()
+	stats.stateWriteNanos = time.Since(stateStart).Nanoseconds()
 
-	p.contextStore.clear(entry.RequestID)
-	p.nestedResponses.clear(entry.RequestID)
+	for _, item := range pending {
+		entry := item.entry
 
-	if p.enqueueCommittedResponse(entry) {
-		span.SetAttributes(attribute.Int("pbeo.response_queue_depth_on_enqueue", len(p.responseCh)))
-		endPBEOTrace(span, "response_enqueued")
-		return
+		clearStart := time.Now()
+		p.contextStore.clear(entry.RequestID)
+		p.nestedResponses.clear(entry.RequestID)
+		stats.clearStateNanos += time.Since(clearStart).Nanoseconds()
+
+		enqueueStart := time.Now()
+		if p.enqueueCommittedResponse(entry) {
+			stats.responseEnqueueNanos += time.Since(enqueueStart).Nanoseconds()
+			stats.responsesEnqueued++
+			item.span.SetAttributes(attribute.Int("pbeo.response_queue_depth_on_enqueue", len(p.responseCh)))
+			endPBEOTrace(item.span, "response_enqueued")
+			continue
+		}
+		stats.responseEnqueueNanos += time.Since(enqueueStart).Nanoseconds()
+		p.endRequestLifecycle(entry.RequestID, "stopped_before_response")
+		endPBEOTrace(item.span, "response_enqueue_stopped")
 	}
-	p.endRequestLifecycle(entry.RequestID, "stopped_before_response")
-	endPBEOTrace(span, "response_enqueue_stopped")
+	return stats
 }
 
 func (p *PBEO) enqueueCommittedResponse(entry Entry) bool {

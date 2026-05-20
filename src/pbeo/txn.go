@@ -92,18 +92,23 @@ func (t *Txn) WaitForNestedResponse(requestID any) ([]map[string]any, bool) {
 	if !ok {
 		return nil, false
 	}
-	_, span := telemetry.Tracer("aegean").Start(
-		context.Background(),
-		"pbeo.nested_response.wait",
-		trace.WithAttributes(
-			attribute.String("node.name", t.pbeo.name),
-			attribute.String("request.id", canonicalID),
-			attribute.Int64("pbeo.executing_requests", t.pbeo.executingRequests.Load()),
-		),
-	)
+	var span trace.Span
+	if telemetry.DetailedSpansEnabled() {
+		_, span = telemetry.Tracer("aegean").Start(
+			context.Background(),
+			"pbeo.nested_response.wait",
+			trace.WithAttributes(
+				attribute.String("node.name", t.pbeo.name),
+				attribute.String("request.id", canonicalID),
+				attribute.Int64("pbeo.executing_requests", t.pbeo.executingRequests.Load()),
+			),
+		)
+	}
 	responses := t.pbeo.nestedResponses.wait(canonicalID)
-	span.SetAttributes(attribute.Int("pbeo.nested_response.count", len(responses)))
-	span.End()
+	if span != nil {
+		span.SetAttributes(attribute.Int("pbeo.nested_response.count", len(responses)))
+		span.End()
+	}
 	return responses, true
 }
 

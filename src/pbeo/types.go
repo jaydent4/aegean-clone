@@ -42,6 +42,7 @@ type SendRaftFunc func(peer string, message raftpb.Message) error
 type SendRaftBatchFunc func(peer string, messages []raftpb.Message) error
 
 type LearnFunc func(slot uint64, entry Entry)
+type LearnBatchFunc func(entries []CommittedEntry)
 
 type ConsensusBox interface {
 	IsLeader() bool
@@ -66,6 +67,8 @@ type BoxConfig struct {
 	MaxInflightMsgs          int
 	MaxSizePerMsg            uint64
 	RaftSendBatchSize        int
+	LearnBatch               LearnBatchFunc
+	LearnBatchSize           int
 }
 
 type BoxFactory func(cfg BoxConfig, onLearn LearnFunc) (ConsensusBox, error)
