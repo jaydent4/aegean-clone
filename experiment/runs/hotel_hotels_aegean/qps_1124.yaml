@@ -2,7 +2,7 @@
 architecture: hotel_hotels_aegean.yaml
 
 # k6 config
-k6_qps: 85
+k6_qps: 4000
 warmup_duration: 10s
 warmup_graceful_stop: 45s
 duration: 15s
@@ -25,3 +25,4 @@ run_timeout_seconds: 60
 parallel_window_k: 16
 worker_count: 8
 gomaxprocs: 32
+merkle: treap

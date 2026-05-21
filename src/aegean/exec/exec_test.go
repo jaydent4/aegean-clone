@@ -9,6 +9,7 @@ import (
 
 	"aegean/aegean/merkle"
 	"aegean/aegean/merkle_iavl"
+	"aegean/aegean/merkle_treap"
 	"aegean/common"
 	netx "aegean/net"
 )
@@ -171,7 +172,7 @@ func TestExecRunConfigCanUseIAVLMerkle(t *testing.T) {
 	verifierCh := make(chan map[string]any, 64)
 	shimCh := make(chan map[string]any, 64)
 	config := requiredExecRunConfig()
-	config[runConfigMerkleUseIAVL] = true
+	config[runConfigMerkle] = merkleBackendIAVL
 
 	exec := NewExec("exec1", []string{"exec1"}, nil, verifierCh, shimCh, 1, testExecuteRequest, func(*Exec) map[string]string {
 		return map[string]string{"a": "1"}
@@ -185,6 +186,56 @@ func TestExecRunConfigCanUseIAVLMerkle(t *testing.T) {
 	exec.ensureWorkingMerkle()
 	if _, ok := exec.workingState.Merkle.(*merkle_iavl.Tree); !ok {
 		t.Fatalf("expected lazy rebuild to use iavl merkle, got %T", exec.workingState.Merkle)
+	}
+}
+
+func TestExecRunConfigCanUseTreapMerkle(t *testing.T) {
+	verifierCh := make(chan map[string]any, 64)
+	shimCh := make(chan map[string]any, 64)
+	config := requiredExecRunConfig()
+	config[runConfigMerkle] = merkleBackendTreap
+
+	exec := NewExec("exec1", []string{"exec1"}, nil, verifierCh, shimCh, 1, testExecuteRequest, func(*Exec) map[string]string {
+		return map[string]string{"a": "1"}
+	}, config)
+
+	if _, ok := exec.workingState.Merkle.(*merkle_treap.Tree); !ok {
+		t.Fatalf("expected working state to use treap merkle, got %T", exec.workingState.Merkle)
+	}
+
+	exec.workingState.Merkle = nil
+	exec.ensureWorkingMerkle()
+	if _, ok := exec.workingState.Merkle.(*merkle_treap.Tree); !ok {
+		t.Fatalf("expected lazy rebuild to use treap merkle, got %T", exec.workingState.Merkle)
+	}
+}
+
+func TestExecRunConfigDefaultsToCanonicalMerkle(t *testing.T) {
+	verifierCh := make(chan map[string]any, 64)
+	shimCh := make(chan map[string]any, 64)
+	config := requiredExecRunConfig()
+
+	exec := NewExec("exec1", []string{"exec1"}, nil, verifierCh, shimCh, 1, testExecuteRequest, func(*Exec) map[string]string {
+		return map[string]string{"a": "1"}
+	}, config)
+
+	if _, ok := exec.workingState.Merkle.(*merkle.CanonicalTree); !ok {
+		t.Fatalf("expected working state to use canonical merkle, got %T", exec.workingState.Merkle)
+	}
+}
+
+func TestExecRunConfigLegacyMerkleFlags(t *testing.T) {
+	verifierCh := make(chan map[string]any, 64)
+	shimCh := make(chan map[string]any, 64)
+	config := requiredExecRunConfig()
+	config[runConfigMerkleUseTreap] = true
+
+	exec := NewExec("exec1", []string{"exec1"}, nil, verifierCh, shimCh, 1, testExecuteRequest, func(*Exec) map[string]string {
+		return map[string]string{"a": "1"}
+	}, config)
+
+	if _, ok := exec.workingState.Merkle.(*merkle_treap.Tree); !ok {
+		t.Fatalf("expected legacy treap flag to use treap merkle, got %T", exec.workingState.Merkle)
 	}
 }
 

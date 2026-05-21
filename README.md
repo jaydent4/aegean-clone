@@ -18,3 +18,6 @@ To use distributed:
 To use docker:
 1. python setup/ssh_config.py docker
 2. python setup/hosts.py docker
+
+Improving PBEO: no full state copy
+Improving Aegean: tuning batcher, optimize merkle
