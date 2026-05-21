@@ -49,7 +49,7 @@ services:
     phaseQuorumSize: 2
     expectedExecVotes: 3
     batcher_config:
-      batch_size: 16
+      batch_size: 64
       batch_timeout_ms: 3
   rate:
     type: server
@@ -69,7 +69,7 @@ services:
     phaseQuorumSize: 2
     expectedExecVotes: 3
     batcher_config:
-      batch_size: 16
+      batch_size: 64
       batch_timeout_ms: 3
   reservation:
     type: server

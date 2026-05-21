@@ -99,11 +99,11 @@ func cloneMapAny(src map[string]any) map[string]any {
 	return out
 }
 
-func (e *Exec) executeParallelBatches(parallelBatches [][]map[string]any, ndSeed int64, ndTimestamp float64) []map[string]any {
+func (e *Exec) executeParallelBatches(parallelBatches [][]map[string]any, ndSeed int64, ndTimestamp float64) ([]map[string]any, executionSchedulerStats) {
 	return e.scheduler.executeParallelBatches(e, parallelBatches, ndSeed, ndTimestamp)
 }
 
-func (e *Exec) executeSequentialBatches(parallelBatches [][]map[string]any, ndSeed int64, ndTimestamp float64) []map[string]any {
+func (e *Exec) executeSequentialBatches(parallelBatches [][]map[string]any, ndSeed int64, ndTimestamp float64) ([]map[string]any, executionSchedulerStats) {
 	return e.scheduler.executeSequentialBatches(e, parallelBatches, ndSeed, ndTimestamp)
 }
 

@@ -1,6 +1,8 @@
 package exec
 
 import (
+	"time"
+
 	"aegean/common"
 )
 
@@ -17,19 +19,33 @@ type parallelWorkerTask struct {
 }
 
 type parallelWorkerResult struct {
-	batch  *parallelBatchRuntime
-	req    *scheduledRequest
-	output map[string]any
+	batch    *parallelBatchRuntime
+	req      *scheduledRequest
+	output   map[string]any
+	duration time.Duration
 }
+
+type executionSchedulerStats struct {
+	workerCalls      int
+	blockedResponses int
+	nestedWaits      int
+	nestedWait       time.Duration
+	workerExec       time.Duration
+	maxWorkerExec    time.Duration
+	workflowStats    map[string]int64
+}
+
+const workflowStatsOutputKey = "_workflow_stats"
 
 func (b *parallelBatchRuntime) done() bool {
 	return b.finished >= len(b.requests)
 }
 
-func (s *execScheduler) executeParallelBatches(e *Exec, parallelBatches [][]map[string]any, ndSeed int64, ndTimestamp float64) []map[string]any {
+func (s *execScheduler) executeParallelBatches(e *Exec, parallelBatches [][]map[string]any, ndSeed int64, ndTimestamp float64) ([]map[string]any, executionSchedulerStats) {
+	var stats executionSchedulerStats
 	batches, allScheduled := s.initParallelBatchRuntimes(parallelBatches)
 	if len(allScheduled) == 0 {
-		return nil
+		return nil, stats
 	}
 
 	s.registerScheduledRequests(allScheduled)
@@ -70,9 +86,16 @@ func (s *execScheduler) executeParallelBatches(e *Exec, parallelBatches [][]map[
 
 		if activeWorkers > 0 {
 			res := <-resultCh
+			stats.workerCalls++
+			stats.workerExec += res.duration
+			if res.duration > stats.maxWorkerExec {
+				stats.maxWorkerExec = res.duration
+			}
+			stats.addWorkflowStats(res.output)
 			activeWorkers--
 			status := common.GetString(res.output, "status")
 			if status == "blocked_for_nested_response" {
+				stats.blockedResponses++
 				if s.promoteOneNestedResponse(res.req.id) {
 					res.req.state = requestRunnable
 				} else {
@@ -104,18 +127,22 @@ func (s *execScheduler) executeParallelBatches(e *Exec, parallelBatches [][]map[
 				continue
 			}
 			// No batch in window can make progress; wait for nested response arrival
+			waitStart := time.Now()
 			<-s.nestedReadyCh
+			stats.nestedWaits++
+			stats.nestedWait += time.Since(waitStart)
 		}
 	}
 
 	close(taskCh)
-	return s.collectParallelOutputs(batches, totalRequests)
+	return s.collectParallelOutputs(batches, totalRequests), stats
 }
 
-func (s *execScheduler) executeSequentialBatches(e *Exec, parallelBatches [][]map[string]any, ndSeed int64, ndTimestamp float64) []map[string]any {
+func (s *execScheduler) executeSequentialBatches(e *Exec, parallelBatches [][]map[string]any, ndSeed int64, ndTimestamp float64) ([]map[string]any, executionSchedulerStats) {
+	var stats executionSchedulerStats
 	batches, allScheduled := s.initParallelBatchRuntimes(parallelBatches)
 	if len(allScheduled) == 0 {
-		return nil
+		return nil, stats
 	}
 
 	s.registerScheduledRequests(allScheduled)
@@ -137,7 +164,15 @@ func (s *execScheduler) executeSequentialBatches(e *Exec, parallelBatches [][]ma
 			  does not happen unless the workflow developer maliciously triggers this
 			*/
 			for {
+				callStart := time.Now()
 				output := e.ExecuteRequest(e, req.payload, ndSeed, ndTimestamp)
+				callDuration := time.Since(callStart)
+				stats.workerCalls++
+				stats.workerExec += callDuration
+				if callDuration > stats.maxWorkerExec {
+					stats.maxWorkerExec = callDuration
+				}
+				stats.addWorkflowStats(output)
 				if common.GetString(output, "status") != "blocked_for_nested_response" {
 					e.endRequestDispatchWait(req.payload)
 					e.startRequestSpan(
@@ -150,13 +185,17 @@ func (s *execScheduler) executeSequentialBatches(e *Exec, parallelBatches [][]ma
 					outputs = append(outputs, output)
 					break
 				}
+				stats.blockedResponses++
 				for !s.promoteOneNestedResponse(req.id) {
+					waitStart := time.Now()
 					<-s.nestedReadyCh
+					stats.nestedWaits++
+					stats.nestedWait += time.Since(waitStart)
 				}
 			}
 		}
 	}
-	return outputs
+	return outputs, stats
 }
 
 func (s *execScheduler) initParallelBatchRuntimes(parallelBatches [][]map[string]any) ([]*parallelBatchRuntime, []*scheduledRequest) {
@@ -204,12 +243,78 @@ func (s *execScheduler) startParallelWorkers(
 		go func() {
 			for task := range taskCh {
 				e.endRequestDispatchWait(task.req.payload)
+				start := time.Now()
 				output := e.ExecuteRequest(e, task.req.payload, ndSeed, ndTimestamp)
-				resultCh <- parallelWorkerResult{batch: task.batch, req: task.req, output: output}
+				resultCh <- parallelWorkerResult{batch: task.batch, req: task.req, output: output, duration: time.Since(start)}
 			}
 		}()
 	}
 	return workerCount
+}
+
+func (s *executionSchedulerStats) addWorkflowStats(output map[string]any) {
+	if output == nil {
+		return
+	}
+	raw, ok := output[workflowStatsOutputKey]
+	if !ok {
+		return
+	}
+	delete(output, workflowStatsOutputKey)
+
+	switch typed := raw.(type) {
+	case map[string]int64:
+		s.addWorkflowStatsInt64(typed)
+	case map[string]any:
+		s.addWorkflowStatsAny(typed)
+	}
+}
+
+func (s *executionSchedulerStats) addWorkflowStatsInt64(fields map[string]int64) {
+	if len(fields) == 0 {
+		return
+	}
+	if s.workflowStats == nil {
+		s.workflowStats = make(map[string]int64, len(fields))
+	}
+	for key, value := range fields {
+		if key == "" {
+			continue
+		}
+		s.workflowStats[key] += value
+	}
+}
+
+func (s *executionSchedulerStats) addWorkflowStatsAny(fields map[string]any) {
+	if len(fields) == 0 {
+		return
+	}
+	if s.workflowStats == nil {
+		s.workflowStats = make(map[string]int64, len(fields))
+	}
+	for key, raw := range fields {
+		if key == "" {
+			continue
+		}
+		switch value := raw.(type) {
+		case int:
+			s.workflowStats[key] += int64(value)
+		case int64:
+			s.workflowStats[key] += value
+		case int32:
+			s.workflowStats[key] += int64(value)
+		case uint:
+			s.workflowStats[key] += int64(value)
+		case uint64:
+			s.workflowStats[key] += int64(value)
+		case uint32:
+			s.workflowStats[key] += int64(value)
+		case float64:
+			s.workflowStats[key] += int64(value)
+		case time.Duration:
+			s.workflowStats[key] += value.Microseconds()
+		}
+	}
 }
 
 func (s *execScheduler) collectParallelOutputs(batches []*parallelBatchRuntime, totalRequests int) []map[string]any {

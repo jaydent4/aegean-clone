@@ -71,7 +71,7 @@ func (e *Exec) flushNextVerify() bool {
 			telemetry.CopyContext(verifyMsg, batchPayload)
 		}
 		log.Printf(
-			"%s: assembled verify hash seq_num=%d view_num=%d stable_seq_num=%d prev_hash=%s state_root=%s final_hash=%s output_count=%d outputs=%v verifiers=%v",
+			"%s: assembled_verify seq_num=%d view_num=%d stable_seq_num=%d prev_hash=%s state_root=%s final_hash=%s output_count=%d verifiers=%d",
 			e.Name,
 			seq,
 			view,
@@ -80,8 +80,7 @@ func (e *Exec) flushNextVerify() bool {
 			shortHash(pending.merkleRoot),
 			shortHash(token),
 			len(pending.outputs),
-			truncateLogValue(pending.outputs),
-			e.Verifiers,
+			len(e.Verifiers),
 		)
 		if logExecStateDetails {
 			log.Printf(

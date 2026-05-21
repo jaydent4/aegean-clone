@@ -10,24 +10,19 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-func batchRequestIDs(parallelBatches [][]map[string]any) []string {
-	ids := make([]string, 0)
-	fallback := 0
-	for _, batch := range parallelBatches {
-		for _, request := range batch {
-			ids = append(ids, requestIDForSchedule(request, fallback))
-			fallback++
-		}
-	}
-	return ids
-}
-
 func batchRequestCount(parallelBatches [][]map[string]any) int {
 	total := 0
 	for _, batch := range parallelBatches {
 		total += len(batch)
 	}
 	return total
+}
+
+func schedulerWorkflowStat(stats executionSchedulerStats, key string) int64 {
+	if stats.workflowStats == nil {
+		return 0
+	}
+	return stats.workflowStats[key]
 }
 
 func (e *Exec) flushNextBatch() bool {
@@ -112,7 +107,6 @@ func (e *Exec) executeBatch(payload map[string]any) *batchExecutionResult {
 		}
 	}
 	contextDuration := time.Since(contextStart)
-	log.Printf("%s: received batch seq_num=%d request_ids=%v", e.Name, seqNum, batchRequestIDs(parallelBatches))
 
 	// Defer insertion of new keys to end-of-batch deterministic phase.
 	beginMerkleStart := time.Now()
@@ -123,11 +117,12 @@ func (e *Exec) executeBatch(payload map[string]any) *batchExecutionResult {
 	forceSequential := e.forceSequential
 	e.mu.Unlock()
 	var outputs []map[string]any
+	var schedulerStats executionSchedulerStats
 	executeStart := time.Now()
 	if forceSequential {
-		outputs = e.executeSequentialBatches(parallelBatches, ndSeed, ndTimestamp)
+		outputs, schedulerStats = e.executeSequentialBatches(parallelBatches, ndSeed, ndTimestamp)
 	} else {
-		outputs = e.executeParallelBatches(parallelBatches, ndSeed, ndTimestamp)
+		outputs, schedulerStats = e.executeParallelBatches(parallelBatches, ndSeed, ndTimestamp)
 	}
 	executeDuration := time.Since(executeStart)
 
@@ -166,6 +161,12 @@ func (e *Exec) executeBatch(payload map[string]any) *batchExecutionResult {
 			attribute.Int64("exec.batch.context_us", contextDuration.Microseconds()),
 			attribute.Int64("exec.batch.begin_merkle_us", beginMerkleDuration.Microseconds()),
 			attribute.Int64("exec.batch.execute_us", executeDuration.Microseconds()),
+			attribute.Int("exec.batch.worker_calls", schedulerStats.workerCalls),
+			attribute.Int("exec.batch.blocked_responses", schedulerStats.blockedResponses),
+			attribute.Int("exec.batch.nested_waits", schedulerStats.nestedWaits),
+			attribute.Int64("exec.batch.nested_wait_us", schedulerStats.nestedWait.Microseconds()),
+			attribute.Int64("exec.batch.worker_exec_us", schedulerStats.workerExec.Microseconds()),
+			attribute.Int64("exec.batch.max_worker_exec_us", schedulerStats.maxWorkerExec.Microseconds()),
 			attribute.Int("exec.batch.pending_new_keys", pendingNewKeys),
 			attribute.Int("exec.batch.base_keys", baseKeys),
 			attribute.Int64("exec.batch.finalize_merkle_us", finalizeMerkleDuration.Microseconds()),
@@ -175,9 +176,29 @@ func (e *Exec) executeBatch(payload map[string]any) *batchExecutionResult {
 			attribute.Int("exec.batch.output_count", len(outputs)),
 			attribute.Bool("exec.batch.force_sequential", forceSequential),
 		)
+		if schedulerWorkflowStat(schedulerStats, "hotel_search_calls") > 0 {
+			batchServiceSpan.SetAttributes(
+				attribute.Int64("workflow.hotel_search.calls", schedulerWorkflowStat(schedulerStats, "hotel_search_calls")),
+				attribute.Int64("workflow.hotel_search.stage_initial", schedulerWorkflowStat(schedulerStats, "hotel_search_stage_initial")),
+				attribute.Int64("workflow.hotel_search.stage_await_geo", schedulerWorkflowStat(schedulerStats, "hotel_search_stage_await_geo")),
+				attribute.Int64("workflow.hotel_search.stage_await_rate", schedulerWorkflowStat(schedulerStats, "hotel_search_stage_await_rate")),
+				attribute.Int64("workflow.hotel_search.total_us", schedulerWorkflowStat(schedulerStats, "hotel_search_total_us")),
+				attribute.Int64("workflow.hotel_search.dispatch_us", schedulerWorkflowStat(schedulerStats, "hotel_search_dispatch_us")),
+				attribute.Int64("workflow.hotel_search.ledger_us", schedulerWorkflowStat(schedulerStats, "hotel_search_ledger_us")),
+				attribute.Int64("workflow.hotel_search.ledger_state_read_us", schedulerWorkflowStat(schedulerStats, "hotel_search_ledger_state_read_us")),
+				attribute.Int64("workflow.hotel_search.ledger_redis_get_us", schedulerWorkflowStat(schedulerStats, "hotel_search_ledger_redis_get_us")),
+				attribute.Int64("workflow.hotel_search.ledger_state_write_us", schedulerWorkflowStat(schedulerStats, "hotel_search_ledger_state_write_us")),
+				attribute.Int64("workflow.hotel_search.ledger_redis_set_us", schedulerWorkflowStat(schedulerStats, "hotel_search_ledger_redis_set_us")),
+				attribute.Int64("workflow.hotel_search.get_nested_us", schedulerWorkflowStat(schedulerStats, "hotel_search_get_nested_us")),
+				attribute.Int64("workflow.hotel_search.nested_ready_us", schedulerWorkflowStat(schedulerStats, "hotel_search_nested_ready_us")),
+				attribute.Int64("workflow.hotel_search.nested_select_us", schedulerWorkflowStat(schedulerStats, "hotel_search_nested_select_us")),
+				attribute.Int64("workflow.hotel_search.context_set_us", schedulerWorkflowStat(schedulerStats, "hotel_search_context_set_us")),
+				attribute.Int64("workflow.hotel_search.context_payload_us", schedulerWorkflowStat(schedulerStats, "hotel_search_context_payload_us")),
+			)
+		}
 	}
 	log.Printf(
-		"%s: exec_batch_timing seq_num=%d request_count=%d parallel_batches=%d output_count=%d force_sequential=%t context_us=%d begin_merkle_us=%d execute_us=%d pending_new_keys=%d base_keys=%d finalize_merkle_us=%d snapshot_us=%d state_keys=%d total_us=%d",
+		"%s: exec_batch_timing seq_num=%d request_count=%d parallel_batches=%d output_count=%d force_sequential=%t context_us=%d begin_merkle_us=%d execute_us=%d worker_calls=%d blocked_responses=%d nested_waits=%d nested_wait_us=%d worker_exec_us=%d max_worker_exec_us=%d pending_new_keys=%d base_keys=%d finalize_merkle_us=%d snapshot_us=%d state_keys=%d total_us=%d",
 		e.Name,
 		seqNum,
 		requestCount,
@@ -187,6 +208,12 @@ func (e *Exec) executeBatch(payload map[string]any) *batchExecutionResult {
 		contextDuration.Microseconds(),
 		beginMerkleDuration.Microseconds(),
 		executeDuration.Microseconds(),
+		schedulerStats.workerCalls,
+		schedulerStats.blockedResponses,
+		schedulerStats.nestedWaits,
+		schedulerStats.nestedWait.Microseconds(),
+		schedulerStats.workerExec.Microseconds(),
+		schedulerStats.maxWorkerExec.Microseconds(),
 		pendingNewKeys,
 		baseKeys,
 		finalizeMerkleDuration.Microseconds(),
@@ -194,6 +221,50 @@ func (e *Exec) executeBatch(payload map[string]any) *batchExecutionResult {
 		stateKeys,
 		totalDuration.Microseconds(),
 	)
+	if schedulerWorkflowStat(schedulerStats, "hotel_search_calls") > 0 {
+		log.Printf(
+			"%s: hotel_search_workflow_timing seq_num=%d calls=%d stage_initial=%d stage_await_geo=%d stage_await_rate=%d blocked=%d complete=%d wait_again=%d empty_geo=%d dispatches=%d nested_entries=%d total_us=%d payload_us=%d stage_get_us=%d normalize_us=%d validate_us=%d context_set_us=%d context_payload_us=%d nested_build_us=%d dispatch_us=%d get_nested_us=%d nested_ready_us=%d nested_select_us=%d ledger_us=%d ledger_key_us=%d ledger_read_us=%d ledger_state_read_us=%d ledger_read_redis_client_us=%d ledger_redis_get_us=%d ledger_decode_us=%d ledger_mutate_us=%d ledger_encode_us=%d ledger_write_us=%d ledger_state_write_us=%d ledger_write_redis_client_us=%d ledger_redis_set_us=%d clear_context_us=%d response_build_us=%d",
+			e.Name,
+			seqNum,
+			schedulerWorkflowStat(schedulerStats, "hotel_search_calls"),
+			schedulerWorkflowStat(schedulerStats, "hotel_search_stage_initial"),
+			schedulerWorkflowStat(schedulerStats, "hotel_search_stage_await_geo"),
+			schedulerWorkflowStat(schedulerStats, "hotel_search_stage_await_rate"),
+			schedulerWorkflowStat(schedulerStats, "hotel_search_blocked_outputs"),
+			schedulerWorkflowStat(schedulerStats, "hotel_search_complete_outputs"),
+			schedulerWorkflowStat(schedulerStats, "hotel_search_wait_again_outputs"),
+			schedulerWorkflowStat(schedulerStats, "hotel_search_empty_geo_outputs"),
+			schedulerWorkflowStat(schedulerStats, "hotel_search_dispatches"),
+			schedulerWorkflowStat(schedulerStats, "hotel_search_nested_response_entries"),
+			schedulerWorkflowStat(schedulerStats, "hotel_search_total_us"),
+			schedulerWorkflowStat(schedulerStats, "hotel_search_payload_us"),
+			schedulerWorkflowStat(schedulerStats, "hotel_search_stage_get_us"),
+			schedulerWorkflowStat(schedulerStats, "hotel_search_normalize_us"),
+			schedulerWorkflowStat(schedulerStats, "hotel_search_validate_us"),
+			schedulerWorkflowStat(schedulerStats, "hotel_search_context_set_us"),
+			schedulerWorkflowStat(schedulerStats, "hotel_search_context_payload_us"),
+			schedulerWorkflowStat(schedulerStats, "hotel_search_nested_build_us"),
+			schedulerWorkflowStat(schedulerStats, "hotel_search_dispatch_us"),
+			schedulerWorkflowStat(schedulerStats, "hotel_search_get_nested_us"),
+			schedulerWorkflowStat(schedulerStats, "hotel_search_nested_ready_us"),
+			schedulerWorkflowStat(schedulerStats, "hotel_search_nested_select_us"),
+			schedulerWorkflowStat(schedulerStats, "hotel_search_ledger_us"),
+			schedulerWorkflowStat(schedulerStats, "hotel_search_ledger_key_us"),
+			schedulerWorkflowStat(schedulerStats, "hotel_search_ledger_read_us"),
+			schedulerWorkflowStat(schedulerStats, "hotel_search_ledger_state_read_us"),
+			schedulerWorkflowStat(schedulerStats, "hotel_search_ledger_read_redis_client_us"),
+			schedulerWorkflowStat(schedulerStats, "hotel_search_ledger_redis_get_us"),
+			schedulerWorkflowStat(schedulerStats, "hotel_search_ledger_decode_us"),
+			schedulerWorkflowStat(schedulerStats, "hotel_search_ledger_mutate_us"),
+			schedulerWorkflowStat(schedulerStats, "hotel_search_ledger_encode_us"),
+			schedulerWorkflowStat(schedulerStats, "hotel_search_ledger_write_us"),
+			schedulerWorkflowStat(schedulerStats, "hotel_search_ledger_state_write_us"),
+			schedulerWorkflowStat(schedulerStats, "hotel_search_ledger_write_redis_client_us"),
+			schedulerWorkflowStat(schedulerStats, "hotel_search_ledger_redis_set_us"),
+			schedulerWorkflowStat(schedulerStats, "hotel_search_clear_context_us"),
+			schedulerWorkflowStat(schedulerStats, "hotel_search_response_build_us"),
+		)
+	}
 
 	return &batchExecutionResult{
 		seqNum:           seqNum,
