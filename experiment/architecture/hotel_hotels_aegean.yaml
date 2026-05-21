@@ -50,7 +50,7 @@ services:
     expectedExecVotes: 3
     batcher_config:
       batch_size: 64
-      batch_timeout_ms: 3
+      batch_timeout_ms: 1
   rate:
     type: server
     clients:
@@ -70,7 +70,7 @@ services:
     expectedExecVotes: 3
     batcher_config:
       batch_size: 64
-      batch_timeout_ms: 3
+      batch_timeout_ms: 1
   reservation:
     type: server
     clients:
