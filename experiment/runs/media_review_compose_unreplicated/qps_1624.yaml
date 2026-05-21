@@ -13,5 +13,5 @@ media_max_reviews_per_index: 100
 media_nested_send_all_replicas: true
 run_timeout_seconds: 60
 parallel_window_k: 16
-worker_count: 8
+worker_count: 16
 gomaxprocs: 32

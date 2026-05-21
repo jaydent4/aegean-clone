@@ -26,6 +26,6 @@ nested_eo_request_quorum_timeout_ms: 5000
 # Run & system configs
 run_timeout_seconds: 60
 parallel_window_k: 16
-worker_count: 2
+worker_count: 16
 gomaxprocs: 32
 merkle: treap

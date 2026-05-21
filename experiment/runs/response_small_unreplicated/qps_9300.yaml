@@ -15,5 +15,5 @@ response_size_bytes: 1024
 # Run & system configs
 run_timeout_seconds: 60
 parallel_window_k: 16
-worker_count: 8
+worker_count: 16
 gomaxprocs: 32
