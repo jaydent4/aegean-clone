@@ -29,7 +29,7 @@ services:
     phaseQuorumSize: 2
     expectedExecVotes: 3
     batcher_config:
-      batch_size: 64
+      batch_size: 128
       batch_timeout_ms: 30
   geo:
     type: server
