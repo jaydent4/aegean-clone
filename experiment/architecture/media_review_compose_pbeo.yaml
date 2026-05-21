@@ -6,13 +6,13 @@ services:
     - node1
     client_workflow: media_k6_open_review_compose_client
   review_compose_api:
-    type: pbeo_server
+    type: unreplicated_server
     clients:
     - node0
     nodes:
     - node1
-    exec_workflow: media_review_compose_api_pbeo
-    init_state_workflow: media_pbeo_default
+    exec_workflow: media_review_compose_api
+    init_state_workflow: media_default
   user:
     type: pbeo_server
     clients:
@@ -34,21 +34,21 @@ services:
     exec_workflow: media_movie_id_pbeo
     init_state_workflow: media_pbeo_default
   text:
-    type: pbeo_server
+    type: unreplicated_server
     clients:
     - node1
     nodes:
     - node8
-    exec_workflow: media_text_pbeo
-    init_state_workflow: media_pbeo_default
+    exec_workflow: media_text
+    init_state_workflow: media_default
   unique_id:
-    type: pbeo_server
+    type: unreplicated_server
     clients:
     - node1
     nodes:
     - node9
-    exec_workflow: media_unique_id_pbeo
-    init_state_workflow: media_pbeo_default
+    exec_workflow: media_unique_id
+    init_state_workflow: media_default
   rating:
     type: pbeo_server
     clients:
