@@ -31,9 +31,9 @@ func ExecuteRequestComposeReview(e workflowRuntime, request map[string]any, ndSe
 		if errResponse != nil {
 			return errResponse
 		}
-		mediaWriteKV(e, mediaComposeComponentKey(reviewRequestID, component), value)
+		e.WriteKV(mediaComposeComponentKey(reviewRequestID, component), value)
 
-		if mediaReadKV(e, mediaComposeUploadedKey(reviewRequestID)) != "" {
+		if e.ReadKV(mediaComposeUploadedKey(reviewRequestID)) != "" {
 			response := mediaNestedOkResponse(request)
 			for key, value := range responseExtra {
 				response[key] = value
@@ -50,7 +50,7 @@ func ExecuteRequestComposeReview(e workflowRuntime, request map[string]any, ndSe
 			return response
 		}
 
-		mediaWriteKV(e, mediaComposeUploadedKey(reviewRequestID), mediaInt64String(review.ReviewID))
+		e.WriteKV(mediaComposeUploadedKey(reviewRequestID), mediaInt64String(review.ReviewID))
 		if !e.SetRequestContextValue(requestID, mediaComposeReviewStageContextKey, mediaComposeReviewStageAwait) {
 			return mediaErrorResponse(requestID, "failed to initialize compose review context")
 		}
@@ -140,11 +140,11 @@ func mediaExtractComposeComponent(request map[string]any) (string, string, strin
 }
 
 func mediaTryBuildReview(e workflowRuntime, reviewRequestID string, ndTimestamp float64) (MediaReview, bool) {
-	rawReviewID := mediaReadKV(e, mediaComposeComponentKey(reviewRequestID, mediaComponentReviewID))
-	rawMovieID := mediaReadKV(e, mediaComposeComponentKey(reviewRequestID, mediaComponentMovieID))
-	rawUserID := mediaReadKV(e, mediaComposeComponentKey(reviewRequestID, mediaComponentUserID))
-	rawText := mediaReadKV(e, mediaComposeComponentKey(reviewRequestID, mediaComponentText))
-	rawRating := mediaReadKV(e, mediaComposeComponentKey(reviewRequestID, mediaComponentRating))
+	rawReviewID := e.ReadKV(mediaComposeComponentKey(reviewRequestID, mediaComponentReviewID))
+	rawMovieID := e.ReadKV(mediaComposeComponentKey(reviewRequestID, mediaComponentMovieID))
+	rawUserID := e.ReadKV(mediaComposeComponentKey(reviewRequestID, mediaComponentUserID))
+	rawText := e.ReadKV(mediaComposeComponentKey(reviewRequestID, mediaComponentText))
+	rawRating := e.ReadKV(mediaComposeComponentKey(reviewRequestID, mediaComponentRating))
 	if rawReviewID == "" || rawMovieID == "" || rawUserID == "" || rawText == "" || rawRating == "" {
 		return MediaReview{}, false
 	}

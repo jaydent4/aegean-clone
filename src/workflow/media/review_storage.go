@@ -13,7 +13,7 @@ func ExecuteRequestReviewStorage(e workflowRuntime, request map[string]any, ndSe
 		if !ok {
 			return mediaErrorResponse(requestID, "missing review")
 		}
-		mediaWriteKV(e, mediaReviewKey(review.ReviewID), encodeMediaReview(review))
+		e.WriteKV(mediaReviewKey(review.ReviewID), encodeMediaReview(review))
 		return mediaNestedOkResponse(request)
 	default:
 		return mediaErrorResponse(requestID, "unsupported op: "+op)

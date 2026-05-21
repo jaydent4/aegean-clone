@@ -27,7 +27,7 @@ func ExecuteRequestUser(e workflowRuntime, request map[string]any, ndSeed int64,
 		if username == "" {
 			return mediaErrorResponse(requestID, "missing username")
 		}
-		rawUserID := mediaReadKV(e, mediaUserLookupKey(username))
+		rawUserID := e.ReadKV(mediaUserLookupKey(username))
 		if rawUserID == "" {
 			return mediaErrorResponse(requestID, "user not found")
 		}

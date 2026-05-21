@@ -38,7 +38,7 @@ func ExecuteRequestGeo(e workflowRuntime, request map[string]any, ndSeed int64, 
 	candidates := make([]hotelDistance, 0, hotelCount)
 	for hotelIdx := 1; hotelIdx <= hotelCount; hotelIdx++ {
 		hotelID := strconv.Itoa(hotelIdx)
-		point, ok := decodeHotelGeoPoint(hotelReadKV(e, hotelGeoKey(hotelID)))
+		point, ok := decodeHotelGeoPoint(e.ReadKV(hotelGeoKey(hotelID)))
 		if !ok {
 			continue
 		}
@@ -91,7 +91,7 @@ func ExecuteRequestRate(e workflowRuntime, request map[string]any, ndSeed int64,
 
 	plans := make([]HotelRatePlan, 0)
 	for _, hotelID := range hotelUniqueStable(hotelPayloadStringSlice(payload, "hotel_ids")) {
-		plan, ok := decodeHotelRatePlan(hotelReadKV(e, hotelRateKey(hotelID)))
+		plan, ok := decodeHotelRatePlan(e.ReadKV(hotelRateKey(hotelID)))
 		if !ok {
 			continue
 		}
@@ -133,7 +133,7 @@ func ExecuteRequestProfile(e workflowRuntime, request map[string]any, ndSeed int
 	payload := hotelPayload(request)
 	profilesByID := make(map[string]HotelProfile)
 	for _, hotelID := range hotelUniqueStable(hotelPayloadStringSlice(payload, "hotel_ids")) {
-		profile, ok := decodeHotelProfile(hotelReadKV(e, hotelProfileKey(hotelID)))
+		profile, ok := decodeHotelProfile(e.ReadKV(hotelProfileKey(hotelID)))
 		if !ok {
 			continue
 		}
@@ -177,7 +177,7 @@ func ExecuteRequestRecommendation(e workflowRuntime, request map[string]any, ndS
 	hotels := make([]HotelRecommendation, 0, hotelCount)
 	for hotelIdx := 1; hotelIdx <= hotelCount; hotelIdx++ {
 		hotelID := strconv.Itoa(hotelIdx)
-		hotel, ok := decodeHotelRecommendation(hotelReadKV(e, hotelRecommendationKeyForRuntime(e, hotelID)))
+		hotel, ok := decodeHotelRecommendation(e.ReadKV(hotelRecommendationKeyForRuntime(e, hotelID)))
 		if !ok {
 			continue
 		}
@@ -269,7 +269,7 @@ func ExecuteRequestUser(e workflowRuntime, request map[string]any, ndSeed int64,
 		return hotelErrorResponse(requestID, "missing username or password")
 	}
 
-	expectedHash := hotelReadKV(e, hotelUserKey(username))
+	expectedHash := e.ReadKV(hotelUserKey(username))
 	correct := expectedHash != "" && expectedHash == hotelHashPassword(password)
 	return hotelAttachParentRequestID(request, map[string]any{
 		"request_id": requestID,
@@ -333,7 +333,7 @@ func ExecuteRequestReservation(e workflowRuntime, request map[string]any, ndSeed
 
 		for _, stayDate := range stayDates {
 			currentCount := hotelReservationCount(e, hotelID, stayDate)
-			hotelWriteKV(e, hotelReservationCountKey(hotelID, stayDate), strconv.Itoa(currentCount+roomNumber))
+			e.WriteKV(hotelReservationCountKey(hotelID, stayDate), strconv.Itoa(currentCount+roomNumber))
 		}
 		record := HotelReservationRecord{
 			RequestID:       hotelRequestIDString(requestID),
@@ -344,7 +344,7 @@ func ExecuteRequestReservation(e workflowRuntime, request map[string]any, ndSeed
 			RoomNumber:      roomNumber,
 			CreatedAtMicros: hotelTimestampMicros(ndTimestamp),
 		}
-		hotelWriteKV(e, hotelReservationRecordKey(record.RequestID), encodeJSON(record))
+		e.WriteKV(hotelReservationRecordKey(record.RequestID), encodeJSON(record))
 		return hotelAttachParentRequestID(request, map[string]any{
 			"request_id": requestID,
 			"status":     "ok",
@@ -373,13 +373,13 @@ func hotelReservationAvailable(e workflowRuntime, hotelID string, stayDates []st
 }
 
 func hotelReservationCapacity(e workflowRuntime, hotelID string) int {
-	raw := hotelReadKV(e, hotelReservationCapacityKey(hotelID))
+	raw := e.ReadKV(hotelReservationCapacityKey(hotelID))
 	value, _ := strconv.Atoi(raw)
 	return value
 }
 
 func hotelReservationCount(e workflowRuntime, hotelID, stayDate string) int {
-	raw := hotelReadKV(e, hotelReservationCountKey(hotelID, stayDate))
+	raw := e.ReadKV(hotelReservationCountKey(hotelID, stayDate))
 	value, _ := strconv.Atoi(raw)
 	return value
 }

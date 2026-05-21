@@ -29,7 +29,7 @@ func ExecuteRequestMovieID(e workflowRuntime, request map[string]any, ndSeed int
 		if !ok {
 			return mediaErrorResponse(requestID, "missing rating")
 		}
-		movieID := mediaReadKV(e, mediaMovieLookupKey(title))
+		movieID := e.ReadKV(mediaMovieLookupKey(title))
 		if movieID == "" {
 			return mediaErrorResponse(requestID, "movie not found")
 		}

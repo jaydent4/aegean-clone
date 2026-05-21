@@ -31,10 +31,7 @@ func InitState(e workflowRuntime) map[string]string {
 			state = map[string]string{}
 		}
 	}
-	if !hotelServiceHasPersistentState(serviceName) {
-		return state
-	}
-	return hotelLoadOrSeedState(e, serviceName, state)
+	return state
 }
 
 func hotelServiceHasPersistentState(serviceName string) bool {

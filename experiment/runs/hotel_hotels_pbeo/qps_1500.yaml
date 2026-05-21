@@ -30,9 +30,6 @@ pbeo_max_executing_requests: 512
 pbeo_commit_drain_batch_size: 256
 pbeo_disable_follower_elections: true
 
-# Redis durable state config
-hotel_redis_enable: true
-hotel_redis_addr: 127.0.0.1:6379
 
 # Run & system configs
 run_timeout_seconds: 60

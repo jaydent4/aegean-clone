@@ -27,9 +27,6 @@ hotel_nested_use_eo: true
 use_eo_after_quorum: true
 nested_eo_request_quorum_timeout_ms: 5000
 
-# Redis durable state config
-hotel_redis_enable: true
-hotel_redis_addr: 127.0.0.1:6379
 
 # Run & system configs
 run_timeout_seconds: 60

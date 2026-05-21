@@ -20,10 +20,10 @@ func ExecuteRequestUserReview(e workflowRuntime, request map[string]any, ndSeed 
 			return mediaErrorResponse(requestID, "missing user review payload")
 		}
 		key := mediaUserReviewKey(userID)
-		existing := decodeMediaReviewIndex(mediaReadKV(e, key))
+		existing := decodeMediaReviewIndex(e.ReadKV(key))
 		maxEntries := common.IntOrDefault(e.GetRunConfig(), "media_max_reviews_per_index", 100)
 		updated := prependMediaReviewIndex(existing, MediaReviewIndexEntry{ReviewID: reviewID, Timestamp: timestamp}, maxEntries)
-		mediaWriteKV(e, key, encodeMediaReviewIndex(updated))
+		e.WriteKV(key, encodeMediaReviewIndex(updated))
 		return mediaNestedOkResponse(request)
 	default:
 		return mediaErrorResponse(requestID, "unsupported op: "+op)

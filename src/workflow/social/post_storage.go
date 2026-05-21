@@ -36,12 +36,12 @@ func ExecuteRequestPostStorage(e workflowRuntime, request map[string]any, ndSeed
 			Text:      text,
 			CreatorID: creatorID,
 		}
-		socialWriteKV(e, postKey(postID), encodePost(post))
+		e.WriteKV(postKey(postID), encodePost(post))
 		return nestedOkResponseWithPostID(request, postID)
 	case "read_post", "ro_read_post":
 		// read_post: read one stored post body locally and return it directly.
 		postID, _ := opPayload["post_id"].(string)
-		post, ok := decodePost(socialReadKV(e, postKey(postID)))
+		post, ok := decodePost(e.ReadKV(postKey(postID)))
 		if !ok {
 			return errorResponse(requestID, "post not found")
 		}
@@ -63,7 +63,7 @@ func ExecuteRequestPostStorage(e workflowRuntime, request map[string]any, ndSeed
 		postIDs := commonPayloadStringSlice(request, "post_ids")
 		posts := make([]map[string]any, 0, len(postIDs))
 		for _, postID := range postIDs {
-			post, ok := decodePost(socialReadKV(e, postKey(postID)))
+			post, ok := decodePost(e.ReadKV(postKey(postID)))
 			if !ok {
 				continue
 			}

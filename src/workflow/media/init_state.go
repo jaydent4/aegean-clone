@@ -18,19 +18,7 @@ func InitState(e workflowRuntime) map[string]string {
 	default:
 		state = map[string]string{}
 	}
-	if mediaServiceHasPersistentState(serviceName) {
-		mediaPersistStateSeed(e, state)
-	}
 	return state
-}
-
-func mediaServiceHasPersistentState(serviceName string) bool {
-	switch serviceName {
-	case "movie_id", "rating", "user":
-		return true
-	default:
-		return false
-	}
 }
 
 func initMediaUserState(e workflowRuntime) map[string]string {

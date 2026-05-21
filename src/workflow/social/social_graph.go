@@ -21,7 +21,7 @@ func ExecuteRequestSocialGraph(e workflowRuntime, request map[string]any, ndSeed
 			Followers: []string{},
 			Followees: []string{},
 		}
-		socialWriteKV(e, socialGraphKey(userID), encodeSocialGraphEntry(entry))
+		e.WriteKV(socialGraphKey(userID), encodeSocialGraphEntry(entry))
 		return nestedOkResponse(request)
 	case "follow":
 		// follow: update both endpoints locally by adding the followee to the
@@ -31,22 +31,22 @@ func ExecuteRequestSocialGraph(e workflowRuntime, request map[string]any, ndSeed
 		if followerID == "" || followeeID == "" {
 			return errorResponse(requestID, "missing follower or followee")
 		}
-		followerEntry, _ := decodeSocialGraphEntry(socialReadKV(e, socialGraphKey(followerID)))
+		followerEntry, _ := decodeSocialGraphEntry(e.ReadKV(socialGraphKey(followerID)))
 		followerEntry.UserID = followerID
 		followerEntry.Followees = uniqueSortedStrings(append(followerEntry.Followees, followeeID))
-		socialWriteKV(e, socialGraphKey(followerID), encodeSocialGraphEntry(followerEntry))
+		e.WriteKV(socialGraphKey(followerID), encodeSocialGraphEntry(followerEntry))
 
-		followeeEntry, _ := decodeSocialGraphEntry(socialReadKV(e, socialGraphKey(followeeID)))
+		followeeEntry, _ := decodeSocialGraphEntry(e.ReadKV(socialGraphKey(followeeID)))
 		followeeEntry.UserID = followeeID
 		followeeEntry.Followers = uniqueSortedStrings(append(followeeEntry.Followers, followerID))
-		socialWriteKV(e, socialGraphKey(followeeID), encodeSocialGraphEntry(followeeEntry))
+		e.WriteKV(socialGraphKey(followeeID), encodeSocialGraphEntry(followeeEntry))
 		return nestedOkResponse(request)
 	case "get_followers", "ro_get_followers":
 		// get_followers: read one user's follower list locally. home_timeline uses
 		// this to decide which home_timeline keys to update during fanout.
 		// write_home_timeline uses this read path before updating follower feeds.
 		userID := commonPayloadString(request, "user_id")
-		entry, _ := decodeSocialGraphEntry(socialReadKV(e, socialGraphKey(userID)))
+		entry, _ := decodeSocialGraphEntry(e.ReadKV(socialGraphKey(userID)))
 		response := map[string]any{
 			"request_id": requestID,
 			"status":     "ok",
@@ -59,7 +59,7 @@ func ExecuteRequestSocialGraph(e workflowRuntime, request map[string]any, ndSeed
 	case "get_followees", "ro_get_followees":
 		// get_followees: read one user's followee list locally.
 		userID := commonPayloadString(request, "user_id")
-		entry, _ := decodeSocialGraphEntry(socialReadKV(e, socialGraphKey(userID)))
+		entry, _ := decodeSocialGraphEntry(e.ReadKV(socialGraphKey(userID)))
 		response := map[string]any{
 			"request_id": requestID,
 			"status":     "ok",

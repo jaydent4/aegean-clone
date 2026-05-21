@@ -22,19 +22,7 @@ func InitState(e workflowRuntime) map[string]string {
 	default:
 		state = map[string]string{}
 	}
-	if socialServiceHasPersistentState(serviceName) {
-		socialPersistStateSeed(state)
-	}
 	return state
-}
-
-func socialServiceHasPersistentState(serviceName string) bool {
-	switch serviceName {
-	case "home_timeline", "post_storage", "social_graph", "user_timeline":
-		return true
-	default:
-		return false
-	}
 }
 
 func initPostStorageState(e workflowRuntime) map[string]string {

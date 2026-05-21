@@ -32,10 +32,10 @@ func ExecuteRequestRating(e workflowRuntime, request map[string]any, ndSeed int6
 			return mediaErrorResponse(requestID, "missing rating")
 		}
 
-		currentSum, _ := strconv.ParseInt(mediaReadKV(e, mediaRatingSumKey(movieID)), 10, 64)
-		currentCount, _ := strconv.ParseInt(mediaReadKV(e, mediaRatingCountKey(movieID)), 10, 64)
-		mediaWriteKV(e, mediaRatingSumKey(movieID), mediaInt64String(currentSum+int64(rating)))
-		mediaWriteKV(e, mediaRatingCountKey(movieID), mediaInt64String(currentCount+1))
+		currentSum, _ := strconv.ParseInt(e.ReadKV(mediaRatingSumKey(movieID)), 10, 64)
+		currentCount, _ := strconv.ParseInt(e.ReadKV(mediaRatingCountKey(movieID)), 10, 64)
+		e.WriteKV(mediaRatingSumKey(movieID), mediaInt64String(currentSum+int64(rating)))
+		e.WriteKV(mediaRatingCountKey(movieID), mediaInt64String(currentCount+1))
 
 		if !e.SetRequestContextValue(requestID, mediaRatingStageContextKey, mediaRatingStageAwait) {
 			return mediaErrorResponse(requestID, "failed to initialize rating context")

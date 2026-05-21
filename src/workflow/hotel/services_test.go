@@ -37,7 +37,6 @@ func TestExecuteRequestRecommendationUsesConfiguredPool(t *testing.T) {
 }
 
 func TestInitStateSeedsRecommendationRaceServices(t *testing.T) {
-	t.Setenv("HOTEL_REDIS_ENABLE", "0")
 	runtime := &hotelTestRuntime{
 		runConfig: map[string]any{
 			"service_name":              "recommendation_2",
