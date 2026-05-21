@@ -95,6 +95,11 @@ func (e *Exec) executeBatch(payload map[string]any) *batchExecutionResult {
 		return &batchExecutionResult{seqNum: seqNum, payload: payload}
 	}
 	requestCount := batchRequestCount(parallelBatches)
+	var nestedArrivalStats nestedResponseTimingSnapshot
+	nestedTimingEnabled := e.nestedTimingLogsEnabled()
+	if nestedTimingEnabled {
+		nestedArrivalStats = nestedRequestArrivalTimingStats(parallelBatches)
+	}
 	contextStart := time.Now()
 	for parallelBatchIdx, batch := range parallelBatches {
 		for requestIdx, request := range batch {
@@ -148,6 +153,10 @@ func (e *Exec) executeBatch(payload map[string]any) *batchExecutionResult {
 	e.stateMu.Unlock()
 	snapshotDuration := time.Since(snapshotStart)
 	totalDuration := time.Since(totalStart)
+	var nestedTimingStats nestedResponseTimingSnapshot
+	if nestedTimingEnabled {
+		nestedTimingStats = e.takeNestedResponseTimingStats(seqNum)
+	}
 
 	var batchServiceSpan trace.Span
 	if spanAny, ok := payload["_batch_service_span"]; ok {
@@ -221,6 +230,56 @@ func (e *Exec) executeBatch(payload map[string]any) *batchExecutionResult {
 		stateKeys,
 		totalDuration.Microseconds(),
 	)
+	if nestedTimingStats.count > 0 {
+		geoTiming := nestedTimingStats.child("geo")
+		rateTiming := nestedTimingStats.child("rate")
+		log.Printf(
+			"%s: nested_response_timing seq_num=%d response_count=%d geo_count=%d geo_dispatch_to_buffer_us=%d geo_backend_to_buffer_us=%d geo_parent_shim_to_buffer_us=%d geo_parent_quorum_to_buffer_us=%d geo_max_dispatch_to_buffer_us=%d geo_max_backend_to_buffer_us=%d geo_max_parent_shim_to_buffer_us=%d geo_max_parent_quorum_to_buffer_us=%d geo_missing_dispatch_ts=%d geo_missing_backend_ts=%d geo_missing_parent_ts=%d rate_count=%d rate_dispatch_to_buffer_us=%d rate_backend_to_buffer_us=%d rate_parent_shim_to_buffer_us=%d rate_parent_quorum_to_buffer_us=%d rate_max_dispatch_to_buffer_us=%d rate_max_backend_to_buffer_us=%d rate_max_parent_shim_to_buffer_us=%d rate_max_parent_quorum_to_buffer_us=%d rate_missing_dispatch_ts=%d rate_missing_backend_ts=%d rate_missing_parent_ts=%d",
+			e.Name,
+			seqNum,
+			nestedTimingStats.count,
+			geoTiming.count,
+			geoTiming.dispatchToBuffer.Microseconds(),
+			geoTiming.backendCommitToBuffer.Microseconds(),
+			geoTiming.parentShimToBuffer.Microseconds(),
+			geoTiming.parentQuorumToBuffer.Microseconds(),
+			geoTiming.maxDispatchToBuffer.Microseconds(),
+			geoTiming.maxBackendCommitToBuffer.Microseconds(),
+			geoTiming.maxParentShimToBuffer.Microseconds(),
+			geoTiming.maxParentQuorumToBuffer.Microseconds(),
+			geoTiming.missingDispatchTimestamp+geoTiming.negativeDispatchDuration,
+			geoTiming.missingBackendTimestamp+geoTiming.negativeBackendDuration,
+			geoTiming.missingParentShimStamp+geoTiming.missingParentQuorumStamp+geoTiming.negativeParentDuration,
+			rateTiming.count,
+			rateTiming.dispatchToBuffer.Microseconds(),
+			rateTiming.backendCommitToBuffer.Microseconds(),
+			rateTiming.parentShimToBuffer.Microseconds(),
+			rateTiming.parentQuorumToBuffer.Microseconds(),
+			rateTiming.maxDispatchToBuffer.Microseconds(),
+			rateTiming.maxBackendCommitToBuffer.Microseconds(),
+			rateTiming.maxParentShimToBuffer.Microseconds(),
+			rateTiming.maxParentQuorumToBuffer.Microseconds(),
+			rateTiming.missingDispatchTimestamp+rateTiming.negativeDispatchDuration,
+			rateTiming.missingBackendTimestamp+rateTiming.negativeBackendDuration,
+			rateTiming.missingParentShimStamp+rateTiming.missingParentQuorumStamp+rateTiming.negativeParentDuration,
+		)
+	}
+	if nestedArrivalStats.count > 0 {
+		geoTiming := nestedArrivalStats.child("geo")
+		rateTiming := nestedArrivalStats.child("rate")
+		log.Printf(
+			"%s: nested_request_arrival_timing seq_num=%d request_count=%d geo_count=%d geo_dispatch_to_execute_start_us=%d geo_max_dispatch_to_execute_start_us=%d rate_count=%d rate_dispatch_to_execute_start_us=%d rate_max_dispatch_to_execute_start_us=%d",
+			e.Name,
+			seqNum,
+			nestedArrivalStats.count,
+			geoTiming.count,
+			geoTiming.dispatchToBuffer.Microseconds(),
+			geoTiming.maxDispatchToBuffer.Microseconds(),
+			rateTiming.count,
+			rateTiming.dispatchToBuffer.Microseconds(),
+			rateTiming.maxDispatchToBuffer.Microseconds(),
+		)
+	}
 	if schedulerWorkflowStat(schedulerStats, "hotel_search_calls") > 0 {
 		log.Printf(
 			"%s: hotel_search_workflow_timing seq_num=%d calls=%d stage_initial=%d stage_await_geo=%d stage_await_rate=%d blocked=%d complete=%d wait_again=%d empty_geo=%d dispatches=%d nested_entries=%d total_us=%d payload_us=%d stage_get_us=%d normalize_us=%d validate_us=%d context_set_us=%d context_payload_us=%d nested_build_us=%d dispatch_us=%d get_nested_us=%d nested_ready_us=%d nested_select_us=%d ledger_us=%d ledger_key_us=%d ledger_read_us=%d ledger_state_read_us=%d ledger_read_redis_client_us=%d ledger_redis_get_us=%d ledger_decode_us=%d ledger_mutate_us=%d ledger_encode_us=%d ledger_write_us=%d ledger_state_write_us=%d ledger_write_redis_client_us=%d ledger_redis_set_us=%d clear_context_us=%d response_build_us=%d",

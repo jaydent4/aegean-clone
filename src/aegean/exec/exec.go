@@ -142,6 +142,8 @@ type Exec struct {
 	batchExecCh           chan batchExecutionTask
 	coordStats            coordinatorStats
 	nestedDispatchTracker *nestedDispatchTracker
+	nestedTimingMu        sync.Mutex
+	nestedResponseTimings map[int]*nestedResponseTimingStats
 	// Request execution hook
 	ExecuteRequest ExecuteRequestFunc
 }
@@ -209,6 +211,7 @@ func NewExec(name string, verifiers []string, peers []string, verifierCh chan<- 
 		workerCount:           common.MustInt(initialRunConfig, "worker_count"),
 		coordStats:            coordinatorStats{windowStart: time.Now()},
 		nestedDispatchTracker: newNestedDispatchTracker(),
+		nestedResponseTimings: make(map[int]*nestedResponseTimingStats),
 	}
 	exec.verifyResponseQuorum = common.NewQuorumHelper(verifyResponseQuorumSize)
 	exec.storeCheckpoint(0, stable.PrevHash, stable.KVStore, stable.MerkleRoot)
@@ -296,6 +299,7 @@ func (e *Exec) BufferNestedResponse(payload map[string]any) bool {
 	if !ok {
 		return false
 	}
+	e.recordNestedResponseTiming(requestID, payload)
 	return e.scheduler.enqueueNestedResponse(requestID, payload)
 }
 
@@ -402,6 +406,22 @@ func (e *Exec) requestPayloadForSeq(seqNum int, requestID any) map[string]any {
 		}
 	}
 	return nil
+}
+
+func (e *Exec) requestPayloadsByIDForSeq(seqNum int) map[string]map[string]any {
+	requests := e.requestPayloadsForSeq(seqNum)
+	if len(requests) == 0 {
+		return nil
+	}
+	byID := make(map[string]map[string]any, len(requests))
+	for _, request := range requests {
+		requestID, ok := canonicalRequestID(request["request_id"])
+		if !ok {
+			continue
+		}
+		byID[requestID] = request
+	}
+	return byID
 }
 
 func PostNestedVerifyGateWaitSpanKey() string {

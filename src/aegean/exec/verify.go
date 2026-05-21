@@ -134,6 +134,7 @@ func (e *Exec) finalizeCommit(seqNum int, pending pendingExecResult, agreedToken
 	if pending.verifySpan != nil {
 		pending.verifySpan.End()
 	}
+	requestPayloadsByID := e.requestPayloadsByIDForSeq(seqNum)
 	stateStart := time.Now()
 	e.mu.Lock()
 	delete(e.pendingExecResults, seqNum)
@@ -167,8 +168,12 @@ func (e *Exec) finalizeCommit(seqNum int, pending pendingExecResult, agreedToken
 		if parentRequestID, ok := output["parent_request_id"]; ok && parentRequestID != nil {
 			responseMsg["parent_request_id"] = parentRequestID
 		}
-		if requestPayload := e.requestPayloadForSeq(seqNum, requestID); requestPayload != nil {
+		canonicalID, _ := canonicalRequestID(requestID)
+		if requestPayload := requestPayloadsByID[canonicalID]; requestPayload != nil {
 			telemetry.CopyContext(responseMsg, requestPayload)
+			if copyNestedTimingMetadata(responseMsg, requestPayload) {
+				addNestedBackendCommitMetadata(responseMsg, e.Name, seqNum, len(pending.outputs))
+			}
 		}
 		if e.ShimCh != nil {
 			e.ShimCh <- responseMsg
