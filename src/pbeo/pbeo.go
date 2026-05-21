@@ -18,8 +18,6 @@ type candidateSubmission struct {
 	requestID string
 	response  map[string]any
 	writes    map[string]string
-	queueSpan trace.Span
-	enqueued  time.Time
 }
 
 type asyncConsensusBox interface {
@@ -170,7 +168,6 @@ type PBEO struct {
 	stateMu           sync.RWMutex
 	kv                map[string]string
 	executingRequests atomic.Int64
-	commitSequence    atomic.Uint64
 
 	commitCh        chan candidateSubmission
 	responseQueue   *committedResponseQueue
@@ -782,20 +779,7 @@ func (p *PBEO) handleCommittedNestedObservation(committed eo.CommittedEntry) {
 }
 
 func (p *PBEO) Learn(slot uint64, entry Entry) {
-	_, learnSpan := telemetry.StartSpanFromPayload(
-		entry.Response,
-		"pbeo.learn_to_client_response",
-		append(
-			p.entryAttrs(entry),
-			attribute.Int64("pbeo.commit_slot", int64(slot)),
-		)...,
-	)
-	learned := p.learnBatch([]CommittedEntry{{Slot: slot, Entry: entry}})
-	if !learned {
-		endPBEOTrace(learnSpan, "duplicate_slot")
-		return
-	}
-	endPBEOTrace(learnSpan, "processed")
+	p.learnBatch([]CommittedEntry{{Slot: slot, Entry: entry}})
 }
 
 func (p *PBEO) LearnBatch(entries []CommittedEntry) {
@@ -977,16 +961,9 @@ func (p *PBEO) executeUntilProposed(requestID string, request map[string]any) {
 		return
 	}
 
-	_, executeSpan := telemetry.StartSpanFromPayload(
-		request,
-		"pbeo.request_execute",
-		append(
-			telemetry.AttrsFromPayload(request),
-			attribute.String("node.name", p.name),
-			attribute.String("request.id", requestID),
-			attribute.Int64("pbeo.executing_requests_on_start", p.executingRequests.Add(1)),
-		)...,
-	)
+	p.executingRequests.Add(1)
+	defer p.executingRequests.Add(-1)
+
 	tx := newTxn(p, requestID)
 	response := p.execute(tx, cloneMapAny(request))
 	if response == nil {
@@ -999,40 +976,13 @@ func (p *PBEO) executeUntilProposed(requestID string, request map[string]any) {
 		if p.rememberBlockedRequest(requestID, request) {
 			go p.executeWithAdmission(requestID, request)
 		}
-		executeSpan.SetAttributes(
-			attribute.Int("pbeo.write_count", len(tx.Writes())),
-			attribute.Int("pbeo.write_bytes", stringMapBytes(tx.Writes())),
-			attribute.Int64("pbeo.executing_requests_on_end", p.executingRequests.Add(-1)),
-			attribute.String("pbeo.request_execute_result", "blocked_for_nested_response"),
-		)
-		executeSpan.End()
 		return
 	}
-	executeSpan.SetAttributes(
-		attribute.Int("pbeo.write_count", len(tx.Writes())),
-		attribute.Int("pbeo.write_bytes", stringMapBytes(tx.Writes())),
-		attribute.Int64("pbeo.executing_requests_on_end", p.executingRequests.Add(-1)),
-	)
-	executeSpan.End()
 
-	_, queueSpan := telemetry.StartSpanFromPayload(
-		response,
-		"pbeo.commit_queue_wait",
-		append(
-			telemetry.AttrsFromPayload(response),
-			attribute.String("node.name", p.name),
-			attribute.String("request.id", requestID),
-			attribute.Int("pbeo.commit_queue_depth_on_enqueue", len(p.commitCh)),
-			attribute.Int("pbeo.write_count", len(tx.Writes())),
-			attribute.Int("pbeo.write_bytes", stringMapBytes(tx.Writes())),
-		)...,
-	)
 	submission := candidateSubmission{
 		requestID: requestID,
 		response:  cloneMapAny(response),
 		writes:    tx.Writes(),
-		queueSpan: queueSpan,
-		enqueued:  time.Now(),
 	}
 
 	p.commitCh <- submission
@@ -1057,31 +1007,7 @@ func (p *PBEO) runCommitSequencer() {
 }
 
 func (p *PBEO) processCommitSubmission(submission candidateSubmission) {
-	seq := p.commitSequence.Add(1)
-	queueDepthOnDequeue := len(p.commitCh)
-	queueWait := time.Since(submission.enqueued)
-	_, iterationSpan := telemetry.StartSpanFromPayload(
-		submission.response,
-		"pbeo.commit_sequencer_iteration",
-		append(
-			telemetry.AttrsFromPayload(submission.response),
-			attribute.String("node.name", p.name),
-			attribute.String("request.id", submission.requestID),
-			attribute.Int("pbeo.commit_queue_depth_on_dequeue", queueDepthOnDequeue),
-			attribute.Int64("pbeo.commit_sequence", int64(seq)),
-			attribute.Int64("pbeo.commit_queue_wait_us", queueWait.Microseconds()),
-		)...,
-	)
-	if submission.queueSpan != nil {
-		submission.queueSpan.SetAttributes(
-			attribute.Int("pbeo.commit_queue_depth_on_dequeue", queueDepthOnDequeue),
-			attribute.Int64("pbeo.commit_sequence", int64(seq)),
-			attribute.Int64("pbeo.commit_queue_wait_us", queueWait.Microseconds()),
-		)
-		submission.queueSpan.End()
-	}
 	if _, ok := p.committedEntry(submission.requestID); ok {
-		endPBEOTrace(iterationSpan, "already_committed")
 		return
 	}
 
@@ -1090,17 +1016,11 @@ func (p *PBEO) processCommitSubmission(submission candidateSubmission) {
 		Response:  cloneMapAny(submission.response),
 		Writes:    copyStringMap(submission.writes),
 	}
-	proposeStart := time.Now()
 	err := p.proposeCommitEntry(entry)
 	if err != nil {
-		iterationSpan.SetAttributes(attribute.Int64("pbeo.commit_sequencer_propose_us", time.Since(proposeStart).Microseconds()))
-		iterationSpan.RecordError(err)
 		p.finishRequestFailure(submission.requestID)
-		endPBEOTrace(iterationSpan, "propose_error")
 		return
 	}
-	iterationSpan.SetAttributes(attribute.Int64("pbeo.commit_sequencer_propose_us", time.Since(proposeStart).Microseconds()))
-	endPBEOTrace(iterationSpan, "proposed")
 }
 
 func (p *PBEO) proposeCommitEntry(entry Entry) error {
@@ -1153,7 +1073,6 @@ func (p *PBEO) applyCommittedEntries(committed []CommittedEntry) pbeoApplyStats 
 
 	type pendingApply struct {
 		entry Entry
-		span  trace.Span
 	}
 
 	pending := make([]pendingApply, 0, len(committed))
@@ -1162,20 +1081,8 @@ func (p *PBEO) applyCommittedEntries(committed []CommittedEntry) pbeoApplyStats 
 		writeBytes := stringMapBytes(entry.Writes)
 		stats.writes += int64(len(entry.Writes))
 		stats.writeBytes += int64(writeBytes)
-		_, span := telemetry.StartSpanFromPayload(
-			entry.Response,
-			"pbeo.apply_committed_entry",
-			append(
-				p.entryAttrs(entry),
-				attribute.Int64("pbeo.commit_slot", int64(committedEntry.Slot)),
-				attribute.Int("pbeo.write_count", len(entry.Writes)),
-				attribute.Int("pbeo.write_bytes", writeBytes),
-				attribute.Int("pbeo.client_count", len(p.clients)),
-			)...,
-		)
 		pending = append(pending, pendingApply{
 			entry: entry,
-			span:  span,
 		})
 	}
 
@@ -1208,13 +1115,10 @@ func (p *PBEO) applyCommittedEntries(committed []CommittedEntry) pbeoApplyStats 
 		if p.enqueueCommittedResponse(entry) {
 			stats.responseEnqueueNanos += time.Since(enqueueStart).Nanoseconds()
 			stats.responsesEnqueued++
-			item.span.SetAttributes(attribute.Int("pbeo.response_queue_depth_on_enqueue", p.responseQueue.len()))
-			endPBEOTrace(item.span, "response_enqueued")
 			continue
 		}
 		stats.responseEnqueueNanos += time.Since(enqueueStart).Nanoseconds()
 		p.endRequestLifecycle(entry.RequestID, "stopped_before_response")
-		endPBEOTrace(item.span, "response_enqueue_stopped")
 	}
 	return stats
 }
@@ -1239,20 +1143,10 @@ func (p *PBEO) runCommittedResponseWorker() {
 			return
 		}
 		queueWait := time.Since(task.enqueued)
-		_, span := telemetry.StartSpanFromPayload(
-			task.entry.Response,
-			"pbeo.response_worker_iteration",
-			append(
-				p.entryAttrs(task.entry),
-				attribute.Int("pbeo.response_queue_depth_on_dequeue", queueDepth),
-				attribute.Int64("pbeo.response_queue_wait_us", queueWait.Microseconds()),
-			)...,
-		)
 		sendStart := time.Now()
 		clients := p.sendCommittedResponse(task.entry)
 		sendDuration := time.Since(sendStart)
 		p.recordResponseSendTrace(queueDepth, clients, queueWait, sendDuration)
-		endPBEOTrace(span, "sent_to_clients")
 	}
 }
 
@@ -1289,17 +1183,8 @@ func (p *PBEO) sendCommittedResponse(entry Entry) int {
 	return len(p.clients)
 }
 
-func (p *PBEO) entryAttrs(entry Entry) []attribute.KeyValue {
-	attrs := append([]attribute.KeyValue{}, telemetry.AttrsFromPayload(entry.Response)...)
-	attrs = append(attrs, attribute.String("node.name", p.name))
-	if entry.RequestID != "" {
-		attrs = append(attrs, attribute.String("request.id", entry.RequestID))
-	}
-	return attrs
-}
-
 func (p *PBEO) startRequestLifecycle(requestID string, request map[string]any) {
-	if requestID == "" {
+	if requestID == "" || !telemetry.DetailedSpansEnabled() {
 		return
 	}
 	_, span := telemetry.StartSpanFromPayload(
@@ -1318,7 +1203,7 @@ func (p *PBEO) startRequestLifecycle(requestID string, request map[string]any) {
 }
 
 func (p *PBEO) endRequestLifecycle(requestID string, result string, attrs ...attribute.KeyValue) {
-	if requestID == "" {
+	if requestID == "" || !telemetry.DetailedSpansEnabled() {
 		return
 	}
 	p.mu.Lock()
@@ -1382,20 +1267,14 @@ func (p *PBEO) finishRequestFailure(requestID string) {
 	defer p.mu.Unlock()
 	delete(p.requestAttempts, requestID)
 	delete(p.blockedRequests, requestID)
-	span := p.lifecycleSpans[requestID]
-	delete(p.lifecycleSpans, requestID)
-	if span != nil {
-		span.SetAttributes(attribute.String("pbeo.request_lifecycle_result", "failed_before_commit"))
-		span.End()
+	if telemetry.DetailedSpansEnabled() {
+		span := p.lifecycleSpans[requestID]
+		delete(p.lifecycleSpans, requestID)
+		if span != nil {
+			span.SetAttributes(attribute.String("pbeo.request_lifecycle_result", "failed_before_commit"))
+			span.End()
+		}
 	}
-}
-
-func endPBEOTrace(span trace.Span, event string) {
-	if span == nil {
-		return
-	}
-	span.AddEvent(event)
-	span.End()
 }
 
 func (p *PBEO) committedEntry(requestID string) (Entry, bool) {
