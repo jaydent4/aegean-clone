@@ -1164,6 +1164,48 @@ func TestDeferredNewKeyInsertionDeterministicAtBatchEnd(t *testing.T) {
 	}
 }
 
+func TestBatchMerkleContextUpdatesExistingKeysImmediately(t *testing.T) {
+	exec, _, _ := newTestExec("exec", nil, nil)
+	initial := map[string]string{"existing": "old"}
+	initialMerkle := merkle.NewTreeFromMap(initial)
+	exec.workingState = State{
+		KVStore:    common.CopyStringMap(initial),
+		Merkle:     initialMerkle.Clone(),
+		MerkleRoot: initialMerkle.Root(),
+	}
+
+	exec.beginBatchMerkleContext()
+	exec.WriteKV("existing", "new")
+	if _, ok := exec.batchCtx.pendingNew["existing"]; ok {
+		t.Fatalf("expected existing key update to bypass pending new-key buffer")
+	}
+	if got := exec.workingState.KVStore["existing"]; got != "new" {
+		t.Fatalf("expected existing key update in working state, got %q", got)
+	}
+	if got := exec.ReadKV("existing"); got != "new" {
+		t.Fatalf("expected updated existing key to be readable, got %q", got)
+	}
+	exec.finalizeBatchMerkleContext()
+
+	wantRoot := merkle.NewTreeFromMap(map[string]string{"existing": "new"}).Root()
+	if exec.workingState.MerkleRoot != wantRoot {
+		t.Fatalf("expected existing key root %s, got %s", wantRoot, exec.workingState.MerkleRoot)
+	}
+}
+
+func TestStoreCheckpointCopiesInputState(t *testing.T) {
+	exec, _, _ := newTestExec("exec", nil, nil)
+	state := map[string]string{"a": "1"}
+	root := merkle.NewTreeFromMap(state).Root()
+
+	exec.storeCheckpoint(5, "token", state, root)
+	state["a"] = "mutated"
+
+	if got := exec.checkpoints[5].State["a"]; got != "1" {
+		t.Fatalf("expected checkpoint to keep copied input state, got %q", got)
+	}
+}
+
 func TestExecBlockedRequestResumesAfterNestedResponse(t *testing.T) {
 	verifierCh := make(chan map[string]any, 8)
 	shimCh := make(chan map[string]any, 8)

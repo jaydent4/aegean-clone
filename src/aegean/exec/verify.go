@@ -146,7 +146,7 @@ func (e *Exec) finalizeCommit(seqNum int, pending pendingExecResult, agreedToken
 		PrevHash:   agreedToken,
 		Verified:   true,
 	}
-	e.storeCheckpoint(seqNum, agreedToken, pending.state, pending.merkleRoot)
+	e.storeCheckpointOwned(seqNum, agreedToken, pending.state, pending.merkleRoot)
 	for batchSeq := range e.replayableBatchInputs {
 		if batchSeq <= seqNum {
 			delete(e.replayableBatchInputs, batchSeq)

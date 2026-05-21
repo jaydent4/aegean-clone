@@ -136,7 +136,7 @@ func (e *Exec) executeBatch(payload map[string]any) *batchExecutionResult {
 	baseKeys := 0
 	if e.batchCtx != nil {
 		pendingNewKeys = len(e.batchCtx.pendingNew)
-		baseKeys = len(e.batchCtx.baseKeys)
+		baseKeys = e.batchCtx.baseKeyCount
 	}
 	e.stateMu.Unlock()
 

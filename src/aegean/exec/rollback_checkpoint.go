@@ -12,13 +12,19 @@ type rollbackCheckpoint struct {
 
 func (e *Exec) storeCheckpoint(seqNum int, token string, state map[string]string, merkleRoot string) {
 	stateCopy := common.CopyStringMap(state)
+	e.storeCheckpointOwned(seqNum, token, stateCopy, merkleRoot)
+}
+
+// storeCheckpointOwned records state without copying it. Callers must pass a
+// snapshot that will not be mutated after this call.
+func (e *Exec) storeCheckpointOwned(seqNum int, token string, state map[string]string, merkleRoot string) {
 	if merkleRoot == "" {
-		merkleRoot = e.newMerkleTreeFromMap(stateCopy).Root()
+		merkleRoot = e.newMerkleTreeFromMap(state).Root()
 	}
 	e.checkpoints[seqNum] = rollbackCheckpoint{
 		SeqNum:         seqNum,
 		Token:          token,
-		State:          stateCopy,
+		State:          state,
 		MerkleRoot:     merkleRoot,
 		ValidationHash: computeCheckpointValidationHash(seqNum, token, merkleRoot),
 	}

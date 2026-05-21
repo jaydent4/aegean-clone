@@ -36,8 +36,8 @@ type pendingExecResult struct {
 }
 
 type batchMerkleContext struct {
-	baseKeys   map[string]struct{}
-	pendingNew map[string]string
+	baseKeyCount int
+	pendingNew   map[string]string
 }
 
 type ingressEventKind int
@@ -239,7 +239,7 @@ func (e *Exec) WriteKV(key, value string) {
 	defer e.stateMu.Unlock()
 	e.ensureWorkingMerkle()
 	if e.batchCtx != nil {
-		if _, ok := e.batchCtx.baseKeys[key]; !ok {
+		if _, ok := e.workingState.KVStore[key]; !ok {
 			// Defer insertion of newly created keys to batch end and insert deterministically.
 			e.batchCtx.pendingNew[key] = value
 			return
@@ -254,13 +254,9 @@ func (e *Exec) beginBatchMerkleContext() {
 	e.stateMu.Lock()
 	defer e.stateMu.Unlock()
 	e.ensureWorkingMerkle()
-	baseKeys := make(map[string]struct{}, len(e.workingState.KVStore))
-	for key := range e.workingState.KVStore {
-		baseKeys[key] = struct{}{}
-	}
 	e.batchCtx = &batchMerkleContext{
-		baseKeys:   baseKeys,
-		pendingNew: make(map[string]string),
+		baseKeyCount: len(e.workingState.KVStore),
+		pendingNew:   make(map[string]string),
 	}
 }
 
