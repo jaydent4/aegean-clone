@@ -11,27 +11,21 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-type stateSnapshot struct {
-	kv map[string]string
-}
-
 // Txn is the sandbox a PBEO leader gives to application code.
-// Reads come from an immutable committed-state snapshot plus local writes.
+// Reads see local writes first, then the component's latest committed state.
 // Writes are recorded as a delta and become visible globally only after Raft
 // commits the corresponding Entry.
 type Txn struct {
 	pbeo            *PBEO
 	requestID       string
-	snapshot        stateSnapshot
 	writes          map[string]string
 	requestContexts *requestContextStore
 }
 
-func newTxn(component *PBEO, requestID string, snapshot stateSnapshot) *Txn {
+func newTxn(component *PBEO, requestID string) *Txn {
 	return &Txn{
 		pbeo:            component,
 		requestID:       requestID,
-		snapshot:        snapshot,
 		writes:          make(map[string]string),
 		requestContexts: component.contextStore,
 	}
@@ -45,7 +39,7 @@ func (t *Txn) ReadKV(key string) string {
 	if value, ok := t.writes[key]; ok {
 		return value
 	}
-	return t.snapshot.kv[key]
+	return t.pbeo.readKV(key, true)
 }
 
 func (t *Txn) WriteKV(key, value string) {

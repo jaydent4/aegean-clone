@@ -302,6 +302,58 @@ func TestPBEOCommitsPrimaryExecutionWithoutValidation(t *testing.T) {
 	}
 }
 
+func TestPBEOTxnReadsLatestCommittedState(t *testing.T) {
+	box := &fakeConsensusBox{isLeader: true, leader: "node1"}
+	var component *PBEO
+
+	component = newTestPBEO(t, box, func(tx *Txn, request map[string]any) map[string]any {
+		first := tx.ReadKV("x")
+		component.Learn(1, Entry{
+			RequestID: "other",
+			Response:  map[string]any{"request_id": "other", "status": "ok"},
+			Writes:    map[string]string{"x": "changed"},
+		})
+		box.mu.Lock()
+		box.slot = 1
+		box.mu.Unlock()
+
+		second := tx.ReadKV("x")
+		tx.WriteKV("first", first)
+		tx.WriteKV("second", second)
+		return map[string]any{
+			"request_id": request["request_id"],
+			"status":     "ok",
+			"first":      first,
+			"second":     second,
+		}
+	}, func(runConfig map[string]any) map[string]string {
+		return map[string]string{"x": "initial"}
+	}, nil)
+	defer component.Stop()
+
+	response := component.HandleRequest("r1", map[string]any{"request_id": "r1"})
+	if response["status"] != "accepted" {
+		t.Fatalf("expected request to be accepted, got %v", response["status"])
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if component.ReadKV("second") == "changed" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := component.ReadKV("first"); got != "initial" {
+		t.Fatalf("expected first read from initial state, got %q", got)
+	}
+	if got := component.ReadKV("second"); got != "changed" {
+		t.Fatalf("expected second read from live committed state, got %q", got)
+	}
+	if got := box.proposals[0].Writes["second"]; got != "changed" {
+		t.Fatalf("expected proposal to preserve live-read value, got %q", got)
+	}
+}
+
 func TestPBEOReexecutesWhenNestedResponseArrivesBeforeBlockedRegistration(t *testing.T) {
 	box := &fakeConsensusBox{isLeader: true, leader: "node1"}
 	var component *PBEO

@@ -37,6 +37,8 @@ type pbeoApplyStats struct {
 	writeBytes           int64
 	responsesEnqueued    int64
 	stateWriteNanos      int64
+	stateWriteWaitNanos  int64
+	stateWriteHoldNanos  int64
 	clearStateNanos      int64
 	responseEnqueueNanos int64
 }
@@ -57,6 +59,17 @@ type pbeoLearnBatchWindowStats struct {
 	durations      map[string]time.Duration
 	durationCounts map[string]int64
 	maxDurations   map[string]time.Duration
+}
+
+type pbeoStateLockWindowStats struct {
+	nodeName       string
+	start          time.Time
+	counts         map[string]int64
+	durations      map[string]time.Duration
+	durationCounts map[string]int64
+	maxDurations   map[string]time.Duration
+	lastGauges     map[string]int64
+	maxGauges      map[string]int64
 }
 
 type PBEO struct {
@@ -96,6 +109,8 @@ type PBEO struct {
 	commitDrainSize int
 	learnTraceMu    sync.Mutex
 	learnTrace      *pbeoLearnBatchWindowStats
+	stateTraceMu    sync.Mutex
+	stateTrace      *pbeoStateLockWindowStats
 }
 
 const (
@@ -152,6 +167,8 @@ func (w *pbeoLearnBatchWindowStats) record(entries int, learned int, duplicates 
 	w.addDuration("dequeue", time.Duration(processStats.dequeueNanos))
 	w.addDuration("apply", time.Duration(processStats.applyNanos))
 	w.addDuration("state_write", time.Duration(processStats.apply.stateWriteNanos))
+	w.addDuration("state_write_wait", time.Duration(processStats.apply.stateWriteWaitNanos))
+	w.addDuration("state_write_hold", time.Duration(processStats.apply.stateWriteHoldNanos))
 	w.addDuration("clear_state", time.Duration(processStats.apply.clearStateNanos))
 	w.addDuration("response_enqueue", time.Duration(processStats.apply.responseEnqueueNanos))
 }
@@ -189,6 +206,111 @@ func (w *pbeoLearnBatchWindowStats) flush(reason string) {
 	_, span := telemetry.Tracer("aegean").Start(
 		context.Background(),
 		"pbeo.learn_batch.window",
+		trace.WithTimestamp(w.start),
+		trace.WithAttributes(attrs...),
+	)
+	span.End(trace.WithTimestamp(now))
+	w.reset(now)
+}
+
+func newPBEOStateLockWindowStats(nodeName string) *pbeoStateLockWindowStats {
+	w := &pbeoStateLockWindowStats{nodeName: nodeName}
+	w.reset(time.Now())
+	return w
+}
+
+func (w *pbeoStateLockWindowStats) reset(start time.Time) {
+	w.start = start
+	w.counts = make(map[string]int64)
+	w.durations = make(map[string]time.Duration)
+	w.durationCounts = make(map[string]int64)
+	w.maxDurations = make(map[string]time.Duration)
+	w.lastGauges = make(map[string]int64)
+	w.maxGauges = make(map[string]int64)
+}
+
+func (w *pbeoStateLockWindowStats) addCount(name string, value int64) {
+	if value == 0 {
+		return
+	}
+	w.counts[name] += value
+}
+
+func (w *pbeoStateLockWindowStats) addDuration(name string, duration time.Duration) {
+	if duration <= 0 {
+		return
+	}
+	w.durations[name] += duration
+	w.durationCounts[name]++
+	if duration > w.maxDurations[name] {
+		w.maxDurations[name] = duration
+	}
+}
+
+func (w *pbeoStateLockWindowStats) observeGauge(name string, value int64) {
+	w.lastGauges[name] = value
+	if value > w.maxGauges[name] {
+		w.maxGauges[name] = value
+	}
+}
+
+func (w *pbeoStateLockWindowStats) recordStateRead(wait time.Duration, hold time.Duration, total time.Duration, executingRequests int64) {
+	w.addCount("state_read_calls", 1)
+	w.addDuration("state_read_wait", wait)
+	w.addDuration("state_read_hold", hold)
+	w.addDuration("state_read_total", total)
+	w.observeGauge("executing_requests", executingRequests)
+}
+
+func (w *pbeoStateLockWindowStats) recordStateWrite(entries int64, writes int64, writeBytes int64, wait time.Duration, hold time.Duration, total time.Duration) {
+	w.addCount("state_write_batches", 1)
+	w.addCount("state_write_entries", entries)
+	w.addCount("state_write_writes", writes)
+	w.addCount("state_write_bytes", writeBytes)
+	w.addDuration("state_write_wait", wait)
+	w.addDuration("state_write_hold", hold)
+	w.addDuration("state_write_total", total)
+}
+
+func (w *pbeoStateLockWindowStats) flush(reason string) {
+	if w.counts["state_read_calls"] == 0 && w.counts["state_write_batches"] == 0 {
+		w.reset(time.Now())
+		return
+	}
+	now := time.Now()
+	elapsed := now.Sub(w.start)
+	attrs := []attribute.KeyValue{
+		attribute.String("node.name", w.nodeName),
+		attribute.String("pbeo.state_lock.flush_reason", reason),
+		attribute.Int64("pbeo.state_lock.window_us", elapsed.Microseconds()),
+	}
+	for _, key := range sortedInt64MapKeys(w.counts) {
+		attrs = append(attrs, attribute.Int64("pbeo.state_lock.count."+key, w.counts[key]))
+	}
+	for _, key := range sortedDurationMapKeys(w.durations) {
+		total := w.durations[key]
+		count := w.durationCounts[key]
+		avg := time.Duration(0)
+		if count > 0 {
+			avg = total / time.Duration(count)
+		}
+		attrs = append(attrs,
+			attribute.Int64("pbeo.state_lock.duration."+key+".count", count),
+			attribute.Int64("pbeo.state_lock.duration."+key+".total_us", total.Microseconds()),
+			attribute.Int64("pbeo.state_lock.duration."+key+".avg_us", avg.Microseconds()),
+			attribute.Int64("pbeo.state_lock.duration."+key+".max_us", w.maxDurations[key].Microseconds()),
+		)
+	}
+	for _, key := range sortedInt64MapKeys(w.lastGauges) {
+		attrs = append(attrs,
+			attribute.Int64("pbeo.state_lock.gauge."+key+".last", w.lastGauges[key]),
+			attribute.Int64("pbeo.state_lock.gauge."+key+".max", w.maxGauges[key]),
+		)
+	}
+
+	_, span := telemetry.Tracer("aegean").Start(
+		context.Background(),
+		"pbeo.state_lock.window",
 		trace.WithTimestamp(w.start),
 		trace.WithAttributes(attrs...),
 	)
@@ -260,6 +382,7 @@ func NewPBEO(cfg Config) (*PBEO, error) {
 		executeSlots:      executeSlots,
 		commitDrainSize:   commitDrainSize,
 		learnTrace:        newPBEOLearnBatchWindowStats(cfg.Name),
+		stateTrace:        newPBEOStateLockWindowStats(cfg.Name),
 	}
 
 	box, err := factory(BoxConfig{
@@ -547,6 +670,30 @@ func (p *PBEO) recordLearnBatchTrace(entries int, learned int, duplicates int, l
 	}
 }
 
+func (p *PBEO) recordStateReadTrace(wait time.Duration, hold time.Duration, total time.Duration) {
+	p.stateTraceMu.Lock()
+	defer p.stateTraceMu.Unlock()
+	if p.stateTrace == nil {
+		p.stateTrace = newPBEOStateLockWindowStats(p.name)
+	}
+	p.stateTrace.recordStateRead(wait, hold, total, p.executingRequests.Load())
+	if time.Since(p.stateTrace.start) >= raftLoopTraceWindow {
+		p.stateTrace.flush("window")
+	}
+}
+
+func (p *PBEO) recordStateWriteTrace(entries int64, writes int64, writeBytes int64, wait time.Duration, hold time.Duration, total time.Duration) {
+	p.stateTraceMu.Lock()
+	defer p.stateTraceMu.Unlock()
+	if p.stateTrace == nil {
+		p.stateTrace = newPBEOStateLockWindowStats(p.name)
+	}
+	p.stateTrace.recordStateWrite(entries, writes, writeBytes, wait, hold, total)
+	if time.Since(p.stateTrace.start) >= raftLoopTraceWindow {
+		p.stateTrace.flush("window")
+	}
+}
+
 func (p *PBEO) Process() pbeoProcessStats {
 	start := time.Now()
 	lockStart := time.Now()
@@ -571,6 +718,8 @@ func (p *PBEO) Process() pbeoProcessStats {
 		stats.apply.writeBytes += applyStats.writeBytes
 		stats.apply.responsesEnqueued += applyStats.responsesEnqueued
 		stats.apply.stateWriteNanos += applyStats.stateWriteNanos
+		stats.apply.stateWriteWaitNanos += applyStats.stateWriteWaitNanos
+		stats.apply.stateWriteHoldNanos += applyStats.stateWriteHoldNanos
 		stats.apply.clearStateNanos += applyStats.clearStateNanos
 		stats.apply.responseEnqueueNanos += applyStats.responseEnqueueNanos
 	}
@@ -591,9 +740,22 @@ func (p *PBEO) ProcessedIndex() uint64 {
 }
 
 func (p *PBEO) ReadKV(key string) string {
+	return p.readKV(key, false)
+}
+
+func (p *PBEO) readKV(key string, traceRead bool) string {
+	totalStart := time.Now()
+	waitStart := time.Now()
 	p.stateMu.RLock()
-	defer p.stateMu.RUnlock()
-	return p.kv[key]
+	waitDuration := time.Since(waitStart)
+	holdStart := time.Now()
+	value := p.kv[key]
+	holdDuration := time.Since(holdStart)
+	p.stateMu.RUnlock()
+	if traceRead {
+		p.recordStateReadTrace(waitDuration, holdDuration, time.Since(totalStart))
+	}
+	return value
 }
 
 func (p *PBEO) StateSnapshot() map[string]string {
@@ -623,8 +785,7 @@ func (p *PBEO) executeUntilProposed(requestID string, request map[string]any) {
 			attribute.Int64("pbeo.executing_requests_on_start", p.executingRequests.Add(1)),
 		)...,
 	)
-	snapshot := p.snapshot()
-	tx := newTxn(p, requestID, snapshot)
+	tx := newTxn(p, requestID)
 	response := p.execute(tx, cloneMapAny(request))
 	if response == nil {
 		response = map[string]any{}
@@ -755,14 +916,6 @@ func stringMapBytes(values map[string]string) int {
 	return total
 }
 
-func (p *PBEO) snapshot() stateSnapshot {
-	p.stateMu.RLock()
-	defer p.stateMu.RUnlock()
-	return stateSnapshot{
-		kv: copyStringMap(p.kv),
-	}
-}
-
 func (p *PBEO) dequeueCommittableEntries() []CommittedEntry {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -825,14 +978,21 @@ func (p *PBEO) applyCommittedEntries(committed []CommittedEntry) pbeoApplyStats 
 	}
 
 	stateStart := time.Now()
+	waitStart := time.Now()
 	p.stateMu.Lock()
+	waitDuration := time.Since(waitStart)
+	holdStart := time.Now()
 	for _, item := range pending {
 		for key, value := range item.entry.Writes {
 			p.kv[key] = value
 		}
 	}
+	holdDuration := time.Since(holdStart)
 	p.stateMu.Unlock()
 	stats.stateWriteNanos = time.Since(stateStart).Nanoseconds()
+	stats.stateWriteWaitNanos = waitDuration.Nanoseconds()
+	stats.stateWriteHoldNanos = holdDuration.Nanoseconds()
+	p.recordStateWriteTrace(stats.entries, stats.writes, stats.writeBytes, waitDuration, holdDuration, time.Duration(stats.stateWriteNanos))
 
 	for _, item := range pending {
 		entry := item.entry
