@@ -31,6 +31,69 @@ type committedResponseTask struct {
 	enqueued time.Time
 }
 
+type committedResponseQueue struct {
+	mu      sync.Mutex
+	cond    *sync.Cond
+	stopped bool
+	items   []committedResponseTask
+	head    int
+}
+
+func newCommittedResponseQueue() *committedResponseQueue {
+	q := &committedResponseQueue{}
+	q.cond = sync.NewCond(&q.mu)
+	return q
+}
+
+func (q *committedResponseQueue) enqueue(task committedResponseTask) (int, bool) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.stopped {
+		return q.lenLocked(), false
+	}
+	q.items = append(q.items, task)
+	depth := q.lenLocked()
+	q.cond.Signal()
+	return depth, true
+}
+
+func (q *committedResponseQueue) dequeue() (committedResponseTask, int, bool) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	for q.lenLocked() == 0 && !q.stopped {
+		q.cond.Wait()
+	}
+	if q.stopped || q.lenLocked() == 0 {
+		return committedResponseTask{}, 0, false
+	}
+	task := q.items[q.head]
+	q.items[q.head] = committedResponseTask{}
+	q.head++
+	depth := q.lenLocked()
+	if q.head > 1024 && q.head*2 >= len(q.items) {
+		q.items = append([]committedResponseTask(nil), q.items[q.head:]...)
+		q.head = 0
+	}
+	return task, depth, true
+}
+
+func (q *committedResponseQueue) stop() {
+	q.mu.Lock()
+	q.stopped = true
+	q.cond.Broadcast()
+	q.mu.Unlock()
+}
+
+func (q *committedResponseQueue) len() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.lenLocked()
+}
+
+func (q *committedResponseQueue) lenLocked() int {
+	return len(q.items) - q.head
+}
+
 type pbeoApplyStats struct {
 	entries              int64
 	writes               int64
@@ -72,6 +135,17 @@ type pbeoStateLockWindowStats struct {
 	maxGauges      map[string]int64
 }
 
+type pbeoResponseWindowStats struct {
+	nodeName       string
+	start          time.Time
+	counts         map[string]int64
+	durations      map[string]time.Duration
+	durationCounts map[string]int64
+	maxDurations   map[string]time.Duration
+	lastGauges     map[string]int64
+	maxGauges      map[string]int64
+}
+
 type PBEO struct {
 	name      string
 	peers     []string
@@ -99,7 +173,7 @@ type PBEO struct {
 	commitSequence    atomic.Uint64
 
 	commitCh        chan candidateSubmission
-	responseCh      chan committedResponseTask
+	responseQueue   *committedResponseQueue
 	responseStop    chan struct{}
 	responseStopper sync.Once
 	nestedResponses *nestedResponseStore
@@ -111,11 +185,12 @@ type PBEO struct {
 	learnTrace      *pbeoLearnBatchWindowStats
 	stateTraceMu    sync.Mutex
 	stateTrace      *pbeoStateLockWindowStats
+	responseTraceMu sync.Mutex
+	responseTrace   *pbeoResponseWindowStats
 }
 
 const (
 	commitQueueSize             = 4096
-	committedResponseQueueSize  = 4096
 	committedResponseWorkerSize = 16
 )
 
@@ -318,6 +393,107 @@ func (w *pbeoStateLockWindowStats) flush(reason string) {
 	w.reset(now)
 }
 
+func newPBEOResponseWindowStats(nodeName string) *pbeoResponseWindowStats {
+	w := &pbeoResponseWindowStats{nodeName: nodeName}
+	w.reset(time.Now())
+	return w
+}
+
+func (w *pbeoResponseWindowStats) reset(start time.Time) {
+	w.start = start
+	w.counts = make(map[string]int64)
+	w.durations = make(map[string]time.Duration)
+	w.durationCounts = make(map[string]int64)
+	w.maxDurations = make(map[string]time.Duration)
+	w.lastGauges = make(map[string]int64)
+	w.maxGauges = make(map[string]int64)
+}
+
+func (w *pbeoResponseWindowStats) addCount(name string, value int64) {
+	if value == 0 {
+		return
+	}
+	w.counts[name] += value
+}
+
+func (w *pbeoResponseWindowStats) addDuration(name string, duration time.Duration) {
+	if duration <= 0 {
+		return
+	}
+	w.durations[name] += duration
+	w.durationCounts[name]++
+	if duration > w.maxDurations[name] {
+		w.maxDurations[name] = duration
+	}
+}
+
+func (w *pbeoResponseWindowStats) observeGauge(name string, value int64) {
+	w.lastGauges[name] = value
+	if value > w.maxGauges[name] {
+		w.maxGauges[name] = value
+	}
+}
+
+func (w *pbeoResponseWindowStats) recordEnqueue(depth int, duration time.Duration) {
+	w.addCount("enqueued", 1)
+	w.addDuration("enqueue", duration)
+	w.observeGauge("queue_depth", int64(depth))
+}
+
+func (w *pbeoResponseWindowStats) recordSend(queueDepth int, clients int, queueWait time.Duration, sendDuration time.Duration) {
+	w.addCount("sent_entries", 1)
+	w.addCount("sent_clients", int64(clients))
+	w.addDuration("queue_wait", queueWait)
+	w.addDuration("send", sendDuration)
+	w.observeGauge("queue_depth", int64(queueDepth))
+}
+
+func (w *pbeoResponseWindowStats) flush(reason string) {
+	if w.counts["enqueued"] == 0 && w.counts["sent_entries"] == 0 {
+		w.reset(time.Now())
+		return
+	}
+	now := time.Now()
+	elapsed := now.Sub(w.start)
+	attrs := []attribute.KeyValue{
+		attribute.String("node.name", w.nodeName),
+		attribute.String("pbeo.response.flush_reason", reason),
+		attribute.Int64("pbeo.response.window_us", elapsed.Microseconds()),
+	}
+	for _, key := range sortedInt64MapKeys(w.counts) {
+		attrs = append(attrs, attribute.Int64("pbeo.response.count."+key, w.counts[key]))
+	}
+	for _, key := range sortedDurationMapKeys(w.durations) {
+		total := w.durations[key]
+		count := w.durationCounts[key]
+		avg := time.Duration(0)
+		if count > 0 {
+			avg = total / time.Duration(count)
+		}
+		attrs = append(attrs,
+			attribute.Int64("pbeo.response.duration."+key+".count", count),
+			attribute.Int64("pbeo.response.duration."+key+".total_us", total.Microseconds()),
+			attribute.Int64("pbeo.response.duration."+key+".avg_us", avg.Microseconds()),
+			attribute.Int64("pbeo.response.duration."+key+".max_us", w.maxDurations[key].Microseconds()),
+		)
+	}
+	for _, key := range sortedInt64MapKeys(w.lastGauges) {
+		attrs = append(attrs,
+			attribute.Int64("pbeo.response.gauge."+key+".last", w.lastGauges[key]),
+			attribute.Int64("pbeo.response.gauge."+key+".max", w.maxGauges[key]),
+		)
+	}
+
+	_, span := telemetry.Tracer("aegean").Start(
+		context.Background(),
+		"pbeo.response.window",
+		trace.WithTimestamp(w.start),
+		trace.WithAttributes(attrs...),
+	)
+	span.End(trace.WithTimestamp(now))
+	w.reset(now)
+}
+
 func NewPBEO(cfg Config) (*PBEO, error) {
 	if cfg.Name == "" {
 		return nil, fmt.Errorf("pbeo requires a node name")
@@ -374,7 +550,7 @@ func NewPBEO(cfg Config) (*PBEO, error) {
 		nestedProposals:   make(map[string]struct{}),
 		kv:                initial,
 		commitCh:          make(chan candidateSubmission, commitQueueSize),
-		responseCh:        make(chan committedResponseTask, committedResponseQueueSize),
+		responseQueue:     newCommittedResponseQueue(),
 		responseStop:      make(chan struct{}),
 		nestedResponses:   newNestedResponseStore(),
 		contextStore:      newRequestContextStore(),
@@ -383,6 +559,7 @@ func NewPBEO(cfg Config) (*PBEO, error) {
 		commitDrainSize:   commitDrainSize,
 		learnTrace:        newPBEOLearnBatchWindowStats(cfg.Name),
 		stateTrace:        newPBEOStateLockWindowStats(cfg.Name),
+		responseTrace:     newPBEOResponseWindowStats(cfg.Name),
 	}
 
 	box, err := factory(BoxConfig{
@@ -455,6 +632,7 @@ func (p *PBEO) Ready() bool {
 func (p *PBEO) Stop() {
 	p.responseStopper.Do(func() {
 		close(p.responseStop)
+		p.responseQueue.stop()
 	})
 	if p.box != nil {
 		p.box.Stop()
@@ -691,6 +869,30 @@ func (p *PBEO) recordStateWriteTrace(entries int64, writes int64, writeBytes int
 	p.stateTrace.recordStateWrite(entries, writes, writeBytes, wait, hold, total)
 	if time.Since(p.stateTrace.start) >= raftLoopTraceWindow {
 		p.stateTrace.flush("window")
+	}
+}
+
+func (p *PBEO) recordResponseEnqueueTrace(depth int, duration time.Duration) {
+	p.responseTraceMu.Lock()
+	defer p.responseTraceMu.Unlock()
+	if p.responseTrace == nil {
+		p.responseTrace = newPBEOResponseWindowStats(p.name)
+	}
+	p.responseTrace.recordEnqueue(depth, duration)
+	if time.Since(p.responseTrace.start) >= raftLoopTraceWindow {
+		p.responseTrace.flush("window")
+	}
+}
+
+func (p *PBEO) recordResponseSendTrace(depth int, clients int, queueWait time.Duration, sendDuration time.Duration) {
+	p.responseTraceMu.Lock()
+	defer p.responseTraceMu.Unlock()
+	if p.responseTrace == nil {
+		p.responseTrace = newPBEOResponseWindowStats(p.name)
+	}
+	p.responseTrace.recordSend(depth, clients, queueWait, sendDuration)
+	if time.Since(p.responseTrace.start) >= raftLoopTraceWindow {
+		p.responseTrace.flush("window")
 	}
 }
 
@@ -1006,7 +1208,7 @@ func (p *PBEO) applyCommittedEntries(committed []CommittedEntry) pbeoApplyStats 
 		if p.enqueueCommittedResponse(entry) {
 			stats.responseEnqueueNanos += time.Since(enqueueStart).Nanoseconds()
 			stats.responsesEnqueued++
-			item.span.SetAttributes(attribute.Int("pbeo.response_queue_depth_on_enqueue", len(p.responseCh)))
+			item.span.SetAttributes(attribute.Int("pbeo.response_queue_depth_on_enqueue", p.responseQueue.len()))
 			endPBEOTrace(item.span, "response_enqueued")
 			continue
 		}
@@ -1018,43 +1220,46 @@ func (p *PBEO) applyCommittedEntries(committed []CommittedEntry) pbeoApplyStats 
 }
 
 func (p *PBEO) enqueueCommittedResponse(entry Entry) bool {
+	start := time.Now()
 	task := committedResponseTask{
 		entry:    cloneEntry(entry),
 		enqueued: time.Now(),
 	}
-	select {
-	case <-p.responseStop:
-		return false
-	case p.responseCh <- task:
-		return true
+	depth, ok := p.responseQueue.enqueue(task)
+	if ok {
+		p.recordResponseEnqueueTrace(depth, time.Since(start))
 	}
+	return ok
 }
 
 func (p *PBEO) runCommittedResponseWorker() {
 	for {
-		select {
-		case <-p.responseStop:
+		task, queueDepth, ok := p.responseQueue.dequeue()
+		if !ok {
 			return
-		case task := <-p.responseCh:
-			_, span := telemetry.StartSpanFromPayload(
-				task.entry.Response,
-				"pbeo.response_worker_iteration",
-				append(
-					p.entryAttrs(task.entry),
-					attribute.Int("pbeo.response_queue_depth_on_dequeue", len(p.responseCh)),
-					attribute.Int64("pbeo.response_queue_wait_us", time.Since(task.enqueued).Microseconds()),
-				)...,
-			)
-			p.sendCommittedResponse(task.entry)
-			endPBEOTrace(span, "sent_to_clients")
 		}
+		queueWait := time.Since(task.enqueued)
+		_, span := telemetry.StartSpanFromPayload(
+			task.entry.Response,
+			"pbeo.response_worker_iteration",
+			append(
+				p.entryAttrs(task.entry),
+				attribute.Int("pbeo.response_queue_depth_on_dequeue", queueDepth),
+				attribute.Int64("pbeo.response_queue_wait_us", queueWait.Microseconds()),
+			)...,
+		)
+		sendStart := time.Now()
+		clients := p.sendCommittedResponse(task.entry)
+		sendDuration := time.Since(sendStart)
+		p.recordResponseSendTrace(queueDepth, clients, queueWait, sendDuration)
+		endPBEOTrace(span, "sent_to_clients")
 	}
 }
 
-func (p *PBEO) sendCommittedResponse(entry Entry) {
+func (p *PBEO) sendCommittedResponse(entry Entry) int {
 	if len(p.clients) == 0 {
 		p.endRequestLifecycle(entry.RequestID, "no_clients", attribute.Int("pbeo.client_count", 0))
-		return
+		return 0
 	}
 	response := cloneMapAny(entry.Response)
 	requestID := entry.RequestID
@@ -1081,6 +1286,7 @@ func (p *PBEO) sendCommittedResponse(entry Entry) {
 		"sent_to_clients",
 		attribute.Int("pbeo.client_count", len(p.clients)),
 	)
+	return len(p.clients)
 }
 
 func (p *PBEO) entryAttrs(entry Entry) []attribute.KeyValue {
