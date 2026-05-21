@@ -12,7 +12,6 @@ k6_max_vus: 10000
 # Write workflow configs
 write_value_size_bytes: 102400
 
-
 # Run & system configs
 run_timeout_seconds: 60
 parallel_window_k: 16

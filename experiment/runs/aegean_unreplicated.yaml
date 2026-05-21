@@ -17,7 +17,6 @@ read_key_mod: 10
 key_count: 10
 value_length: 50000
 
-
 # Run & system configs
 run_timeout_seconds: 60
 parallel_window_k: 16
