@@ -27,3 +27,4 @@ eo_tick_interval_ms: 10
 eo_election_tick: 1000
 eo_heartbeat_tick: 1
 eo_disable_follower_elections: true
+merkle: treap

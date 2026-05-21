@@ -15,3 +15,4 @@ run_timeout_seconds: 60
 parallel_window_k: 16
 worker_count: 8
 gomaxprocs: 32
+merkle: treap
