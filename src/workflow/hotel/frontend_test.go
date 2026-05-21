@@ -50,6 +50,50 @@ func TestFrontendRecommendationRaceDispatchesAllServices(t *testing.T) {
 	}
 }
 
+func TestFrontendRecommendationRaceDefaultsToThreeServices(t *testing.T) {
+	runtime := &hotelTestRuntime{
+		runConfig: map[string]any{
+			"service_nodes": map[string]any{
+				"recommendation_1": []any{"node3"},
+				"recommendation_2": []any{"node4"},
+				"recommendation_3": []any{"node5"},
+			},
+		},
+		kv: map[string]string{},
+	}
+	request := map[string]any{
+		"request_id": "r1",
+		"op":         "recommend_hotels",
+		"op_payload": map[string]any{
+			"require": "rate",
+			"lat":     37.78,
+			"lon":     -122.4,
+			"locale":  "en",
+		},
+	}
+
+	response := ExecuteRequestFrontend(runtime, request, 0, 1.25)
+	if response["status"] != "blocked_for_nested_response" {
+		t.Fatalf("status = %v, want blocked_for_nested_response", response["status"])
+	}
+	if len(runtime.directDispatches) != 3 {
+		t.Fatalf("direct dispatch count = %d, want 3", len(runtime.directDispatches))
+	}
+
+	gotRequestIDs := []string{}
+	for _, dispatch := range runtime.directDispatches {
+		gotRequestIDs = append(gotRequestIDs, dispatch.outgoing["request_id"].(string))
+	}
+	wantRequestIDs := []string{
+		"r1/recommendation_1",
+		"r1/recommendation_2",
+		"r1/recommendation_3",
+	}
+	if !reflect.DeepEqual(gotRequestIDs, wantRequestIDs) {
+		t.Fatalf("dispatched request IDs = %#v, want %#v", gotRequestIDs, wantRequestIDs)
+	}
+}
+
 func TestFrontendRecommendationRaceUsesFirstReadyResponse(t *testing.T) {
 	runtime := &hotelTestRuntime{
 		runConfig: map[string]any{

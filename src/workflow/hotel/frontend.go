@@ -18,11 +18,12 @@ const (
 )
 
 var (
-	hotelSearchTargets         = []string{"node2"}
-	hotelReservationTargets    = []string{"node9", "node10", "node11"}
-	hotelProfileTargets        = []string{"node12", "node13", "node14"}
-	hotelRecommendationTargets = []string{"node15", "node16", "node17"}
-	hotelUserTargets           = []string{"node18", "node19", "node20"}
+	hotelSearchTargets                     = []string{"node2"}
+	hotelReservationTargets                = []string{"node9", "node10", "node11"}
+	hotelProfileTargets                    = []string{"node12", "node13", "node14"}
+	hotelRecommendationTargets             = []string{"node15", "node16", "node17"}
+	hotelDefaultRecommendationRaceServices = []string{"recommendation_1", "recommendation_2", "recommendation_3"}
+	hotelUserTargets                       = []string{"node18", "node19", "node20"}
 )
 
 func ExecuteRequestFrontend(e workflowRuntime, request map[string]any, ndSeed int64, ndTimestamp float64) map[string]any {
@@ -45,6 +46,19 @@ func ExecuteRequestFrontend(e workflowRuntime, request map[string]any, ndSeed in
 	default:
 		return hotelErrorResponse(requestID, "unsupported op: "+op)
 	}
+}
+
+func hotelRecommendationRaceServices(e workflowRuntime) []string {
+	configured := hotelRunConfigStringSlice(e.GetRunConfig(), "hotel_recommendation_race_services")
+	if len(configured) > 0 {
+		return configured
+	}
+	for _, serviceName := range hotelDefaultRecommendationRaceServices {
+		if len(hotelServiceTargets(e, serviceName, nil)) == 0 {
+			return nil
+		}
+	}
+	return append([]string{}, hotelDefaultRecommendationRaceServices...)
 }
 
 func executeFrontendSearch(e workflowRuntime, request map[string]any, stage string, ndTimestamp float64) map[string]any {
@@ -162,7 +176,7 @@ func executeFrontendRecommendation(e workflowRuntime, request map[string]any, st
 		if !e.SetRequestContextValue(requestID, frontendPayloadContextKey, normalizedPayload) {
 			return hotelErrorResponse(requestID, "failed to initialize frontend recommendation context")
 		}
-		raceServices := hotelRunConfigStringSlice(e.GetRunConfig(), "hotel_recommendation_race_services")
+		raceServices := hotelRecommendationRaceServices(e)
 		if len(raceServices) > 0 {
 			for _, serviceName := range raceServices {
 				if len(hotelServiceTargets(e, serviceName, nil)) == 0 {
@@ -194,7 +208,7 @@ func executeFrontendRecommendation(e workflowRuntime, request map[string]any, st
 		return hotelBlockedForNestedResponse(requestID)
 
 	case frontendStageAwaitRecommendationRace:
-		raceServices := hotelRunConfigStringSlice(e.GetRunConfig(), "hotel_recommendation_race_services")
+		raceServices := hotelRecommendationRaceServices(e)
 		if len(raceServices) == 0 {
 			return hotelErrorResponse(requestID, "missing recommendation race services")
 		}

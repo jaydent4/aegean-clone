@@ -1,4 +1,9 @@
 ---
+run_config:
+  hotel_recommendation_race_services:
+  - recommendation_1
+  - recommendation_2
+  - recommendation_3
 services:
   client:
     type: client
@@ -13,78 +18,54 @@ services:
     - node1
     exec_workflow: hotel_frontend
     init_state_workflow: hotel_default
-  search:
-    type: unreplicated_server
-    clients:
-    - node1
-    nodes:
-    - node2
-    exec_workflow: hotel_search
-    init_state_workflow: hotel_default
-  geo:
-    type: unreplicated_server
-    clients:
-    - node2
-    nodes:
-    - node3
-    exec_workflow: hotel_geo
-    init_state_workflow: hotel_default
-  rate:
-    type: unreplicated_server
-    clients:
-    - node2
-    nodes:
-    - node4
-    exec_workflow: hotel_rate
-    init_state_workflow: hotel_default
-  reservation:
-    type: unreplicated_server
-    clients:
-    - node1
-    nodes:
-    - node5
-    exec_workflow: hotel_reservation
-    init_state_workflow: hotel_default
   profile:
     type: unreplicated_server
     clients:
     - node1
     nodes:
-    - node6
+    - node2
     exec_workflow: hotel_profile
     init_state_workflow: hotel_default
-  recommendation:
+  recommendation_1:
     type: unreplicated_server
     clients:
     - node1
     nodes:
-    - node7
+    - node3
     exec_workflow: hotel_recommendation
     init_state_workflow: hotel_default
-  user:
+    run_config:
+      hotel_recommendation_pool: pool_1
+  recommendation_2:
     type: unreplicated_server
     clients:
     - node1
     nodes:
-    - node8
-    exec_workflow: hotel_user
+    - node4
+    exec_workflow: hotel_recommendation
     init_state_workflow: hotel_default
+    run_config:
+      hotel_recommendation_pool: pool_2
+  recommendation_3:
+    type: unreplicated_server
+    clients:
+    - node1
+    nodes:
+    - node5
+    exec_workflow: hotel_recommendation
+    init_state_workflow: hotel_default
+    run_config:
+      hotel_recommendation_pool: pool_3
 nodes:
   node0:
     service: client
   node1:
     service: frontend
   node2:
-    service: search
-  node3:
-    service: geo
-  node4:
-    service: rate
-  node5:
-    service: reservation
-  node6:
     service: profile
-  node7:
-    service: recommendation
-  node8:
-    service: user
+  node3:
+    service: recommendation_1
+  node4:
+    service: recommendation_2
+  node5:
+    service: recommendation_3
