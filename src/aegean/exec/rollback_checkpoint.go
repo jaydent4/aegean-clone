@@ -15,8 +15,9 @@ func (e *Exec) storeCheckpoint(seqNum int, token string, state map[string]string
 	e.storeCheckpointOwned(seqNum, token, stateCopy, merkleRoot)
 }
 
-// storeCheckpointOwned records state without copying it. Callers must pass a
-// snapshot that will not be mutated after this call.
+// storeCheckpointOwned records state without copying it. Most callers pass an
+// immutable snapshot; the commit path may pass the current stable KV map and
+// relies on retaining only the highest stable checkpoint.
 func (e *Exec) storeCheckpointOwned(seqNum int, token string, state map[string]string, merkleRoot string) {
 	if merkleRoot == "" {
 		merkleRoot = e.newMerkleTreeFromMap(state).Root()

@@ -508,8 +508,11 @@ func TestExecHandleBatchSendsVerifyAndTracksPending(t *testing.T) {
 		t.Fatalf("expected pending token %s, got %s", expectedToken, pending.token)
 	}
 	exec.workingState.KVStore["mutate"] = "later"
-	if _, ok := pending.state["mutate"]; ok {
-		t.Fatalf("expected pending state to be a snapshot, but it was mutated")
+	if _, ok := pending.stateDelta["mutate"]; ok {
+		t.Fatalf("expected pending state delta to be immutable, but it was mutated")
+	}
+	if pending.stateDelta["k1"] != "v1" || pending.stateDelta["k2"] != "v2" {
+		t.Fatalf("expected pending state delta to include batch writes, got %v", pending.stateDelta)
 	}
 
 	verifyMsg := expectMessage(t, verifierCh, "verify")
@@ -558,6 +561,9 @@ func TestExecVerifyCommitStabilizesAndResponds(t *testing.T) {
 	}
 	if exec.stableState.PrevHash != pending.token {
 		t.Fatalf("expected prevHash to be committed token")
+	}
+	if exec.stableState.KVStore["k1"] != "v1" || exec.stableState.KVStore["k2"] != "v2" {
+		t.Fatalf("expected stable state to include committed batch writes, got %v", exec.stableState.KVStore)
 	}
 	if exec.forceSequential {
 		t.Fatalf("expected forceSequential false after commit")
@@ -763,15 +769,26 @@ func TestExecCommitPreservesSpeculativeWorkingTip(t *testing.T) {
 		"force_sequential": false,
 		"verifier_id":      "ver1",
 	})
+	if exec.stableState.KVStore["1"] != "value_1" {
+		t.Fatalf("expected stable state to include committed seq1 write, got %v", exec.stableState.KVStore)
+	}
+	if _, ok := exec.stableState.KVStore["2"]; ok {
+		t.Fatalf("expected stable state not to include speculative seq2 write before commit, got %v", exec.stableState.KVStore)
+	}
 
 	exec.handleBatch(batch4)
 	p4, ok := exec.pendingExecResults[4]
 	if !ok {
 		t.Fatalf("expected pending response for seq 4")
 	}
-	for _, key := range []string{"2", "11", "12", "21", "22", "31"} {
-		if got := p4.state[key]; got == "" {
-			t.Fatalf("expected seq 4 pending state to retain key %s after seq1 commit; state=%v", key, p4.state)
+	for _, key := range []string{"2", "11", "12", "21"} {
+		if got := exec.workingState.KVStore[key]; got == "" {
+			t.Fatalf("expected speculative working state to retain key %s after seq1 commit; state=%v", key, exec.workingState.KVStore)
+		}
+	}
+	for _, key := range []string{"22", "31"} {
+		if got := p4.stateDelta[key]; got == "" {
+			t.Fatalf("expected seq 4 pending state delta to include key %s; delta=%v", key, p4.stateDelta)
 		}
 	}
 }
@@ -919,9 +936,9 @@ func TestExecRollbackDecisionForcesSequential(t *testing.T) {
 	checkpointMerkle := merkle.NewTreeFromMap(checkpointKV)
 	exec.storeCheckpoint(4, "t1", checkpointMerkle.SnapshotMap(), checkpointMerkle.Root())
 	exec.pendingExecResults[4] = pendingExecResult{
-		outputs: []map[string]any{{"request_id": "r1", "status": "ok"}},
-		state:   map[string]string{"dirty": "no"},
-		token:   "t1",
+		outputs:    []map[string]any{{"request_id": "r1", "status": "ok"}},
+		stateDelta: map[string]string{"dirty": "no"},
+		token:      "t1",
 	}
 
 	exec.handleVerifyResponse(map[string]any{
@@ -967,9 +984,9 @@ func TestExecRollbackAtStableSeqAppliesForceSequential(t *testing.T) {
 	}
 	exec.storeCheckpoint(2, "stable-token", stableMerkle.SnapshotMap(), stableMerkle.Root())
 	exec.pendingExecResults[3] = pendingExecResult{
-		outputs: []map[string]any{{"request_id": "r3", "status": "ok"}},
-		state:   map[string]string{"dirty": "no"},
-		token:   "t3",
+		outputs:    []map[string]any{{"request_id": "r3", "status": "ok"}},
+		stateDelta: map[string]string{"dirty": "no"},
+		token:      "t3",
 	}
 
 	resp := exec.handleVerifyResponse(map[string]any{
@@ -1018,9 +1035,9 @@ func TestExecHandleVerifyResponseMessageProcessesStableSeqRollbackImmediately(t 
 	exec.storeCheckpoint(2, "stable-token", stableMerkle.SnapshotMap(), stableMerkle.Root())
 	exec.nextVerifySeq = 3 // Simulate outstanding seq=3 path.
 	exec.pendingExecResults[3] = pendingExecResult{
-		outputs: []map[string]any{{"request_id": "r3", "status": "ok"}},
-		state:   map[string]string{"dirty": "no"},
-		token:   "t3",
+		outputs:    []map[string]any{{"request_id": "r3", "status": "ok"}},
+		stateDelta: map[string]string{"dirty": "no"},
+		token:      "t3",
 	}
 
 	resp := exec.HandleVerifyResponseMessage(map[string]any{

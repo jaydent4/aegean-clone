@@ -84,11 +84,11 @@ func (e *Exec) flushNextVerify() bool {
 		)
 		if logExecStateDetails {
 			log.Printf(
-				"%s: assembled verify hash state seq_num=%d view_num=%d state=%v",
+				"%s: assembled verify hash state_delta seq_num=%d view_num=%d state_delta=%v",
 				e.Name,
 				seq,
 				view,
-				truncateLogStringMap(pending.state),
+				truncateLogStringMap(pending.stateDelta),
 			)
 		}
 
@@ -138,15 +138,20 @@ func (e *Exec) finalizeCommit(seqNum int, pending pendingExecResult, agreedToken
 	stateStart := time.Now()
 	e.mu.Lock()
 	delete(e.pendingExecResults, seqNum)
+	if e.stableState.KVStore == nil {
+		e.stableState.KVStore = make(map[string]string)
+	}
+	stableKV := e.stableState.KVStore
+	applyStateDelta(stableKV, pending.stateDelta)
 	e.stableState = State{
-		KVStore:    pending.state,
+		KVStore:    stableKV,
 		Merkle:     nil,
 		MerkleRoot: pending.merkleRoot,
 		SeqNum:     seqNum,
 		PrevHash:   agreedToken,
 		Verified:   true,
 	}
-	e.storeCheckpointOwned(seqNum, agreedToken, pending.state, pending.merkleRoot)
+	e.storeCheckpointOwned(seqNum, agreedToken, stableKV, pending.merkleRoot)
 	for batchSeq := range e.replayableBatchInputs {
 		if batchSeq <= seqNum {
 			delete(e.replayableBatchInputs, batchSeq)

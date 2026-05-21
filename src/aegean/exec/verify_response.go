@@ -109,10 +109,10 @@ func (e *Exec) handleVerifyResponse(payload map[string]any) map[string]any {
 		if logExecStateDetails {
 			decisionState := e.stableStateSnapshotForLog()
 			if hasPending {
-				decisionState = common.CopyStringMap(pending.state)
+				decisionState = common.CopyStringMap(pending.stateDelta)
 			}
 			log.Printf(
-				"%s: verifier decision state seq_num=%d decision=rollback state=%v",
+				"%s: verifier decision state_delta seq_num=%d decision=rollback state_delta=%v",
 				e.Name,
 				seqNum,
 				truncateLogStringMap(decisionState),
@@ -184,10 +184,10 @@ func (e *Exec) handleVerifyResponse(payload map[string]any) map[string]any {
 		)
 		if logExecStateDetails {
 			log.Printf(
-				"%s: verifier decision state seq_num=%d decision=state_transfer reason=token_mismatch state=%v",
+				"%s: verifier decision state_delta seq_num=%d decision=state_transfer reason=token_mismatch state_delta=%v",
 				e.Name,
 				seqNum,
-				truncateLogStringMap(common.CopyStringMap(pending.state)),
+				truncateLogStringMap(common.CopyStringMap(pending.stateDelta)),
 			)
 		}
 		e.mu.Lock()
@@ -212,10 +212,10 @@ func (e *Exec) handleVerifyResponse(payload map[string]any) map[string]any {
 	)
 	if logExecStateDetails {
 		log.Printf(
-			"%s: verifier decision state seq_num=%d decision=commit state=%v",
+			"%s: verifier decision state_delta seq_num=%d decision=commit state_delta=%v",
 			e.Name,
 			seqNum,
-			truncateLogStringMap(common.CopyStringMap(pending.state)),
+			truncateLogStringMap(common.CopyStringMap(pending.stateDelta)),
 		)
 	}
 	e.finalizeCommit(seqNum, pending, agreedToken)

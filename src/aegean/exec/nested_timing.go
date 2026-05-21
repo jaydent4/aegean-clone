@@ -13,12 +13,19 @@ import (
 const nestedTimingMetadataPrefix = "_nested_"
 const nestedDispatchSendUnixNanoKey = "_nested_dispatch_send_unix_nano"
 const nestedDispatchSourceKey = "_nested_dispatch_source"
+const nestedChildShimFirstReceiveUnixNanoKey = "_nested_child_shim_first_receive_unix_nano"
+const nestedChildShimQuorumUnixNanoKey = "_nested_child_shim_quorum_unix_nano"
+const nestedChildBatcherReceiveUnixNanoKey = "_nested_child_batcher_receive_unix_nano"
+const nestedChildBatcherFlushUnixNanoKey = "_nested_child_batcher_flush_unix_nano"
 const nestedBackendCommitUnixNanoKey = "_nested_backend_commit_unix_nano"
 const nestedBackendNodeKey = "_nested_backend_node"
 const nestedBackendSeqNumKey = "_nested_backend_seq_num"
 const nestedBackendBatchOutputCountKey = "_nested_backend_batch_output_count"
 const nestedParentShimReceiveUnixNanoKey = "_nested_parent_shim_receive_unix_nano"
 const nestedParentQuorumUnixNanoKey = "_nested_parent_quorum_unix_nano"
+const nestedChildShimHandleStartUnixNanoKey = "_nested_child_shim_handle_start_unix_nano"
+const nestedChildShimEnqueueUnixNanoKey = "_nested_child_shim_enqueue_unix_nano"
+const nestedChildShimSendStartUnixNanoKey = "_nested_child_shim_send_start_unix_nano"
 const nestedTraceEnabledKey = "_nested_trace_enabled"
 const nestedTimingLogRunConfigKey = "exec_nested_timing_log"
 
@@ -33,17 +40,38 @@ type nestedChildTimingStats struct {
 	backendCommitToBuffer    time.Duration
 	parentShimToBuffer       time.Duration
 	parentQuorumToBuffer     time.Duration
+	childShimHandleToBuffer  time.Duration
+	childShimEnqueueToBuffer time.Duration
+	childShimSendToBuffer    time.Duration
+	childShimSendToParent    time.Duration
+	dispatchToChildShim      time.Duration
+	childShimQuorumWait      time.Duration
+	childShimToBatcher       time.Duration
+	childBatcherQueue        time.Duration
+	childBatcherToExecute    time.Duration
 	maxDispatchToBuffer      time.Duration
 	maxBackendCommitToBuffer time.Duration
 	maxParentShimToBuffer    time.Duration
 	maxParentQuorumToBuffer  time.Duration
+	maxChildShimHandleToBuf  time.Duration
+	maxChildShimEnqueueToBuf time.Duration
+	maxChildShimSendToBuffer time.Duration
+	maxChildShimSendToParent time.Duration
+	maxDispatchToChildShim   time.Duration
+	maxChildShimQuorumWait   time.Duration
+	maxChildShimToBatcher    time.Duration
+	maxChildBatcherQueue     time.Duration
+	maxChildBatcherToExecute time.Duration
 	missingDispatchTimestamp int
 	missingBackendTimestamp  int
 	missingParentShimStamp   int
 	missingParentQuorumStamp int
+	missingChildReturnStamp  int
+	missingChildRequestStamp int
 	negativeDispatchDuration int
 	negativeBackendDuration  int
 	negativeParentDuration   int
+	negativeChildDuration    int
 }
 
 type nestedResponseTimingSnapshot struct {
@@ -146,6 +174,27 @@ func (e *Exec) recordNestedResponseTiming(parentRequestID string, payload map[st
 	} else {
 		childStats.missingParentQuorumStamp++
 	}
+
+	if childShimHandleUnixNano, ok := nestedInt64(payload[nestedChildShimHandleStartUnixNanoKey]); ok && childShimHandleUnixNano > 0 {
+		recordNestedDuration(now.Sub(time.Unix(0, childShimHandleUnixNano)), &childStats.childShimHandleToBuffer, &childStats.maxChildShimHandleToBuf, &childStats.negativeChildDuration)
+	} else {
+		childStats.missingChildReturnStamp++
+	}
+
+	if childShimEnqueueUnixNano, ok := nestedInt64(payload[nestedChildShimEnqueueUnixNanoKey]); ok && childShimEnqueueUnixNano > 0 {
+		recordNestedDuration(now.Sub(time.Unix(0, childShimEnqueueUnixNano)), &childStats.childShimEnqueueToBuffer, &childStats.maxChildShimEnqueueToBuf, &childStats.negativeChildDuration)
+	} else {
+		childStats.missingChildReturnStamp++
+	}
+
+	if childShimSendUnixNano, ok := nestedInt64(payload[nestedChildShimSendStartUnixNanoKey]); ok && childShimSendUnixNano > 0 {
+		recordNestedDuration(now.Sub(time.Unix(0, childShimSendUnixNano)), &childStats.childShimSendToBuffer, &childStats.maxChildShimSendToBuffer, &childStats.negativeChildDuration)
+		if parentShimUnixNano, ok := nestedInt64(payload[nestedParentShimReceiveUnixNanoKey]); ok && parentShimUnixNano > 0 {
+			recordNestedDuration(time.Unix(0, parentShimUnixNano).Sub(time.Unix(0, childShimSendUnixNano)), &childStats.childShimSendToParent, &childStats.maxChildShimSendToParent, &childStats.negativeChildDuration)
+		}
+	} else {
+		childStats.missingChildReturnStamp++
+	}
 }
 
 func (e *Exec) nestedTimingLogsEnabled() bool {
@@ -202,6 +251,27 @@ func nestedRequestArrivalTimingStats(parallelBatches [][]map[string]any) nestedR
 			if duration > childStats.maxDispatchToBuffer {
 				childStats.maxDispatchToBuffer = duration
 			}
+			if firstReceiveUnixNano, ok := nestedInt64(request[nestedChildShimFirstReceiveUnixNanoKey]); ok && firstReceiveUnixNano > 0 {
+				recordNestedDuration(time.Unix(0, firstReceiveUnixNano).Sub(time.Unix(0, dispatchUnixNano)), &childStats.dispatchToChildShim, &childStats.maxDispatchToChildShim, &childStats.negativeChildDuration)
+				if quorumUnixNano, ok := nestedInt64(request[nestedChildShimQuorumUnixNanoKey]); ok && quorumUnixNano > 0 {
+					recordNestedDuration(time.Unix(0, quorumUnixNano).Sub(time.Unix(0, firstReceiveUnixNano)), &childStats.childShimQuorumWait, &childStats.maxChildShimQuorumWait, &childStats.negativeChildDuration)
+					if batcherReceiveUnixNano, ok := nestedInt64(request[nestedChildBatcherReceiveUnixNanoKey]); ok && batcherReceiveUnixNano > 0 {
+						recordNestedDuration(time.Unix(0, batcherReceiveUnixNano).Sub(time.Unix(0, quorumUnixNano)), &childStats.childShimToBatcher, &childStats.maxChildShimToBatcher, &childStats.negativeChildDuration)
+						if batcherFlushUnixNano, ok := nestedInt64(request[nestedChildBatcherFlushUnixNanoKey]); ok && batcherFlushUnixNano > 0 {
+							recordNestedDuration(time.Unix(0, batcherFlushUnixNano).Sub(time.Unix(0, batcherReceiveUnixNano)), &childStats.childBatcherQueue, &childStats.maxChildBatcherQueue, &childStats.negativeChildDuration)
+							recordNestedDuration(now.Sub(time.Unix(0, batcherFlushUnixNano)), &childStats.childBatcherToExecute, &childStats.maxChildBatcherToExecute, &childStats.negativeChildDuration)
+						} else {
+							childStats.missingChildRequestStamp++
+						}
+					} else {
+						childStats.missingChildRequestStamp++
+					}
+				} else {
+					childStats.missingChildRequestStamp++
+				}
+			} else {
+				childStats.missingChildRequestStamp++
+			}
 		}
 	}
 	if stats.count == 0 {
@@ -218,6 +288,17 @@ func nestedRequestArrivalTimingStats(parallelBatches [][]map[string]any) nestedR
 		snapshot.byChild[child] = *childStats
 	}
 	return snapshot
+}
+
+func recordNestedDuration(duration time.Duration, total *time.Duration, max *time.Duration, negative *int) {
+	if duration < 0 {
+		*negative = *negative + 1
+		return
+	}
+	*total += duration
+	if duration > *max {
+		*max = duration
+	}
 }
 
 func (s nestedResponseTimingSnapshot) child(name string) nestedChildTimingStats {

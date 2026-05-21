@@ -12,6 +12,10 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+const nestedTraceEnabledKey = "_nested_trace_enabled"
+const nestedChildBatcherReceiveUnixNanoKey = "_nested_child_batcher_receive_unix_nano"
+const nestedChildBatcherFlushUnixNanoKey = "_nested_child_batcher_flush_unix_nano"
+
 // Batcher groups client requests into ordered batches as described in Eve's execution stage
 // It assigns a sequence number to each batch and attaches nondeterminism data
 type Batcher struct {
@@ -77,7 +81,11 @@ func (b *Batcher) flushBatchLocked() {
 	b.batch = []map[string]any{}
 	b.seqNum++
 	b.batchStartTime = time.Time{}
+	flushUnixNano := time.Now().UnixNano()
 	for _, request := range batch {
+		if nestedTraceEnabled(request) {
+			request[nestedChildBatcherFlushUnixNanoKey] = flushUnixNano
+		}
 		b.endRequestBatchWaitLocked(request)
 	}
 
@@ -109,6 +117,9 @@ func (b *Batcher) HandleRequestMessage(payload map[string]any) map[string]any {
 		return map[string]any{"status": "ignored_non_primary"}
 	}
 
+	if nestedTraceEnabled(payload) {
+		payload[nestedChildBatcherReceiveUnixNanoKey] = time.Now().UnixNano()
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -165,4 +176,12 @@ func canonicalRequestID(id any) (string, bool) {
 		return "", false
 	}
 	return fmt.Sprintf("%v", id), true
+}
+
+func nestedTraceEnabled(payload map[string]any) bool {
+	if payload == nil {
+		return false
+	}
+	enabled, _ := payload[nestedTraceEnabledKey].(bool)
+	return enabled
 }

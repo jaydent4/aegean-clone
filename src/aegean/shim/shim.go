@@ -21,7 +21,11 @@ const nestedBackendSeqNumKey = "_nested_backend_seq_num"
 const nestedBackendBatchOutputCountKey = "_nested_backend_batch_output_count"
 const nestedParentShimReceiveUnixNanoKey = "_nested_parent_shim_receive_unix_nano"
 const nestedParentQuorumUnixNanoKey = "_nested_parent_quorum_unix_nano"
+const nestedChildShimFirstReceiveUnixNanoKey = "_nested_child_shim_first_receive_unix_nano"
+const nestedChildShimQuorumUnixNanoKey = "_nested_child_shim_quorum_unix_nano"
+const nestedChildShimHandleStartUnixNanoKey = "_nested_child_shim_handle_start_unix_nano"
 const nestedChildShimEnqueueUnixNanoKey = "_nested_child_shim_enqueue_unix_nano"
+const nestedChildShimSendStartUnixNanoKey = "_nested_child_shim_send_start_unix_nano"
 
 const defaultShimFanoutQueueSize = 8192
 
@@ -36,6 +40,8 @@ type Shim struct {
 	responseQuorumHelper *common.QuorumHelper
 	nestedReturnMu       sync.Mutex
 	nestedReturnStats    map[string]*nestedReturnBatchStats
+	nestedRequestMu      sync.Mutex
+	nestedRequestFirst   map[string]int64
 	fanoutQueues         map[string]chan map[string]any
 }
 
@@ -83,6 +89,7 @@ func NewShim(name string, batcherCh chan<- map[string]any, execCh chan<- map[str
 		// TODO: quorumSize should depend on size of nested service
 		responseQuorumHelper: common.NewQuorumHelper(quorumSize),
 		nestedReturnStats:    make(map[string]*nestedReturnBatchStats),
+		nestedRequestFirst:   make(map[string]int64),
 		fanoutQueues:         make(map[string]chan map[string]any),
 	}
 	shim.startFanoutWorkers()
@@ -97,13 +104,32 @@ func (s *Shim) HandleRequestMessage(payload map[string]any) map[string]any {
 		return map[string]any{"status": "ignored_non_primary"}
 	}
 
+	firstReceiveUnixNano := int64(0)
+	if nestedTraceEnabled(payload) {
+		firstReceiveUnixNano = s.recordNestedRequestReceive(requestID, time.Now().UnixNano())
+	}
 	if !s.requestQuorumHelper.Add(requestID, sender) {
 		return map[string]any{"status": "waiting_for_quorum"}
+	}
+	if nestedTraceEnabled(payload) {
+		payload[nestedChildShimFirstReceiveUnixNanoKey] = firstReceiveUnixNano
+		payload[nestedChildShimQuorumUnixNanoKey] = time.Now().UnixNano()
 	}
 	if s.BatcherCh != nil {
 		s.BatcherCh <- payload
 	}
 	return map[string]any{"status": "forwarded_to_mid_execs"}
+}
+
+func (s *Shim) recordNestedRequestReceive(requestID any, receiveUnixNano int64) int64 {
+	key := fmt.Sprintf("%v", requestID)
+	s.nestedRequestMu.Lock()
+	defer s.nestedRequestMu.Unlock()
+	if first, ok := s.nestedRequestFirst[key]; ok && first > 0 {
+		return first
+	}
+	s.nestedRequestFirst[key] = receiveUnixNano
+	return receiveUnixNano
 }
 
 func (s *Shim) HandleIncomingResponse(payload map[string]any) map[string]any {
@@ -162,6 +188,7 @@ func (s *Shim) HandleOutgoingResponse(payload map[string]any) map[string]any {
 
 	traceNested := nestedTraceEnabled(payload)
 	if traceNested {
+		fullResponse[nestedChildShimHandleStartUnixNanoKey] = startedAt.UnixNano()
 		s.recordNestedReturnStart(payload, startedAt)
 	}
 	enqueueWaitTotal := time.Duration(0)
@@ -215,10 +242,12 @@ func (s *Shim) runFanoutWorker(client string, queue <-chan map[string]any) {
 			if queueDelay < 0 {
 				queueDelay = 0
 			}
-			delete(payload, nestedChildShimEnqueueUnixNanoKey)
 		}
 		traceNested := nestedTraceEnabled(payload)
 		sendStart := time.Now()
+		if traceNested {
+			payload[nestedChildShimSendStartUnixNanoKey] = sendStart.UnixNano()
+		}
 		_, err := netx.SendMessage(client, 8000, payload)
 		sendDuration := time.Since(sendStart)
 		if traceNested {

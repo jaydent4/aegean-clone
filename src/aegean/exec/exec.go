@@ -27,7 +27,7 @@ const requestBatchSeqContextKey = "request_batch_seq"
 
 type pendingExecResult struct {
 	outputs    []map[string]any
-	state      map[string]string
+	stateDelta map[string]string
 	merkleRoot string
 	token      string
 	verifySpan trace.Span
@@ -38,6 +38,7 @@ type pendingExecResult struct {
 type batchMerkleContext struct {
 	baseKeyCount int
 	pendingNew   map[string]string
+	delta        map[string]string
 }
 
 type ingressEventKind int
@@ -62,7 +63,7 @@ type batchExecutionResult struct {
 	seqNum           int
 	payload          map[string]any
 	outputs          []map[string]any
-	state            map[string]string
+	stateDelta       map[string]string
 	merkleRoot       string
 	batchServiceSpan trace.Span
 }
@@ -113,7 +114,7 @@ type Exec struct {
 	stableState  State
 	workingState State
 	// Buffers tentative execution results until verifiers confirm, then either commits or discards them
-	// keys: outputs, state, merkleRoot, token, verifySent
+	// keys: outputs, stateDelta, merkleRoot, token, verifySent
 	pendingExecResults map[int]pendingExecResult
 	// Stores original inputs so the exec can deterministically replay later if needed
 	// maps seq_num to batch payload object
@@ -242,6 +243,7 @@ func (e *Exec) WriteKV(key, value string) {
 	defer e.stateMu.Unlock()
 	e.ensureWorkingMerkle()
 	if e.batchCtx != nil {
+		e.batchCtx.delta[key] = value
 		if _, ok := e.workingState.KVStore[key]; !ok {
 			// Defer insertion of newly created keys to batch end and insert deterministically.
 			e.batchCtx.pendingNew[key] = value
@@ -260,15 +262,17 @@ func (e *Exec) beginBatchMerkleContext() {
 	e.batchCtx = &batchMerkleContext{
 		baseKeyCount: len(e.workingState.KVStore),
 		pendingNew:   make(map[string]string),
+		delta:        make(map[string]string),
 	}
 }
 
-func (e *Exec) finalizeBatchMerkleContext() {
+func (e *Exec) finalizeBatchMerkleContext() map[string]string {
 	e.stateMu.Lock()
 	defer e.stateMu.Unlock()
 	if e.batchCtx == nil {
-		return
+		return nil
 	}
+	stateDelta := common.CopyStringMap(e.batchCtx.delta)
 	if len(e.batchCtx.pendingNew) > 0 {
 		keys := make([]string, 0, len(e.batchCtx.pendingNew))
 		for key := range e.batchCtx.pendingNew {
@@ -282,6 +286,21 @@ func (e *Exec) finalizeBatchMerkleContext() {
 	}
 	e.workingState.MerkleRoot = e.workingState.Merkle.Root()
 	e.batchCtx = nil
+	return stateDelta
+}
+
+func applyStateDelta(state map[string]string, delta map[string]string) {
+	if len(delta) == 0 {
+		return
+	}
+	keys := make([]string, 0, len(delta))
+	for key := range delta {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		state[key] = delta[key]
+	}
 }
 
 func (e *Exec) BufferNestedResponse(payload map[string]any) bool {
