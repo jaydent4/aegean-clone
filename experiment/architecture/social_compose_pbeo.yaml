@@ -6,13 +6,13 @@ services:
     - node1
     client_workflow: social_k6_open_client
   compose_post:
-    type: pbeo_server
+    type: unreplicated_server
     clients:
     - node0
     nodes:
     - node1
-    exec_workflow: social_compose_post_pbeo
-    init_state_workflow: social_pbeo_default
+    exec_workflow: social_compose_post
+    init_state_workflow: social_default
   post_storage:
     type: pbeo_server
     clients:
