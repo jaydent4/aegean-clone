@@ -112,6 +112,7 @@ func NewServer(name, host string, port int, clients []string, nodes []string, is
 			HeartbeatTick:            common.IntOrDefault(runConfig, "eo_heartbeat_tick", 1),
 			DisableFollowerElections: disableFollowerElections,
 			RaftSendBatchSize:        common.IntOrDefault(runConfig, "eo_raft_send_batch_size", 1),
+			LearnBatchSize:           common.IntOrDefault(runConfig, "eo_learn_batch_size", 256),
 		})
 		if err != nil {
 			panic(err)

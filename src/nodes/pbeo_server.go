@@ -87,6 +87,7 @@ func NewPBEOServer(
 		EODisableFollowerElections: disableEOFollowerElections,
 		RaftSendBatchSize:          common.IntOrDefault(runConfig, "pbeo_raft_send_batch_size", 64),
 		EORaftSendBatchSize:        common.IntOrDefault(runConfig, "eo_raft_send_batch_size", 1),
+		EOLearnBatchSize:           common.IntOrDefault(runConfig, "eo_learn_batch_size", 256),
 	})
 	if err != nil {
 		panic(err)

@@ -24,6 +24,10 @@ type EO struct {
 	committedRequests map[string]struct{}
 }
 
+type asyncConsensusBox interface {
+	ProposeAsync(entry Entry) error
+}
+
 func NewEO(cfg Config) (*EO, error) {
 	if cfg.Name == "" {
 		return nil, fmt.Errorf("eo requires a node name")
@@ -67,6 +71,8 @@ func NewEO(cfg Config) (*EO, error) {
 		MaxInflightMsgs:          cfg.MaxInflightMsgs,
 		MaxSizePerMsg:            cfg.MaxSizePerMsg,
 		RaftSendBatchSize:        cfg.RaftSendBatchSize,
+		LearnBatch:               e.LearnBatch,
+		LearnBatchSize:           cfg.LearnBatchSize,
 	}, e.Learn)
 	if err != nil {
 		return nil, err
@@ -107,10 +113,14 @@ func (e *EO) ProposeResponsePayload(requestID string, payload map[string]any) er
 	if requestID == "" {
 		return fmt.Errorf("eo propose requires a request_id")
 	}
-	return e.box.Propose(Entry{
+	entry := Entry{
 		RequestID: requestID,
 		Response:  cloneMap(payload),
-	})
+	}
+	if box, ok := e.box.(asyncConsensusBox); ok {
+		return box.ProposeAsync(entry)
+	}
+	return e.box.Propose(entry)
 }
 
 func (e *EO) HandleMessage(payload map[string]any) map[string]any {
@@ -246,19 +256,37 @@ func (e *EO) HandleRaftMessage(payload map[string]any) map[string]any {
 
 // Learn is the callback that the consensus box invokes when a slot is learned.
 func (e *EO) Learn(slot uint64, entry Entry) {
-	e.mu.Lock()
-	if _, exists := e.learnedSlots[slot]; exists {
-		e.mu.Unlock()
-		return
+	e.learnBatch([]CommittedEntry{{Slot: slot, Entry: entry}})
+}
+
+func (e *EO) LearnBatch(entries []CommittedEntry) {
+	e.learnBatch(entries)
+}
+
+func (e *EO) learnBatch(entries []CommittedEntry) bool {
+	if len(entries) == 0 {
+		return false
 	}
-	e.learnedSlots[slot] = struct{}{}
-	e.log[slot] = entry
-	if slot > e.learned {
-		e.learned = slot
+
+	e.mu.Lock()
+	learnedAny := false
+	for _, committed := range entries {
+		if _, exists := e.learnedSlots[committed.Slot]; exists {
+			continue
+		}
+		e.learnedSlots[committed.Slot] = struct{}{}
+		e.log[committed.Slot] = cloneEntry(committed.Entry)
+		if committed.Slot > e.learned {
+			e.learned = committed.Slot
+		}
+		learnedAny = true
 	}
 	e.mu.Unlock()
 
-	e.Process()
+	if learnedAny {
+		e.Process()
+	}
+	return learnedAny
 }
 
 // OnCommit is kept as a compatibility alias for older consensus-box callbacks.
@@ -366,6 +394,13 @@ func cloneMap(input map[string]any) map[string]any {
 		out[key] = value
 	}
 	return out
+}
+
+func cloneEntry(entry Entry) Entry {
+	return Entry{
+		RequestID: entry.RequestID,
+		Response:  cloneMap(entry.Response),
+	}
 }
 
 func canonicalRequestID(id any) (string, bool) {

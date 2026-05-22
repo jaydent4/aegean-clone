@@ -47,6 +47,7 @@ type SendRaftBatchFunc func(peer string, messages []raftpb.Message) error
 
 // LearnFunc is invoked by the consensus box whenever a replicated entry is learned.
 type LearnFunc func(slot uint64, entry Entry)
+type LearnBatchFunc func(entries []CommittedEntry)
 
 // ConsensusBox is the ordered replication abstraction used by EO.
 type ConsensusBox interface {
@@ -73,6 +74,8 @@ type BoxConfig struct {
 	MaxInflightMsgs          int
 	MaxSizePerMsg            uint64
 	RaftSendBatchSize        int
+	LearnBatch               LearnBatchFunc
+	LearnBatchSize           int
 }
 
 // BoxFactory allows tests to swap in a fake consensus implementation.
@@ -96,4 +99,5 @@ type Config struct {
 	MaxInflightMsgs          int
 	MaxSizePerMsg            uint64
 	RaftSendBatchSize        int
+	LearnBatchSize           int
 }

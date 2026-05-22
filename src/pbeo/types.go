@@ -96,4 +96,5 @@ type Config struct {
 	MaxSizePerMsg              uint64
 	RaftSendBatchSize          int
 	EORaftSendBatchSize        int
+	EOLearnBatchSize           int
 }
