@@ -14,7 +14,7 @@ k6_max_vus: 10000
 external_service_mode: side_effect
 
 # Nested exact-once dispatch
-eo_raft_send_batch_size: 1
+eo_raft_send_batch_size: 256
 eo_tick_interval_ms: 10
 eo_election_tick: 1000
 eo_heartbeat_tick: 1
