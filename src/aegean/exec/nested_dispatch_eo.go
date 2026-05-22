@@ -1,6 +1,9 @@
 package exec
 
-import "sync"
+import (
+	"log"
+	"sync"
+)
 
 type NestedEOReplicator interface {
 	IsLeader() bool
@@ -34,6 +37,7 @@ const (
 	nestedResponseWaitingForLeaderStatus = "eo_nested_response_waiting_for_leader"
 	nestedResponseProposedStatus         = "eo_nested_response_proposed"
 	nestedResponseAlreadyProposedStatus  = "eo_nested_response_already_proposed"
+	nestedResponseUntrackedStatus        = "eo_nested_response_untracked"
 )
 
 type nestedDispatchTracker struct {
@@ -57,6 +61,13 @@ func (e *Exec) NestedEOReady() bool {
 	}
 	_, ok := e.nestedEO.Leader()
 	return ok
+}
+
+func (e *Exec) RegisterSelectedNestedRequest(requestID string) {
+	if requestID == "" {
+		return
+	}
+	e.nestedDispatchTracker.ensurePending(requestID)
 }
 
 func (e *Exec) DispatchNestedRequestEO(sourceRequest map[string]any, targets []string, outgoing map[string]any) {
@@ -105,6 +116,22 @@ func (e *Exec) ClaimNestedRequestEO(prepared map[string]any) bool {
 func (e *Exec) HandleNestedResponseMessage(payload map[string]any) (map[string]any, bool) {
 	requestID, state, ok := e.nestedResponseState(payload)
 	if !ok {
+		if e.nestedEO != nil && payload != nil && payload["parent_request_id"] != nil {
+			if e.nestedEO.IsLeader() {
+				log.Printf(
+					"%s: warning: EO leader received untracked nested response; consuming without direct buffer request_id=%v parent_request_id=%v child=%s sender=%v",
+					e.Name,
+					payload["request_id"],
+					payload["parent_request_id"],
+					nestedResponseChild(payload),
+					payload["sender"],
+				)
+			}
+			if fallbackID, ok := canonicalRequestID(payload["request_id"]); ok {
+				return nestedResponseStatus(fallbackID, nestedResponseUntrackedStatus), true
+			}
+			return map[string]any{"status": nestedResponseUntrackedStatus}, true
+		}
 		return nil, false
 	}
 
@@ -194,10 +221,26 @@ func (e *Exec) handlePendingNestedResponse(requestID string, payload map[string]
 		if _, ok := e.nestedEO.Leader(); ok {
 			return nestedResponseStatus(requestID, nestedResponseWaitingForLeaderStatus), true
 		}
+		log.Printf(
+			"%s: warning: EO nested response not handled because no leader is known; falling back to direct path request_id=%s parent_request_id=%v child=%s sender=%v",
+			e.Name,
+			requestID,
+			payload["parent_request_id"],
+			nestedResponseChild(payload),
+			payload["sender"],
+		)
 		return nil, false
 	}
 
 	if !e.nestedDispatchTracker.markProposed(requestID) {
+		log.Printf(
+			"%s: warning: EO nested response proposal skipped because request is no longer pending request_id=%s parent_request_id=%v child=%s sender=%v",
+			e.Name,
+			requestID,
+			payload["parent_request_id"],
+			nestedResponseChild(payload),
+			payload["sender"],
+		)
 		return nestedResponseStatus(requestID, nestedResponseIgnoredStatus), true
 	}
 
@@ -205,6 +248,15 @@ func (e *Exec) handlePendingNestedResponse(requestID string, payload map[string]
 	proposed["shim_quorum_aggregated"] = true
 	if err := e.nestedEO.ProposeResponsePayload(requestID, proposed); err != nil {
 		e.nestedDispatchTracker.resetPending(requestID)
+		log.Printf(
+			"%s: warning: EO nested response proposal failed request_id=%s parent_request_id=%v child=%s sender=%v error=%v",
+			e.Name,
+			requestID,
+			payload["parent_request_id"],
+			nestedResponseChild(payload),
+			payload["sender"],
+			err,
+		)
 		return nil, false
 	}
 
@@ -223,6 +275,16 @@ func (t *nestedDispatchTracker) registerPending(requestID string) bool {
 	defer t.mu.Unlock()
 	if _, exists := t.states[requestID]; exists {
 		return false
+	}
+	t.states[requestID] = nestedDispatchPending
+	return true
+}
+
+func (t *nestedDispatchTracker) ensurePending(requestID string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if state, exists := t.states[requestID]; exists {
+		return state == nestedDispatchPending
 	}
 	t.states[requestID] = nestedDispatchPending
 	return true

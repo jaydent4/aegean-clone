@@ -315,6 +315,62 @@ func TestNestedEORequestQuorumDispatchesAfterTwoMatchingRequests(t *testing.T) {
 	}
 }
 
+func TestNestedEORequestQuorumRegistersSelectedRequestOnLeader(t *testing.T) {
+	server := startTestServer(t, nil)
+	defer server.close()
+
+	exec, _, _ := newTestExec("node1", []string{"node1"}, nil)
+	exec.RunConfig["nested_use_eo"] = true
+	fakeEO := &fakeNestedEO{isLeader: true, leader: "node1"}
+	quorum := newNestedEORequestQuorumGate("node1", fakeEO, 250*time.Millisecond)
+	quorum.SetSelectedRequestHook(exec.RegisterSelectedNestedRequest)
+	exec.SetNestedEO(quorum)
+
+	request := map[string]any{
+		"type":              "request",
+		"request_id":        "parent/child",
+		"parent_request_id": "parent",
+		"timestamp":         123.0,
+		"sender":            "node2",
+		"op":                "default",
+		"op_payload":        map[string]any{"value": "same"},
+	}
+	quorum.HandleNestedRequestMessage(map[string]any{
+		"type":       "eo_nested_request",
+		"request_id": "parent/child",
+		"request":    cloneMapAny(request),
+		"targets":    []string{"127.0.0.1"},
+		"sender":     "node2",
+	})
+	request["sender"] = "node3"
+	quorum.HandleNestedRequestMessage(map[string]any{
+		"type":       "eo_nested_request",
+		"request_id": "parent/child",
+		"request":    cloneMapAny(request),
+		"targets":    []string{"127.0.0.1"},
+		"sender":     "node3",
+	})
+
+	_ = expectMessage(t, server.received, "request")
+	responsePayload := map[string]any{
+		"type":              "response",
+		"request_id":        "parent/child",
+		"parent_request_id": "parent",
+		"sender":            "node4",
+		"response":          map[string]any{"status": "ok", "value": "payload"},
+	}
+	response, handled := exec.HandleNestedResponseMessage(responsePayload)
+	if !handled {
+		t.Fatalf("expected selected quorum response to be handled by EO")
+	}
+	if response["status"] != "eo_nested_response_proposed" {
+		t.Fatalf("expected eo_nested_response_proposed, got %v", response["status"])
+	}
+	if len(fakeEO.proposals) != 1 {
+		t.Fatalf("expected selected request response to be proposed once, got %d", len(fakeEO.proposals))
+	}
+}
+
 func TestNestedEORequestQuorumTimeoutSelectsDeterministicFallback(t *testing.T) {
 	server := startTestServer(t, nil)
 	defer server.close()
@@ -417,6 +473,34 @@ func TestExecHandleNestedResponseMessageEOProposesAndApplies(t *testing.T) {
 	}
 	if ignored["status"] != "eo_nested_response_ignored" {
 		t.Fatalf("expected eo_nested_response_ignored, got %v", ignored["status"])
+	}
+}
+
+func TestExecHandleNestedResponseMessageEOConsumesUntrackedNestedResponse(t *testing.T) {
+	exec, _, _ := newTestExec("node2", []string{"node2"}, nil)
+	exec.RunConfig["nested_use_eo"] = true
+	fakeEO := &fakeNestedEO{isLeader: false, leader: "node1"}
+	exec.SetNestedEO(fakeEO)
+
+	responsePayload := map[string]any{
+		"type":              "response",
+		"request_id":        "parent/child",
+		"parent_request_id": "parent",
+		"sender":            "node4",
+		"response":          map[string]any{"status": "ok", "value": "payload"},
+	}
+	response, handled := exec.HandleNestedResponseMessage(responsePayload)
+	if !handled {
+		t.Fatalf("expected untracked EO nested response to be consumed")
+	}
+	if response["status"] != nestedResponseUntrackedStatus {
+		t.Fatalf("expected %s, got %v", nestedResponseUntrackedStatus, response["status"])
+	}
+	if len(fakeEO.proposals) != 0 {
+		t.Fatalf("expected no proposal for untracked response, got %d", len(fakeEO.proposals))
+	}
+	if nestedResponses, ok := exec.GetNestedResponses("parent"); ok || len(nestedResponses) != 0 {
+		t.Fatalf("expected untracked response not to buffer, got %v", nestedResponses)
 	}
 }
 

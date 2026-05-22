@@ -2,7 +2,7 @@
 architecture: hotel_hotels_aegean_eo.yaml
 
 # k6 config
-k6_qps: 75
+k6_qps: 700
 warmup_duration: 10s
 warmup_graceful_stop: 45s
 duration: 15s
@@ -24,7 +24,7 @@ eo_heartbeat_tick: 1
 eo_disable_follower_elections: true
 nested_use_eo: true
 hotel_nested_use_eo: true
-use_eo_after_quorum: true
+use_eo_after_quorum: false
 nested_eo_request_quorum_timeout_ms: 5000
 
 # Run & system configs

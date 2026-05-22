@@ -9,6 +9,7 @@ import (
 	"aegean/common"
 	"aegean/eo"
 	netx "aegean/net"
+	"log"
 	"math/rand/v2"
 	"runtime"
 	"time"
@@ -122,11 +123,13 @@ func NewServer(name, host string, port int, clients []string, nodes []string, is
 				"nested_eo_request_quorum_timeout_ms",
 				int(exec.DefaultNestedEORequestQuorumTimeout/time.Millisecond),
 			)) * time.Millisecond
-			server.Exec.SetNestedEO(exec.NewNestedEORequestQuorumGateWithTimeout(
+			quorumGate := exec.NewNestedEORequestQuorumGateWithTimeout(
 				name,
 				component,
 				nestedEORequestQuorumTimeout,
-			))
+			)
+			quorumGate.SetSelectedRequestHook(server.Exec.RegisterSelectedNestedRequest)
+			server.Exec.SetNestedEO(quorumGate)
 		} else {
 			server.Exec.SetNestedEO(component)
 		}
@@ -175,6 +178,18 @@ func (s *Server) Start() {
 			time.Sleep(time.Duration(rand.Float64() * 0.01 * float64(time.Second)))
 		}
 		for msg := range s.shimToExec {
+			if _, handled := s.Exec.HandleNestedResponseMessage(msg); handled {
+				continue
+			}
+			if s.EO != nil && msg["parent_request_id"] != nil {
+				log.Printf(
+					"%s: warning: EO nested response was not handled; falling back to direct buffer request_id=%v parent_request_id=%v sender=%v",
+					s.Name,
+					msg["request_id"],
+					msg["parent_request_id"],
+					msg["sender"],
+				)
+			}
 			_ = s.Exec.BufferNestedResponse(msg)
 		}
 	}()

@@ -24,9 +24,10 @@ const (
 )
 
 type NestedEORequestQuorumGate struct {
-	name    string
-	inner   NestedEOReplicator
-	timeout time.Duration
+	name       string
+	inner      NestedEOReplicator
+	timeout    time.Duration
+	onSelected func(string)
 
 	mu        sync.Mutex
 	windows   map[string]*nestedEORequestWindow
@@ -77,6 +78,10 @@ func newNestedEORequestQuorumGate(name string, inner NestedEOReplicator, timeout
 	}
 }
 
+func (q *NestedEORequestQuorumGate) SetSelectedRequestHook(hook func(string)) {
+	q.onSelected = hook
+}
+
 func (q *NestedEORequestQuorumGate) IsLeader() bool {
 	return q.inner != nil && q.inner.IsLeader()
 }
@@ -118,6 +123,8 @@ func (q *NestedEORequestQuorumGate) SubmitNestedRequest(source string, requestID
 
 func (q *NestedEORequestQuorumGate) forwardNestedRequestUntilAccepted(source string, requestID string, targets []string, payload map[string]any) {
 	deadline := time.Now().Add(q.timeout)
+	attempts := 0
+	var lastErr error
 	for time.Now().Before(deadline) {
 		if q.inner == nil {
 			return
@@ -129,12 +136,25 @@ func (q *NestedEORequestQuorumGate) forwardNestedRequestUntilAccepted(source str
 		leader, ok := q.inner.Leader()
 		if ok && leader != "" {
 			message := q.forwardMessage(source, requestID, targets, payload)
+			attempts++
 			if _, err := netx.SendMessage(leader, 8000, message, 1, nestedEORequestForwardRPC); err == nil {
 				return
+			} else {
+				lastErr = err
 			}
 		}
 		time.Sleep(nestedEORequestForwardRetry)
 	}
+	log.Printf(
+		"%s: warning: nested EO request forward timed out before reaching leader request_id=%s source=%s child=%s timeout=%s attempts=%d last_error=%v",
+		q.name,
+		requestID,
+		source,
+		nestedResponseChild(payload),
+		q.timeout,
+		attempts,
+		lastErr,
+	)
 }
 
 func (q *NestedEORequestQuorumGate) HandleNestedRequestMessage(payload map[string]any) map[string]any {
@@ -269,10 +289,21 @@ func (q *NestedEORequestQuorumGate) dispatchSelected(selected *nestedEOSelectedR
 		return
 	}
 	if selected.fallback {
-		log.Printf("%s: warning: nested EO request quorum timeout request_id=%s selected_hash=%s variants=%s", q.name, selected.requestID, selected.hash, selected.variants)
+		log.Printf(
+			"%s: warning: nested EO request quorum timeout; using deterministic fallback request_id=%s child=%s timeout=%s selected_hash=%s variants=%s",
+			q.name,
+			selected.requestID,
+			nestedResponseChild(selected.request),
+			q.timeout,
+			selected.hash,
+			selected.variants,
+		)
 	}
 	outgoing := cloneMapAny(selected.request)
 	outgoing["sender"] = q.name
+	if q.onSelected != nil {
+		q.onSelected(selected.requestID)
+	}
 	sendNestedRequestDirect(selected.targets, outgoing)
 }
 
