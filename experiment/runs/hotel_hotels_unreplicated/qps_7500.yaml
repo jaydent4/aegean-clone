@@ -1,8 +1,8 @@
 ---
-architecture: hotel_hotels_aegean_eo.yaml
+architecture: hotel_hotels_unreplicated.yaml
 
 # k6 config
-k6_qps: 700
+k6_qps: 7500
 warmup_duration: 10s
 warmup_graceful_stop: 45s
 duration: 15s
@@ -16,20 +16,8 @@ hotel_search_radius_km: 10.0
 hotel_search_max_results: 5
 hotel_nested_send_all_replicas: true
 
-# Nested exact-once dispatch
-eo_raft_send_batch_size: 1
-eo_tick_interval_ms: 10
-eo_election_tick: 1000
-eo_heartbeat_tick: 1
-eo_disable_follower_elections: true
-nested_use_eo: true
-hotel_nested_use_eo: true
-use_eo_after_quorum: false
-nested_eo_request_quorum_timeout_ms: 5000
-
 # Run & system configs
 run_timeout_seconds: 60
 parallel_window_k: 16
 worker_count: 16
 gomaxprocs: 32
-merkle: treap
