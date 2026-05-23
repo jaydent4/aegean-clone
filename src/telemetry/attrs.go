@@ -7,6 +7,9 @@ import (
 )
 
 func AttrsFromPayload(payload map[string]any) []attribute.KeyValue {
+	if !DetailedSpansEnabled() && !SummarySpansEnabled() {
+		return nil
+	}
 	if payload == nil {
 		return nil
 	}

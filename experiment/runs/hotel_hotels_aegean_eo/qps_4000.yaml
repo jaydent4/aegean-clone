@@ -31,8 +31,6 @@ nested_eo_request_quorum_timeout_ms: 5000
 nested_eo_request_forward_batch_size: 32
 nested_eo_request_forward_batch_timeout_us: 500
 nested_eo_request_forward_rpc_timeout_ms: 200
-exec_nested_timing_log: true
-exec_bottleneck_probe_log: true
 
 # Run & system configs
 run_timeout_seconds: 60

@@ -2,7 +2,6 @@ package batcher
 
 import (
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
@@ -16,16 +15,6 @@ import (
 const nestedTraceEnabledKey = "_nested_trace_enabled"
 const nestedChildBatcherReceiveUnixNanoKey = "_nested_child_batcher_receive_unix_nano"
 const nestedChildBatcherFlushUnixNanoKey = "_nested_child_batcher_flush_unix_nano"
-const batcherStatsWindow = time.Second
-
-type batcherBatchStats struct {
-	windowStart    time.Time
-	batches        int
-	requests       int
-	maxBatchSize   int
-	sizeFlushes    int
-	timeoutFlushes int
-}
 
 // Batcher groups client requests into ordered batches as described in Eve's execution stage
 // It assigns a sequence number to each batch and attaches nondeterminism data
@@ -43,7 +32,6 @@ type Batcher struct {
 	mu             sync.Mutex
 	batchStartTime time.Time
 	requestSpans   map[string]trace.Span
-	batchStats     batcherBatchStats
 }
 
 func NewBatcher(name string, nextCh chan<- map[string]any, execs []string, isPrimary bool, runConfig map[string]any) *Batcher {
@@ -59,7 +47,6 @@ func NewBatcher(name string, nextCh chan<- map[string]any, execs []string, isPri
 		batchSize:    common.MustInt(runConfig, "batch_size"),
 		batchTimeout: time.Duration(common.MustInt(runConfig, "batch_timeout_ms")) * time.Millisecond,
 		requestSpans: make(map[string]trace.Span),
-		batchStats:   batcherBatchStats{windowStart: time.Now()},
 	}
 	return b
 }
@@ -74,13 +61,13 @@ func (b *Batcher) batchFlusher() {
 		b.mu.Lock()
 		// Flush on timeout if there are pending requests
 		if len(b.batch) > 0 && !b.batchStartTime.IsZero() && time.Since(b.batchStartTime) >= b.batchTimeout {
-			b.flushBatchLocked("timeout")
+			b.flushBatchLocked()
 		}
 		b.mu.Unlock()
 	}
 }
 
-func (b *Batcher) flushBatchLocked(reason string) {
+func (b *Batcher) flushBatchLocked() {
 	if len(b.batch) == 0 {
 		return
 	}
@@ -94,7 +81,6 @@ func (b *Batcher) flushBatchLocked(reason string) {
 	b.batch = []map[string]any{}
 	b.seqNum++
 	b.batchStartTime = time.Time{}
-	b.recordBatchFlushLocked(len(batch), reason)
 	flushUnixNano := time.Now().UnixNano()
 	for _, request := range batch {
 		if nestedTraceEnabled(request) {
@@ -143,7 +129,7 @@ func (b *Batcher) HandleRequestMessage(payload map[string]any) map[string]any {
 	b.startRequestBatchWaitLocked(payload)
 	b.batch = append(b.batch, payload)
 	if len(b.batch) >= b.batchSize {
-		b.flushBatchLocked("size")
+		b.flushBatchLocked()
 	}
 
 	return map[string]any{"status": "batched"}
@@ -151,54 +137,10 @@ func (b *Batcher) HandleRequestMessage(payload map[string]any) map[string]any {
 
 // TODO: allow primaries to rotate, on batcher failures
 
-func (b *Batcher) recordBatchFlushLocked(batchSize int, reason string) {
-	if b.batchStats.windowStart.IsZero() {
-		b.batchStats.windowStart = time.Now()
-	}
-	b.batchStats.batches++
-	b.batchStats.requests += batchSize
-	if batchSize > b.batchStats.maxBatchSize {
-		b.batchStats.maxBatchSize = batchSize
-	}
-	switch reason {
-	case "size":
-		b.batchStats.sizeFlushes++
-	case "timeout":
-		b.batchStats.timeoutFlushes++
-	}
-
-	now := time.Now()
-	elapsed := now.Sub(b.batchStats.windowStart)
-	if elapsed < batcherStatsWindow {
+func (b *Batcher) startRequestBatchWaitLocked(payload map[string]any) {
+	if !telemetry.DetailedSpansEnabled() {
 		return
 	}
-	avgBatchSize := 0.0
-	if b.batchStats.batches > 0 {
-		avgBatchSize = float64(b.batchStats.requests) / float64(b.batchStats.batches)
-	}
-	fillRatio := 0.0
-	if b.batchSize > 0 {
-		fillRatio = avgBatchSize / float64(b.batchSize)
-	}
-	log.Printf(
-		"%s: aegean_batcher_batch_stats window_ms=%d batches=%d requests=%d batches_per_s=%.1f requests_per_s=%.1f avg_batch_size=%.2f max_batch_size=%d configured_batch_size=%d fill_ratio=%.3f size_flushes=%d timeout_flushes=%d",
-		b.Name,
-		elapsed.Milliseconds(),
-		b.batchStats.batches,
-		b.batchStats.requests,
-		float64(b.batchStats.batches)/elapsed.Seconds(),
-		float64(b.batchStats.requests)/elapsed.Seconds(),
-		avgBatchSize,
-		b.batchStats.maxBatchSize,
-		b.batchSize,
-		fillRatio,
-		b.batchStats.sizeFlushes,
-		b.batchStats.timeoutFlushes,
-	)
-	b.batchStats = batcherBatchStats{windowStart: now}
-}
-
-func (b *Batcher) startRequestBatchWaitLocked(payload map[string]any) {
 	requestID, ok := canonicalRequestID(payload["request_id"])
 	if !ok {
 		return
@@ -214,6 +156,9 @@ func (b *Batcher) startRequestBatchWaitLocked(payload map[string]any) {
 			attribute.String("node.name", b.Name),
 		)...,
 	)
+	if !span.IsRecording() {
+		return
+	}
 	b.requestSpans[requestID] = span
 }
 

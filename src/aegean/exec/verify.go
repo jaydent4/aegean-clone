@@ -32,7 +32,7 @@ func (e *Exec) flushNextVerify() bool {
 				attribute.Int("gate.stable_seq_num", stableSeqNum),
 			)
 		}
-		if batchPayload, ok := e.replayableBatchInputs[seq]; ok {
+		if batchPayload, ok := e.replayableBatchInputs[seq]; ok && telemetry.DetailedSpansEnabled() {
 			_, verifySpan := telemetry.StartSpanFromPayload(
 				batchPayload,
 				"exec.verify_wait",
@@ -42,7 +42,9 @@ func (e *Exec) flushNextVerify() bool {
 					attribute.Int("batch.seq_num", seq),
 				)...,
 			)
-			pending.verifySpan = verifySpan
+			if verifySpan.IsRecording() {
+				pending.verifySpan = verifySpan
+			}
 		}
 		computeStart := time.Now()
 		token := e.computeStateHash(pending.merkleRoot, pending.outputs, prevHash, seq)
@@ -70,18 +72,21 @@ func (e *Exec) flushNextVerify() bool {
 		if batchPayload, ok := e.replayableBatchInputs[seq]; ok {
 			telemetry.CopyContext(verifyMsg, batchPayload)
 		}
-		log.Printf(
-			"%s: assembled_verify seq_num=%d view_num=%d stable_seq_num=%d prev_hash=%s state_root=%s final_hash=%s output_count=%d verifiers=%d",
-			e.Name,
-			seq,
-			view,
-			stableSeqNum,
-			shortHash(prevHash),
-			shortHash(pending.merkleRoot),
-			shortHash(token),
-			len(pending.outputs),
-			len(e.Verifiers),
-		)
+		timingLogsEnabled := e.timingLogsEnabled()
+		if timingLogsEnabled {
+			log.Printf(
+				"%s: assembled_verify seq_num=%d view_num=%d stable_seq_num=%d prev_hash=%s state_root=%s final_hash=%s output_count=%d verifiers=%d",
+				e.Name,
+				seq,
+				view,
+				stableSeqNum,
+				shortHash(prevHash),
+				shortHash(pending.merkleRoot),
+				shortHash(token),
+				len(pending.outputs),
+				len(e.Verifiers),
+			)
+		}
 		if logExecStateDetails {
 			log.Printf(
 				"%s: assembled verify hash state_delta seq_num=%d view_num=%d state_delta=%v",
@@ -104,7 +109,7 @@ func (e *Exec) flushNextVerify() bool {
 		}
 		sendDuration := time.Since(sendStart)
 		totalDuration := time.Since(verifyStart)
-		if pending.verifySpan != nil {
+		if pending.verifySpan != nil && pending.verifySpan.IsRecording() {
 			pending.verifySpan.SetAttributes(
 				attribute.Int64("exec.verify.compute_hash_us", computeDuration.Microseconds()),
 				attribute.Int64("exec.verify.send_us", sendDuration.Microseconds()),
@@ -113,17 +118,19 @@ func (e *Exec) flushNextVerify() bool {
 				attribute.Int("exec.verify.remote_verifier_count", remoteVerifiers),
 			)
 		}
-		log.Printf(
-			"%s: exec_verify_timing seq_num=%d output_count=%d compute_hash_us=%d send_verify_us=%d total_us=%d verifiers=%d remote_verifiers=%d",
-			e.Name,
-			seq,
-			len(pending.outputs),
-			computeDuration.Microseconds(),
-			sendDuration.Microseconds(),
-			totalDuration.Microseconds(),
-			len(e.Verifiers),
-			remoteVerifiers,
-		)
+		if timingLogsEnabled {
+			log.Printf(
+				"%s: exec_verify_timing seq_num=%d output_count=%d compute_hash_us=%d send_verify_us=%d total_us=%d verifiers=%d remote_verifiers=%d",
+				e.Name,
+				seq,
+				len(pending.outputs),
+				computeDuration.Microseconds(),
+				sendDuration.Microseconds(),
+				totalDuration.Microseconds(),
+				len(e.Verifiers),
+				remoteVerifiers,
+			)
+		}
 		return true
 	}
 	return false
@@ -189,16 +196,18 @@ func (e *Exec) finalizeCommit(seqNum int, pending pendingExecResult, agreedToken
 	e.gcCommittedNestedResponses(pending.outputs)
 	gcDuration := time.Since(gcStart)
 	totalDuration := time.Since(commitStart)
-	log.Printf(
-		"%s: exec_commit_timing seq_num=%d output_count=%d state_update_us=%d response_send_us=%d gc_us=%d total_us=%d",
-		e.Name,
-		seqNum,
-		len(pending.outputs),
-		stateDuration.Microseconds(),
-		responseDuration.Microseconds(),
-		gcDuration.Microseconds(),
-		totalDuration.Microseconds(),
-	)
+	if e.timingLogsEnabled() {
+		log.Printf(
+			"%s: exec_commit_timing seq_num=%d output_count=%d state_update_us=%d response_send_us=%d gc_us=%d total_us=%d",
+			e.Name,
+			seqNum,
+			len(pending.outputs),
+			stateDuration.Microseconds(),
+			responseDuration.Microseconds(),
+			gcDuration.Microseconds(),
+			totalDuration.Microseconds(),
+		)
+	}
 }
 
 func (e *Exec) gcCommittedNestedResponses(outputs []map[string]any) {

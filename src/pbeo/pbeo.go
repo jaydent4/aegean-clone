@@ -246,6 +246,10 @@ func (w *pbeoLearnBatchWindowStats) record(entries int, learned int, duplicates 
 }
 
 func (w *pbeoLearnBatchWindowStats) flush(reason string) {
+	if !telemetry.SummarySpansEnabled() {
+		w.reset(time.Now())
+		return
+	}
 	if w.counts["batches"] == 0 {
 		w.reset(time.Now())
 		return
@@ -345,6 +349,10 @@ func (w *pbeoStateLockWindowStats) recordStateWrite(entries int64, writes int64,
 }
 
 func (w *pbeoStateLockWindowStats) flush(reason string) {
+	if !telemetry.SummarySpansEnabled() {
+		w.reset(time.Now())
+		return
+	}
 	if w.counts["state_read_calls"] == 0 && w.counts["state_write_batches"] == 0 {
 		w.reset(time.Now())
 		return
@@ -446,6 +454,10 @@ func (w *pbeoResponseWindowStats) recordSend(queueDepth int, clients int, queueW
 }
 
 func (w *pbeoResponseWindowStats) flush(reason string) {
+	if !telemetry.SummarySpansEnabled() {
+		w.reset(time.Now())
+		return
+	}
 	if w.counts["enqueued"] == 0 && w.counts["sent_entries"] == 0 {
 		w.reset(time.Now())
 		return
@@ -824,6 +836,9 @@ func (p *PBEO) learnBatch(entries []CommittedEntry) bool {
 }
 
 func (p *PBEO) recordLearnBatchTrace(entries int, learned int, duplicates int, logUpdate time.Duration, processStats pbeoProcessStats, total time.Duration) {
+	if !telemetry.SummarySpansEnabled() {
+		return
+	}
 	p.learnTraceMu.Lock()
 	defer p.learnTraceMu.Unlock()
 	if p.learnTrace == nil {
@@ -836,6 +851,9 @@ func (p *PBEO) recordLearnBatchTrace(entries int, learned int, duplicates int, l
 }
 
 func (p *PBEO) recordStateReadTrace(wait time.Duration, hold time.Duration, total time.Duration) {
+	if !telemetry.SummarySpansEnabled() {
+		return
+	}
 	p.stateTraceMu.Lock()
 	defer p.stateTraceMu.Unlock()
 	if p.stateTrace == nil {
@@ -848,6 +866,9 @@ func (p *PBEO) recordStateReadTrace(wait time.Duration, hold time.Duration, tota
 }
 
 func (p *PBEO) recordStateWriteTrace(entries int64, writes int64, writeBytes int64, wait time.Duration, hold time.Duration, total time.Duration) {
+	if !telemetry.SummarySpansEnabled() {
+		return
+	}
 	p.stateTraceMu.Lock()
 	defer p.stateTraceMu.Unlock()
 	if p.stateTrace == nil {
@@ -860,6 +881,9 @@ func (p *PBEO) recordStateWriteTrace(entries int64, writes int64, writeBytes int
 }
 
 func (p *PBEO) recordResponseEnqueueTrace(depth int, duration time.Duration) {
+	if !telemetry.SummarySpansEnabled() {
+		return
+	}
 	p.responseTraceMu.Lock()
 	defer p.responseTraceMu.Unlock()
 	if p.responseTrace == nil {
@@ -872,6 +896,9 @@ func (p *PBEO) recordResponseEnqueueTrace(depth int, duration time.Duration) {
 }
 
 func (p *PBEO) recordResponseSendTrace(depth int, clients int, queueWait time.Duration, sendDuration time.Duration) {
+	if !telemetry.SummarySpansEnabled() {
+		return
+	}
 	p.responseTraceMu.Lock()
 	defer p.responseTraceMu.Unlock()
 	if p.responseTrace == nil {

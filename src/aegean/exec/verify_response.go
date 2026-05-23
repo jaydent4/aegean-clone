@@ -199,17 +199,19 @@ func (e *Exec) handleVerifyResponse(payload map[string]any) map[string]any {
 	}
 
 	// Case 3: normal commit (same view, token match).
-	log.Printf(
-		"%s: verifier decision=commit seq_num=%d view_num=%d stable_seq_num=%d verifier_id=%s force_sequential=%t token=%s output_count=%d",
-		e.Name,
-		seqNum,
-		view,
-		stableSeqNum,
-		verifierID,
-		forceSequential,
-		shortHash(agreedToken),
-		len(pending.outputs),
-	)
+	if e.timingLogsEnabled() {
+		log.Printf(
+			"%s: verifier decision=commit seq_num=%d view_num=%d stable_seq_num=%d verifier_id=%s force_sequential=%t token=%s output_count=%d",
+			e.Name,
+			seqNum,
+			view,
+			stableSeqNum,
+			verifierID,
+			forceSequential,
+			shortHash(agreedToken),
+			len(pending.outputs),
+		)
+	}
 	if logExecStateDetails {
 		log.Printf(
 			"%s: verifier decision state_delta seq_num=%d decision=commit state_delta=%v",

@@ -3,7 +3,6 @@ package exec
 import (
 	"log"
 	"sync"
-	"time"
 )
 
 type NestedEOReplicator interface {
@@ -158,12 +157,7 @@ func (e *Exec) BufferExactOnceNestedResponse(payload map[string]any) bool {
 		e.nestedDispatchTracker.markCompleted(requestID)
 	}
 
-	bufferTime := time.Now()
-	e.stampParentEOResponseBuffer(payload, bufferTime)
 	buffered := e.BufferNestedResponse(payload)
-	if buffered {
-		e.recordNestedEOResponseTiming(payload, bufferTime)
-	}
 	if ok {
 		e.nestedDispatchTracker.markCompleted(requestID)
 	}
@@ -223,7 +217,6 @@ func (e *Exec) nestedResponseState(payload map[string]any) (string, nestedDispat
 }
 
 func (e *Exec) handlePendingNestedResponse(requestID string, payload map[string]any) (map[string]any, bool) {
-	receiveTime := time.Now()
 	if !e.nestedEO.IsLeader() {
 		if _, ok := e.nestedEO.Leader(); ok {
 			return nestedResponseStatus(requestID, nestedResponseWaitingForLeaderStatus), true
@@ -253,7 +246,6 @@ func (e *Exec) handlePendingNestedResponse(requestID string, payload map[string]
 
 	proposed := cloneMapAny(payload)
 	proposed["shim_quorum_aggregated"] = true
-	e.stampParentEOResponseReceive(proposed, receiveTime)
 	err := e.nestedEO.ProposeResponsePayload(requestID, proposed)
 	if err != nil {
 		e.nestedDispatchTracker.resetPending(requestID)

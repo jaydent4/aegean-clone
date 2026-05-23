@@ -113,6 +113,7 @@ const (
 )
 
 type raftLoopTraceWindowStats struct {
+	enabled        bool
 	component      string
 	nodeName       string
 	selfID         uint64
@@ -127,6 +128,7 @@ type raftLoopTraceWindowStats struct {
 
 func newRaftLoopTraceWindowStats(component string, nodeName string, selfID uint64) *raftLoopTraceWindowStats {
 	w := &raftLoopTraceWindowStats{
+		enabled:   telemetry.SummarySpansEnabled(),
 		component: component,
 		nodeName:  nodeName,
 		selfID:    selfID,
@@ -137,6 +139,9 @@ func newRaftLoopTraceWindowStats(component string, nodeName string, selfID uint6
 
 func (w *raftLoopTraceWindowStats) reset(start time.Time) {
 	w.start = start
+	if !w.enabled {
+		return
+	}
 	w.counts = make(map[string]int64)
 	w.durations = make(map[string]time.Duration)
 	w.durationCounts = make(map[string]int64)
@@ -146,14 +151,14 @@ func (w *raftLoopTraceWindowStats) reset(start time.Time) {
 }
 
 func (w *raftLoopTraceWindowStats) addCount(name string, value int64) {
-	if value == 0 {
+	if !w.enabled || value == 0 {
 		return
 	}
 	w.counts[name] += value
 }
 
 func (w *raftLoopTraceWindowStats) addDuration(name string, duration time.Duration) {
-	if duration <= 0 {
+	if !w.enabled || duration <= 0 {
 		return
 	}
 	w.durations[name] += duration
@@ -164,6 +169,9 @@ func (w *raftLoopTraceWindowStats) addDuration(name string, duration time.Durati
 }
 
 func (w *raftLoopTraceWindowStats) observeGauge(name string, value int) {
+	if !w.enabled {
+		return
+	}
 	v := int64(value)
 	w.lastGauges[name] = v
 	if v > w.maxGauges[name] {
@@ -180,6 +188,9 @@ func (w *raftLoopTraceWindowStats) recordQueues(proposals, prioritySteps, backgr
 }
 
 func (w *raftLoopTraceWindowStats) recordDrain(stats drainReadyStats, duration time.Duration) {
+	if !w.enabled {
+		return
+	}
 	w.addDuration("drain_ready", duration)
 	w.addCount("ready_batches", int64(stats.readyBatches))
 	w.addCount("ready_entries", int64(stats.entries))
@@ -203,12 +214,18 @@ func (w *raftLoopTraceWindowStats) recordDrain(stats drainReadyStats, duration t
 }
 
 func (w *raftLoopTraceWindowStats) maybeFlush(leaderID uint64, reason string) {
+	if !w.enabled {
+		return
+	}
 	if time.Since(w.start) >= raftLoopTraceWindow {
 		w.flush(leaderID, reason)
 	}
 }
 
 func (w *raftLoopTraceWindowStats) flush(leaderID uint64, reason string) {
+	if !w.enabled || !telemetry.SummarySpansEnabled() {
+		return
+	}
 	if w.counts["iterations"] == 0 {
 		w.reset(time.Now())
 		return
@@ -278,6 +295,7 @@ func sortedDurationMapKeys(values map[string]time.Duration) []string {
 }
 
 type raftLearnWorkerTraceWindowStats struct {
+	enabled        bool
 	nodeName       string
 	selfID         uint64
 	start          time.Time
@@ -291,6 +309,7 @@ type raftLearnWorkerTraceWindowStats struct {
 
 func newRaftLearnWorkerTraceWindowStats(nodeName string, selfID uint64) *raftLearnWorkerTraceWindowStats {
 	w := &raftLearnWorkerTraceWindowStats{
+		enabled:  telemetry.SummarySpansEnabled(),
 		nodeName: nodeName,
 		selfID:   selfID,
 	}
@@ -300,6 +319,9 @@ func newRaftLearnWorkerTraceWindowStats(nodeName string, selfID uint64) *raftLea
 
 func (w *raftLearnWorkerTraceWindowStats) reset(start time.Time) {
 	w.start = start
+	if !w.enabled {
+		return
+	}
 	w.counts = make(map[string]int64)
 	w.durations = make(map[string]time.Duration)
 	w.durationCounts = make(map[string]int64)
@@ -309,14 +331,14 @@ func (w *raftLearnWorkerTraceWindowStats) reset(start time.Time) {
 }
 
 func (w *raftLearnWorkerTraceWindowStats) addCount(name string, value int64) {
-	if value == 0 {
+	if !w.enabled || value == 0 {
 		return
 	}
 	w.counts[name] += value
 }
 
 func (w *raftLearnWorkerTraceWindowStats) addDuration(name string, duration time.Duration) {
-	if duration <= 0 {
+	if !w.enabled || duration <= 0 {
 		return
 	}
 	w.durations[name] += duration
@@ -327,6 +349,9 @@ func (w *raftLearnWorkerTraceWindowStats) addDuration(name string, duration time
 }
 
 func (w *raftLearnWorkerTraceWindowStats) observeGauge(name string, value int) {
+	if !w.enabled {
+		return
+	}
 	v := int64(value)
 	w.lastGauges[name] = v
 	if v > w.maxGauges[name] {
@@ -335,6 +360,9 @@ func (w *raftLearnWorkerTraceWindowStats) observeGauge(name string, value int) {
 }
 
 func (w *raftLearnWorkerTraceWindowStats) recordBatch(batch []asyncLearnRequest, queueDepthBeforeDrain int, queueDepthAfterDrain int, callbackDuration time.Duration) {
+	if !w.enabled {
+		return
+	}
 	w.addCount("batches", 1)
 	w.addCount("entries", int64(len(batch)))
 	w.addDuration("callback", callbackDuration)
@@ -348,12 +376,18 @@ func (w *raftLearnWorkerTraceWindowStats) recordBatch(batch []asyncLearnRequest,
 }
 
 func (w *raftLearnWorkerTraceWindowStats) maybeFlush(leaderID uint64, reason string) {
+	if !w.enabled {
+		return
+	}
 	if time.Since(w.start) >= raftLoopTraceWindow {
 		w.flush(leaderID, reason)
 	}
 }
 
 func (w *raftLearnWorkerTraceWindowStats) flush(leaderID uint64, reason string) {
+	if !w.enabled || !telemetry.SummarySpansEnabled() {
+		return
+	}
 	if w.counts["batches"] == 0 {
 		w.reset(time.Now())
 		return

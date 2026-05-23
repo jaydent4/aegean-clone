@@ -54,19 +54,22 @@ func (e *Exec) flushNextBatch() bool {
 			}
 			delete(msg, "_batch_queue_wait_span")
 		}
-		_, batchServiceSpan := telemetry.StartSpanFromPayload(
-			msg,
-			"exec.batch_service_time",
-			append(
-				telemetry.AttrsFromPayload(msg),
-				attribute.String("node.name", e.Name),
-				attribute.Int("batch.seq_num", seq),
-				attribute.Int("batch.request_count", requestCount),
-				attribute.Int("parallel_batch.count", len(parallelBatches)),
-				attribute.Int("gate.next_verify_seq", nextVerifySeq),
-				attribute.Int("gate.stable_seq_num", stableSeq),
-			)...,
-		)
+		var batchServiceSpan trace.Span
+		if telemetry.DetailedSpansEnabled() {
+			_, batchServiceSpan = telemetry.StartSpanFromPayload(
+				msg,
+				"exec.batch_service_time",
+				append(
+					telemetry.AttrsFromPayload(msg),
+					attribute.String("node.name", e.Name),
+					attribute.Int("batch.seq_num", seq),
+					attribute.Int("batch.request_count", requestCount),
+					attribute.Int("parallel_batch.count", len(parallelBatches)),
+					attribute.Int("gate.next_verify_seq", nextVerifySeq),
+					attribute.Int("gate.stable_seq_num", stableSeq),
+				)...,
+			)
+		}
 		for parallelBatchIdx, batch := range parallelBatches {
 			for requestIdx, request := range batch {
 				e.endRequestSpan(request["request_id"], batchBufferWaitSpanContextKey)
@@ -74,7 +77,9 @@ func (e *Exec) flushNextBatch() bool {
 				_ = requestIdx
 			}
 		}
-		msg["_batch_service_span"] = batchServiceSpan
+		if batchServiceSpan != nil && batchServiceSpan.IsRecording() {
+			msg["_batch_service_span"] = batchServiceSpan
+		}
 		e.batchExecCh <- batchExecutionTask{payload: msg}
 	}
 	return true
@@ -166,7 +171,7 @@ func (e *Exec) executeBatch(payload map[string]any) *batchExecutionResult {
 		}
 		delete(payload, "_batch_service_span")
 	}
-	if batchServiceSpan != nil {
+	if batchServiceSpan != nil && batchServiceSpan.IsRecording() {
 		batchServiceSpan.SetAttributes(
 			attribute.Int64("exec.batch.context_us", contextDuration.Microseconds()),
 			attribute.Int64("exec.batch.begin_merkle_us", beginMerkleDuration.Microseconds()),
@@ -208,31 +213,34 @@ func (e *Exec) executeBatch(payload map[string]any) *batchExecutionResult {
 			)
 		}
 	}
-	log.Printf(
-		"%s: exec_batch_timing seq_num=%d request_count=%d parallel_batches=%d output_count=%d force_sequential=%t context_us=%d begin_merkle_us=%d execute_us=%d worker_calls=%d blocked_responses=%d nested_waits=%d nested_wait_us=%d worker_exec_us=%d max_worker_exec_us=%d pending_new_keys=%d base_keys=%d state_delta_keys=%d finalize_merkle_us=%d snapshot_us=%d state_keys=%d total_us=%d",
-		e.Name,
-		seqNum,
-		requestCount,
-		len(parallelBatches),
-		len(outputs),
-		forceSequential,
-		contextDuration.Microseconds(),
-		beginMerkleDuration.Microseconds(),
-		executeDuration.Microseconds(),
-		schedulerStats.workerCalls,
-		schedulerStats.blockedResponses,
-		schedulerStats.nestedWaits,
-		schedulerStats.nestedWait.Microseconds(),
-		schedulerStats.workerExec.Microseconds(),
-		schedulerStats.maxWorkerExec.Microseconds(),
-		pendingNewKeys,
-		baseKeys,
-		stateDeltaKeys,
-		finalizeMerkleDuration.Microseconds(),
-		snapshotDuration.Microseconds(),
-		stateKeys,
-		totalDuration.Microseconds(),
-	)
+	timingLogsEnabled := e.timingLogsEnabled()
+	if timingLogsEnabled {
+		log.Printf(
+			"%s: exec_batch_timing seq_num=%d request_count=%d parallel_batches=%d output_count=%d force_sequential=%t context_us=%d begin_merkle_us=%d execute_us=%d worker_calls=%d blocked_responses=%d nested_waits=%d nested_wait_us=%d worker_exec_us=%d max_worker_exec_us=%d pending_new_keys=%d base_keys=%d state_delta_keys=%d finalize_merkle_us=%d snapshot_us=%d state_keys=%d total_us=%d",
+			e.Name,
+			seqNum,
+			requestCount,
+			len(parallelBatches),
+			len(outputs),
+			forceSequential,
+			contextDuration.Microseconds(),
+			beginMerkleDuration.Microseconds(),
+			executeDuration.Microseconds(),
+			schedulerStats.workerCalls,
+			schedulerStats.blockedResponses,
+			schedulerStats.nestedWaits,
+			schedulerStats.nestedWait.Microseconds(),
+			schedulerStats.workerExec.Microseconds(),
+			schedulerStats.maxWorkerExec.Microseconds(),
+			pendingNewKeys,
+			baseKeys,
+			stateDeltaKeys,
+			finalizeMerkleDuration.Microseconds(),
+			snapshotDuration.Microseconds(),
+			stateKeys,
+			totalDuration.Microseconds(),
+		)
+	}
 	if nestedTimingStats.count > 0 {
 		geoTiming := nestedTimingStats.child("geo")
 		rateTiming := nestedTimingStats.child("rate")
@@ -309,7 +317,7 @@ func (e *Exec) executeBatch(payload map[string]any) *batchExecutionResult {
 			rateTiming.missingChildRequestStamp+rateTiming.negativeChildDuration,
 		)
 	}
-	if schedulerWorkflowStat(schedulerStats, "hotel_search_calls") > 0 {
+	if timingLogsEnabled && schedulerWorkflowStat(schedulerStats, "hotel_search_calls") > 0 {
 		log.Printf(
 			"%s: hotel_search_workflow_timing seq_num=%d calls=%d stage_initial=%d stage_await_geo=%d stage_await_rate=%d blocked=%d complete=%d wait_again=%d empty_geo=%d dispatches=%d nested_entries=%d total_us=%d payload_us=%d stage_get_us=%d normalize_us=%d validate_us=%d context_set_us=%d context_payload_us=%d nested_build_us=%d dispatch_us=%d get_nested_us=%d nested_ready_us=%d nested_select_us=%d ledger_us=%d ledger_key_us=%d ledger_read_us=%d ledger_state_read_us=%d ledger_read_redis_client_us=%d ledger_redis_get_us=%d ledger_decode_us=%d ledger_mutate_us=%d ledger_encode_us=%d ledger_write_us=%d ledger_state_write_us=%d ledger_write_redis_client_us=%d ledger_redis_set_us=%d clear_context_us=%d response_build_us=%d",
 			e.Name,

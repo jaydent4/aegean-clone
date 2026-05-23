@@ -86,22 +86,20 @@ type raftConsensusBox struct {
 	leaderID    atomic.Uint64
 	learnedSlot uint64
 
-	proposals           chan proposalRequest
-	prioritySteps       chan stepRequest
-	backgroundSteps     chan stepRequest
-	sendQueues          map[uint64]chan sendRequest
-	sendBatchSize       int
-	learnBatchSize      int
-	learnQueue          chan asyncLearnRequest
-	unreachable         chan unreachablePeer
-	spans               map[string]trace.Span
-	commitWaitSpans     map[string]trace.Span
-	ackCommitSpans      map[uint64][]pendingCommitSignal
-	responseTimings     map[string]raftResponseProposalTiming
-	responseTimingStats raftResponseTimingStats
-	stopOnce            sync.Once
-	stopCh              chan struct{}
-	doneCh              chan struct{}
+	proposals       chan proposalRequest
+	prioritySteps   chan stepRequest
+	backgroundSteps chan stepRequest
+	sendQueues      map[uint64]chan sendRequest
+	sendBatchSize   int
+	learnBatchSize  int
+	learnQueue      chan asyncLearnRequest
+	unreachable     chan unreachablePeer
+	spans           map[string]trace.Span
+	commitWaitSpans map[string]trace.Span
+	ackCommitSpans  map[uint64][]pendingCommitSignal
+	stopOnce        sync.Once
+	stopCh          chan struct{}
+	doneCh          chan struct{}
 }
 
 const (
@@ -114,6 +112,7 @@ const (
 )
 
 type raftLoopTraceWindowStats struct {
+	enabled        bool
 	component      string
 	nodeName       string
 	selfID         uint64
@@ -128,6 +127,7 @@ type raftLoopTraceWindowStats struct {
 
 func newRaftLoopTraceWindowStats(component string, nodeName string, selfID uint64) *raftLoopTraceWindowStats {
 	w := &raftLoopTraceWindowStats{
+		enabled:   telemetry.SummarySpansEnabled(),
 		component: component,
 		nodeName:  nodeName,
 		selfID:    selfID,
@@ -138,6 +138,9 @@ func newRaftLoopTraceWindowStats(component string, nodeName string, selfID uint6
 
 func (w *raftLoopTraceWindowStats) reset(start time.Time) {
 	w.start = start
+	if !w.enabled {
+		return
+	}
 	w.counts = make(map[string]int64)
 	w.durations = make(map[string]time.Duration)
 	w.durationCounts = make(map[string]int64)
@@ -147,14 +150,14 @@ func (w *raftLoopTraceWindowStats) reset(start time.Time) {
 }
 
 func (w *raftLoopTraceWindowStats) addCount(name string, value int64) {
-	if value == 0 {
+	if !w.enabled || value == 0 {
 		return
 	}
 	w.counts[name] += value
 }
 
 func (w *raftLoopTraceWindowStats) addDuration(name string, duration time.Duration) {
-	if duration <= 0 {
+	if !w.enabled || duration <= 0 {
 		return
 	}
 	w.durations[name] += duration
@@ -165,6 +168,9 @@ func (w *raftLoopTraceWindowStats) addDuration(name string, duration time.Durati
 }
 
 func (w *raftLoopTraceWindowStats) observeGauge(name string, value int) {
+	if !w.enabled {
+		return
+	}
 	v := int64(value)
 	w.lastGauges[name] = v
 	if v > w.maxGauges[name] {
@@ -181,6 +187,9 @@ func (w *raftLoopTraceWindowStats) recordQueues(proposals, prioritySteps, backgr
 }
 
 func (w *raftLoopTraceWindowStats) recordDrain(stats drainReadyStats, duration time.Duration) {
+	if !w.enabled {
+		return
+	}
 	w.addDuration("drain_ready", duration)
 	w.addCount("ready_batches", int64(stats.readyBatches))
 	w.addCount("ready_entries", int64(stats.entries))
@@ -207,12 +216,18 @@ func (w *raftLoopTraceWindowStats) recordDrain(stats drainReadyStats, duration t
 }
 
 func (w *raftLoopTraceWindowStats) maybeFlush(leaderID uint64, reason string) {
+	if !w.enabled {
+		return
+	}
 	if time.Since(w.start) >= raftLoopTraceWindow {
 		w.flush(leaderID, reason)
 	}
 }
 
 func (w *raftLoopTraceWindowStats) flush(leaderID uint64, reason string) {
+	if !w.enabled || !telemetry.SummarySpansEnabled() {
+		return
+	}
 	if w.counts["iterations"] == 0 {
 		w.reset(time.Now())
 		return
@@ -368,29 +383,27 @@ func newRaftConsensusBox(cfg BoxConfig, onLearn LearnFunc) (ConsensusBox, error)
 	}
 
 	box := &raftConsensusBox{
-		name:                cfg.Name,
-		selfID:              selfID,
-		peerIDs:             peerIDs,
-		peers:               peers,
-		send:                cfg.SendRaft,
-		sendBatch:           sendBatch,
-		learn:               onLearn,
-		learnBatch:          learnBatch,
-		proposals:           make(chan proposalRequest, raftProposalQueueSize),
-		prioritySteps:       make(chan stepRequest, 1024),
-		backgroundSteps:     make(chan stepRequest, 1024),
-		sendQueues:          make(map[uint64]chan sendRequest),
-		sendBatchSize:       sendBatchSize,
-		learnBatchSize:      learnBatchSize,
-		learnQueue:          make(chan asyncLearnRequest, raftAsyncLearnQueueSize),
-		unreachable:         make(chan unreachablePeer, 1024),
-		spans:               make(map[string]trace.Span),
-		commitWaitSpans:     make(map[string]trace.Span),
-		ackCommitSpans:      make(map[uint64][]pendingCommitSignal),
-		responseTimings:     make(map[string]raftResponseProposalTiming),
-		responseTimingStats: newRaftResponseTimingStats(time.Now()),
-		stopCh:              make(chan struct{}),
-		doneCh:              make(chan struct{}),
+		name:            cfg.Name,
+		selfID:          selfID,
+		peerIDs:         peerIDs,
+		peers:           peers,
+		send:            cfg.SendRaft,
+		sendBatch:       sendBatch,
+		learn:           onLearn,
+		learnBatch:      learnBatch,
+		proposals:       make(chan proposalRequest, raftProposalQueueSize),
+		prioritySteps:   make(chan stepRequest, 1024),
+		backgroundSteps: make(chan stepRequest, 1024),
+		sendQueues:      make(map[uint64]chan sendRequest),
+		sendBatchSize:   sendBatchSize,
+		learnBatchSize:  learnBatchSize,
+		learnQueue:      make(chan asyncLearnRequest, raftAsyncLearnQueueSize),
+		unreachable:     make(chan unreachablePeer, 1024),
+		spans:           make(map[string]trace.Span),
+		commitWaitSpans: make(map[string]trace.Span),
+		ackCommitSpans:  make(map[uint64][]pendingCommitSignal),
+		stopCh:          make(chan struct{}),
+		doneCh:          make(chan struct{}),
 	}
 
 	for id := range peers {
@@ -493,44 +506,6 @@ func (b *raftConsensusBox) enqueueProposal(request proposalRequest) error {
 	}
 }
 
-func (b *raftConsensusBox) rememberResponseProposalTimings(entry Entry, loopStart time.Time, rawProposeDone time.Time, initialDrainDone time.Time) {
-	items := entryItems(entry)
-	groupSize := len(items)
-	if groupSize == 0 {
-		return
-	}
-	timing := raftResponseProposalTiming{
-		loopStart:        loopStart,
-		rawProposeDone:   rawProposeDone,
-		initialDrainDone: initialDrainDone,
-		groupSize:        groupSize,
-	}
-	for _, item := range items {
-		if item.RequestID == "" || !eoNestedTraceEnabled(item.Response) {
-			continue
-		}
-		b.responseTimings[item.RequestID] = timing
-	}
-}
-
-func (b *raftConsensusBox) stampLearnedResponseProposalTimings(entry *Entry, learnTime time.Time) {
-	if entry == nil {
-		return
-	}
-	for _, item := range entryItems(*entry) {
-		timing, ok := b.responseTimings[item.RequestID]
-		if !ok {
-			continue
-		}
-		delete(b.responseTimings, item.RequestID)
-		stampPayloadNestedTiming(item.Response, nestedParentEOResponseRaftRawDoneUnixNanoKey, timing.rawProposeDone)
-		stampPayloadNestedTiming(item.Response, nestedParentEOResponseRaftDrainDoneUnixNanoKey, timing.initialDrainDone)
-		setPayloadNestedTimingInt(item.Response, nestedParentEOResponseRaftProposalGroupSizeKey, timing.groupSize)
-		b.responseTimingStats.record(timing, learnTime)
-	}
-	b.maybeLogRaftResponseTiming(learnTime, "learn")
-}
-
 func (b *raftConsensusBox) HandleMessage(message raftpb.Message) error {
 	request := stepRequest{message: message}
 	queue := b.stepQueue(message)
@@ -575,7 +550,6 @@ func (b *raftConsensusBox) runLearnWorker() {
 		case <-b.stopCh:
 			return
 		case request := <-b.learnQueue:
-			stampEntryNestedTiming(request.entry, nestedParentEOResponseLearnWorkerUnixNanoKey, time.Now())
 			batch = append(batch[:0], request)
 		drain:
 			for len(batch) < b.learnBatchSize {
@@ -583,7 +557,6 @@ func (b *raftConsensusBox) runLearnWorker() {
 				case <-b.stopCh:
 					return
 				case next := <-b.learnQueue:
-					stampEntryNestedTiming(next.entry, nestedParentEOResponseLearnWorkerUnixNanoKey, time.Now())
 					batch = append(batch, next)
 				default:
 					break drain
@@ -615,9 +588,6 @@ func (b *raftConsensusBox) run(rawNode *raft.RawNode, storage *raft.MemoryStorag
 
 	loopTrace := newRaftLoopTraceWindowStats("eo", b.name, b.selfID)
 	defer loopTrace.flush(b.leaderID.Load(), "stop")
-	defer func() {
-		b.maybeLogRaftResponseTiming(time.Now(), "stop")
-	}()
 
 	b.drainReady(rawNode, storage)
 
@@ -667,7 +637,6 @@ func (b *raftConsensusBox) run(rawNode *raft.RawNode, storage *raft.MemoryStorag
 		case request := <-b.proposals:
 			selectWait := time.Since(selectStart)
 			handlerStart := time.Now()
-			stampEntryNestedTiming(request.entry, nestedParentEOResponseRaftLoopUnixNanoKey, handlerStart)
 			proposalSpan := b.startProposalLoopTrace(request.entry)
 			b.rememberRequestTrace(request.entry, request.span)
 			marshalStart := time.Now()
@@ -676,22 +645,17 @@ func (b *raftConsensusBox) run(rawNode *raft.RawNode, storage *raft.MemoryStorag
 			var proposeDuration time.Duration
 			var drainStats drainReadyStats
 			var drainDuration time.Duration
-			var rawProposeDone time.Time
-			var initialDrainDone time.Time
 			if err == nil {
 				addRequestTraceEvent(request.span, "propose")
 				proposeStart := time.Now()
 				err = rawNode.Propose(data)
-				rawProposeDone = time.Now()
 				proposeDuration = time.Since(proposeStart)
 				if err != nil {
 					endRequestTrace(request.span, "propose_error")
 					b.forgetRequestTrace(request.entry)
 				}
 				drainStats, drainDuration = b.drainReady(rawNode, storage)
-				initialDrainDone = time.Now()
 				if err == nil {
-					b.rememberResponseProposalTimings(request.entry, handlerStart, rawProposeDone, initialDrainDone)
 					b.startCommitWaitTrace(request.entry)
 				}
 			} else {
@@ -716,7 +680,6 @@ func (b *raftConsensusBox) run(rawNode *raft.RawNode, storage *raft.MemoryStorag
 			loopTrace.addDuration("raw_propose", proposeDuration)
 			loopTrace.recordDrain(drainStats, drainDuration)
 			loopTrace.recordQueues(len(b.proposals), len(b.prioritySteps), len(b.backgroundSteps), len(b.unreachable), len(b.learnQueue))
-			b.maybeLogRaftResponseTiming(time.Now(), "proposal")
 			loopTrace.maybeFlush(b.leaderID.Load(), "window")
 		case unreachable := <-b.unreachable:
 			selectWait := time.Since(selectStart)
@@ -1038,16 +1001,12 @@ func (b *raftConsensusBox) learnCommittedEntry(rawNode *raft.RawNode, entry raft
 			return
 		}
 		b.learnedSlot++
-		learnTime := time.Now()
-		b.stampLearnedResponseProposalTimings(&value, learnTime)
-		stampEntryNestedTiming(value, nestedParentEOResponseRaftLearnUnixNanoKey, learnTime)
 		b.finishCommittedRequestTrace(b.learnedSlot, value)
 		cloneStart := time.Now()
 		cloned := cloneEntry(value)
 		if stats != nil {
 			stats.learnCloneNanos += time.Since(cloneStart).Nanoseconds()
 		}
-		stampEntryNestedTiming(cloned, nestedParentEOResponseLearnQueueUnixNanoKey, time.Now())
 		request := asyncLearnRequest{slot: b.learnedSlot, entry: cloned}
 		enqueueStart := time.Now()
 		select {

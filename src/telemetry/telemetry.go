@@ -20,6 +20,12 @@ const payloadCarrierKey = "_otel"
 
 var textMapPropagator = propagation.TraceContext{}
 
+const (
+	traceContextEnv = "AEGEAN_TRACE_CONTEXT"
+	traceSummaryEnv = "AEGEAN_TRACE_SUMMARY"
+	traceVerboseEnv = "AEGEAN_TRACE_VERBOSE"
+)
+
 func Init(ctx context.Context, serviceName string, attrs ...attribute.KeyValue) func(context.Context) error {
 	if os.Getenv("AEGEAN_DISABLE_TRACING") == "1" {
 		log.Printf("telemetry disabled: AEGEAN_DISABLE_TRACING=1")
@@ -72,7 +78,19 @@ func Tracer(name string) trace.Tracer {
 }
 
 func DetailedSpansEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("AEGEAN_TRACE_VERBOSE"))) {
+	return envEnabled(traceVerboseEnv)
+}
+
+func ContextPropagationEnabled() bool {
+	return DetailedSpansEnabled() || envEnabled(traceContextEnv)
+}
+
+func SummarySpansEnabled() bool {
+	return DetailedSpansEnabled() || envEnabled(traceSummaryEnv)
+}
+
+func envEnabled(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
 	case "1", "true", "yes", "on":
 		return true
 	default:
@@ -82,10 +100,11 @@ func DetailedSpansEnabled() bool {
 
 func StartSpanFromPayload(payload map[string]any, name string, attrs ...attribute.KeyValue) (context.Context, trace.Span) {
 	ctx := context.Background()
-	if payload != nil {
+	detailed := DetailedSpansEnabled()
+	if payload != nil && (detailed || ContextPropagationEnabled()) {
 		ctx = ExtractContext(ctx, payload)
 	}
-	if !DetailedSpansEnabled() {
+	if !detailed {
 		return ctx, trace.SpanFromContext(ctx)
 	}
 	ctx, span := Tracer("aegean").Start(ctx, name, trace.WithAttributes(attrs...))
@@ -94,10 +113,11 @@ func StartSpanFromPayload(payload map[string]any, name string, attrs ...attribut
 
 func StartLocalSpanFromPayload(payload map[string]any, name string, attrs ...attribute.KeyValue) (context.Context, trace.Span) {
 	ctx := context.Background()
-	if payload != nil {
+	detailed := DetailedSpansEnabled()
+	if payload != nil && (detailed || ContextPropagationEnabled()) {
 		ctx = ExtractContext(ctx, payload)
 	}
-	if !DetailedSpansEnabled() {
+	if !detailed {
 		return ctx, trace.SpanFromContext(ctx)
 	}
 	ctx, span := Tracer("aegean").Start(ctx, name, trace.WithAttributes(attrs...))
@@ -108,6 +128,9 @@ func InjectContext(ctx context.Context, payload map[string]any) {
 	if payload == nil {
 		return
 	}
+	if !ContextPropagationEnabled() {
+		return
+	}
 	carrier := payloadCarrier(payload)
 	textMapPropagator.Inject(ctx, carrier)
 }
@@ -116,12 +139,18 @@ func CopyContext(dst, src map[string]any) {
 	if dst == nil || src == nil {
 		return
 	}
+	if !ContextPropagationEnabled() {
+		return
+	}
 	ctx := ExtractContext(context.Background(), src)
 	InjectContext(ctx, dst)
 }
 
 func ExtractContext(ctx context.Context, payload map[string]any) context.Context {
 	if payload == nil {
+		return ctx
+	}
+	if !ContextPropagationEnabled() {
 		return ctx
 	}
 	return textMapPropagator.Extract(ctx, payloadCarrier(payload))

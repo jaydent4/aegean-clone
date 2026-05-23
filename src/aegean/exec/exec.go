@@ -3,6 +3,7 @@ package exec
 import (
 	"fmt"
 	"log"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -24,6 +25,7 @@ const requestVerifyGateWaitSpanContextKey = "request_verify_gate_wait_span"
 const requestVerifyWaitSpanContextKey = "request_verify_wait_span"
 const postNestedVerifyGateWaitSpanContextKey = "post_nested_verify_gate_wait_span"
 const requestBatchSeqContextKey = "request_batch_seq"
+const enableLoggingEnv = "AEGEAN_ENABLE_LOGGING"
 
 type pendingExecResult struct {
 	outputs    []map[string]any
@@ -145,13 +147,28 @@ type Exec struct {
 	nestedDispatchTracker *nestedDispatchTracker
 	nestedTimingMu        sync.Mutex
 	nestedResponseTimings map[int]*nestedResponseTimingStats
-	nestedEOResponseStats *nestedEOResponseTimingStats
 	// Request execution hook
 	ExecuteRequest ExecuteRequestFunc
 }
 
 func (e *Exec) GetRunConfig() map[string]any {
 	return e.RunConfig
+}
+
+func (e *Exec) timingLogsEnabled() bool {
+	if e == nil {
+		return false
+	}
+	return loggingEnabledFromEnv()
+}
+
+func loggingEnabledFromEnv() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(enableLoggingEnv))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 func NewExec(name string, verifiers []string, peers []string, verifierCh chan<- map[string]any, shimCh chan<- map[string]any, verifyResponseQuorumSize int, executeRequest ExecuteRequestFunc, initStateFn InitStateFunc, runConfig map[string]any) *Exec {
@@ -214,7 +231,6 @@ func NewExec(name string, verifiers []string, peers []string, verifierCh chan<- 
 		coordStats:            coordinatorStats{windowStart: time.Now()},
 		nestedDispatchTracker: newNestedDispatchTracker(),
 		nestedResponseTimings: make(map[int]*nestedResponseTimingStats),
-		nestedEOResponseStats: newNestedEOResponseTimingStats(time.Now()),
 	}
 	exec.verifyResponseQuorum = common.NewQuorumHelper(verifyResponseQuorumSize)
 	exec.storeCheckpoint(0, stable.PrevHash, stable.KVStore, stable.MerkleRoot)
@@ -369,6 +385,9 @@ func (e *Exec) endRequestDispatchWait(request map[string]any) {
 }
 
 func (e *Exec) startRequestSpan(request map[string]any, contextKey string, spanName string, attrs ...attribute.KeyValue) {
+	if !telemetry.DetailedSpansEnabled() {
+		return
+	}
 	requestID, ok := canonicalRequestID(request["request_id"])
 	if !ok {
 		return
@@ -387,6 +406,9 @@ func (e *Exec) startRequestSpan(request map[string]any, contextKey string, spanN
 			attrs...,
 		)...,
 	)
+	if !span.IsRecording() {
+		return
+	}
 	_ = e.SetRequestContextValue(requestID, contextKey, span)
 }
 
@@ -506,22 +528,26 @@ func (e *Exec) applyIngressEvent(ev ingressEvent) {
 			if queueDepth < 0 {
 				queueDepth = 0
 			}
-			_, batchQueueSpan := telemetry.StartSpanFromPayload(
-				ev.payload,
-				"exec.batch_queue_wait",
-				append(
-					telemetry.AttrsFromPayload(ev.payload),
-					attribute.String("node.name", e.Name),
-					attribute.Int("batch.seq_num", seqNum),
-					attribute.Int("batch.request_count", requestCount),
-					attribute.Int("parallel_batch.count", len(parallelBatches)),
-					attribute.Int("batch.queue_depth_on_arrival", queueDepth),
-					attribute.Int("batch.next_batch_seq_on_arrival", nextBatchSeq),
-					attribute.Int("batch.stable_seq_on_arrival", stableSeq),
-					attribute.Bool("batch.executing_on_arrival", batchExecuting),
-				)...,
-			)
-			ev.payload["_batch_queue_wait_span"] = batchQueueSpan
+			if telemetry.DetailedSpansEnabled() {
+				_, batchQueueSpan := telemetry.StartSpanFromPayload(
+					ev.payload,
+					"exec.batch_queue_wait",
+					append(
+						telemetry.AttrsFromPayload(ev.payload),
+						attribute.String("node.name", e.Name),
+						attribute.Int("batch.seq_num", seqNum),
+						attribute.Int("batch.request_count", requestCount),
+						attribute.Int("parallel_batch.count", len(parallelBatches)),
+						attribute.Int("batch.queue_depth_on_arrival", queueDepth),
+						attribute.Int("batch.next_batch_seq_on_arrival", nextBatchSeq),
+						attribute.Int("batch.stable_seq_on_arrival", stableSeq),
+						attribute.Bool("batch.executing_on_arrival", batchExecuting),
+					)...,
+				)
+				if batchQueueSpan.IsRecording() {
+					ev.payload["_batch_queue_wait_span"] = batchQueueSpan
+				}
+			}
 			for parallelBatchIdx, batch := range parallelBatches {
 				for requestIdx, request := range batch {
 					e.startRequestSpan(

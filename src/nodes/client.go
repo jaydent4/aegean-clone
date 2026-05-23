@@ -1,16 +1,19 @@
 package nodes
 
 import (
-	"aegean/common"
-	netx "aegean/net"
-	"aegean/telemetry"
+	"context"
 	"fmt"
 	"log"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"aegean/common"
+	netx "aegean/net"
+	"aegean/telemetry"
+
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type Client struct {
@@ -71,17 +74,24 @@ func (c *Client) HandleMessage(payload map[string]any) map[string]any {
 }
 
 func (c *Client) handleRequest(payload map[string]any) map[string]any {
-	ctx, span := telemetry.StartSpanFromPayload(
-		payload,
-		"client.dispatch_request",
-		append(telemetry.AttrsFromPayload(payload), attribute.String("node.name", c.Name))...,
-	)
-	defer span.End()
+	ctx := context.Background()
+	var span trace.Span
+	if telemetry.DetailedSpansEnabled() {
+		ctx, span = telemetry.StartSpanFromPayload(
+			payload,
+			"client.dispatch_request",
+			append(telemetry.AttrsFromPayload(payload), attribute.String("node.name", c.Name))...,
+		)
+		if span.IsRecording() {
+			defer span.End()
+		}
+	}
 
 	requestID := atomic.AddUint64(&c.requestSeq, 1)
 	requestKey := toKey(requestID)
-
-	span.SetAttributes(attribute.String("request.id", requestKey))
+	if span != nil && span.IsRecording() {
+		span.SetAttributes(attribute.String("request.id", requestKey))
+	}
 
 	doneCh := make(chan map[string]any, 1)
 	c.mu.Lock()
