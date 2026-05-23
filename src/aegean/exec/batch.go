@@ -82,7 +82,6 @@ func (e *Exec) flushNextBatch() bool {
 
 func (e *Exec) executeBatch(payload map[string]any) *batchExecutionResult {
 	totalStart := time.Now()
-	defer recordExecProbeDuration(e.bottleneckProbe, "Exec.executeBatch", totalStart)
 
 	seqNum := common.GetInt(payload, "seq_num")
 	parallelBatchesAny, _ := payload["parallel_batches"]
@@ -278,28 +277,6 @@ func (e *Exec) executeBatch(payload map[string]any) *batchExecutionResult {
 			rateTiming.missingBackendTimestamp+rateTiming.negativeBackendDuration,
 			rateTiming.missingParentShimStamp+rateTiming.missingParentQuorumStamp+rateTiming.negativeParentDuration,
 			rateTiming.missingChildReturnStamp+rateTiming.negativeChildDuration,
-		)
-		log.Printf(
-			"%s: nested_eo_response_timing seq_num=%d response_count=%d geo_count=%d geo_parent_quorum_to_handle_us=%d geo_parent_handle_to_eo_propose_us=%d geo_parent_eo_propose_to_buffer_us=%d geo_max_parent_quorum_to_handle_us=%d geo_max_parent_handle_to_eo_propose_us=%d geo_max_parent_eo_propose_to_buffer_us=%d geo_missing_parent_eo_ts=%d rate_count=%d rate_parent_quorum_to_handle_us=%d rate_parent_handle_to_eo_propose_us=%d rate_parent_eo_propose_to_buffer_us=%d rate_max_parent_quorum_to_handle_us=%d rate_max_parent_handle_to_eo_propose_us=%d rate_max_parent_eo_propose_to_buffer_us=%d rate_missing_parent_eo_ts=%d",
-			e.Name,
-			seqNum,
-			nestedTimingStats.count,
-			geoTiming.count,
-			geoTiming.parentQuorumToHandle.Microseconds(),
-			geoTiming.parentHandleToEOPropose.Microseconds(),
-			geoTiming.parentEOProposeToBuffer.Microseconds(),
-			geoTiming.maxParentQuorumToHandle.Microseconds(),
-			geoTiming.maxParentHandleToEOProp.Microseconds(),
-			geoTiming.maxParentEOPropToBuffer.Microseconds(),
-			geoTiming.missingParentEOStamp+geoTiming.negativeParentEODuration,
-			rateTiming.count,
-			rateTiming.parentQuorumToHandle.Microseconds(),
-			rateTiming.parentHandleToEOPropose.Microseconds(),
-			rateTiming.parentEOProposeToBuffer.Microseconds(),
-			rateTiming.maxParentQuorumToHandle.Microseconds(),
-			rateTiming.maxParentHandleToEOProp.Microseconds(),
-			rateTiming.maxParentEOPropToBuffer.Microseconds(),
-			rateTiming.missingParentEOStamp+rateTiming.negativeParentEODuration,
 		)
 	}
 	if nestedArrivalStats.count > 0 {

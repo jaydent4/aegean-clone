@@ -166,61 +166,14 @@ func (e *EO) runResponseBatcher() {
 	defer close(e.responseBatchDone)
 
 	batch := make([]responseProposal, 0, e.responseBatchSize)
-	windowStart := time.Now()
-	var windowBatches int64
-	var windowResponses int64
-	var maxBatchSize int
-	var maxQueueDepth int
-
-	recordBatch := func(batchSize int, queueDepthBeforeDrain int, queueDepthAfterDrain int) {
-		if !eoRaftWindowLogsEnabled() {
-			return
-		}
-		windowBatches++
-		windowResponses += int64(batchSize)
-		if batchSize > maxBatchSize {
-			maxBatchSize = batchSize
-		}
-		if queueDepthBeforeDrain > maxQueueDepth {
-			maxQueueDepth = queueDepthBeforeDrain
-		}
-		if queueDepthAfterDrain > maxQueueDepth {
-			maxQueueDepth = queueDepthAfterDrain
-		}
-		elapsed := time.Since(windowStart)
-		if elapsed < 5*time.Second {
-			return
-		}
-		avgBatch := 0.0
-		if windowBatches > 0 {
-			avgBatch = float64(windowResponses) / float64(windowBatches)
-		}
-		log.Printf(
-			"%s: eo_response_batcher_window window_ms=%d batches=%d responses=%d responses_per_s=%.1f avg_batch=%.2f batch_size_max=%d queue_depth_max=%d",
-			e.name,
-			elapsed.Milliseconds(),
-			windowBatches,
-			windowResponses,
-			float64(windowResponses)/elapsed.Seconds(),
-			avgBatch,
-			maxBatchSize,
-			maxQueueDepth,
-		)
-		windowStart = time.Now()
-		windowBatches = 0
-		windowResponses = 0
-		maxBatchSize = 0
-		maxQueueDepth = 0
-	}
 
 	for {
 		select {
 		case <-e.responseBatchStop:
-			e.flushResponseProposalQueue(batch, recordBatch)
+			e.flushResponseProposalQueue(batch)
 			return
 		case proposal := <-e.responseBatchQueue:
 			batch = append(batch[:0], proposal)
-			queueDepthBeforeDrain := len(e.responseBatchQueue)
 			if e.responseBatchTimeout > 0 {
 				var stopped bool
 				batch, stopped = e.waitForResponseBatch(batch)
@@ -237,9 +190,7 @@ func (e *EO) runResponseBatcher() {
 					break drain
 				}
 			}
-			queueDepthAfterDrain := len(e.responseBatchQueue)
 			e.proposeResponseBatch(batch)
-			recordBatch(len(batch), queueDepthBeforeDrain, queueDepthAfterDrain)
 		}
 	}
 }
@@ -251,7 +202,7 @@ func (e *EO) waitForResponseBatch(batch []responseProposal) ([]responseProposal,
 		select {
 		case <-e.responseBatchStop:
 			e.proposeResponseBatch(batch)
-			e.flushResponseProposalQueue(batch, func(int, int, int) {})
+			e.flushResponseProposalQueue(batch)
 			return batch, true
 		case next := <-e.responseBatchQueue:
 			batch = append(batch, next)
@@ -262,7 +213,7 @@ func (e *EO) waitForResponseBatch(batch []responseProposal) ([]responseProposal,
 	return batch, false
 }
 
-func (e *EO) flushResponseProposalQueue(batch []responseProposal, recordBatch func(int, int, int)) {
+func (e *EO) flushResponseProposalQueue(batch []responseProposal) {
 	for {
 		batch = batch[:0]
 	drain:
@@ -278,7 +229,6 @@ func (e *EO) flushResponseProposalQueue(batch []responseProposal, recordBatch fu
 			return
 		}
 		e.proposeResponseBatch(batch)
-		recordBatch(len(batch), len(batch), len(e.responseBatchQueue))
 	}
 }
 

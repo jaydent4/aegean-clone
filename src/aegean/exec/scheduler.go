@@ -2,7 +2,6 @@ package exec
 
 import (
 	"sync"
-	"time"
 
 	"aegean/common"
 )
@@ -15,10 +14,9 @@ type execScheduler struct {
 	nestedReadyCh          chan struct{}
 	contextStore           *requestContextStore
 	parallelWindowK        int
-	probe                  *execBottleneckProbe
 }
 
-func newExecScheduler(runConfig map[string]any, probe *execBottleneckProbe) *execScheduler {
+func newExecScheduler(runConfig map[string]any) *execScheduler {
 	return &execScheduler{
 		inflightRequests:       make(map[string]*scheduledRequest),
 		nestedResponses:        make(map[string][]map[string]any),
@@ -26,14 +24,10 @@ func newExecScheduler(runConfig map[string]any, probe *execBottleneckProbe) *exe
 		nestedReadyCh:          make(chan struct{}, 1),
 		contextStore:           newRequestContextStore(),
 		parallelWindowK:        common.MustInt(runConfig, "parallel_window_k"),
-		probe:                  probe,
 	}
 }
 
 func (s *execScheduler) enqueueNestedResponse(requestID string, payload map[string]any) bool {
-	start := time.Now()
-	defer recordExecProbeDuration(s.probe, "execScheduler.enqueueNestedResponse", start)
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.pendingNestedResponses[requestID] = append(s.pendingNestedResponses[requestID], payload)
@@ -51,9 +45,6 @@ func (s *execScheduler) hasPendingNestedResponse(requestID string) bool {
 }
 
 func (s *execScheduler) promoteOneNestedResponse(requestID string) bool {
-	start := time.Now()
-	defer recordExecProbeDuration(s.probe, "execScheduler.promoteOneNestedResponse", start)
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	pending := s.pendingNestedResponses[requestID]
@@ -71,9 +62,6 @@ func (s *execScheduler) promoteOneNestedResponse(requestID string) bool {
 }
 
 func (s *execScheduler) getNestedResponses(requestID string) ([]map[string]any, bool) {
-	start := time.Now()
-	defer recordExecProbeDuration(s.probe, "execScheduler.getNestedResponses", start)
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	queue := s.nestedResponses[requestID]
@@ -92,9 +80,6 @@ func (s *execScheduler) getNestedResponses(requestID string) ([]map[string]any, 
 }
 
 func (s *execScheduler) getNestedResponseByRequestID(requestID string, nestedRequestID string) (map[string]any, bool) {
-	start := time.Now()
-	defer recordExecProbeDuration(s.probe, "execScheduler.getNestedResponseByRequestID", start)
-
 	if nestedRequestID == "" {
 		return nil, false
 	}

@@ -23,9 +23,6 @@ const nestedBackendSeqNumKey = "_nested_backend_seq_num"
 const nestedBackendBatchOutputCountKey = "_nested_backend_batch_output_count"
 const nestedParentShimReceiveUnixNanoKey = "_nested_parent_shim_receive_unix_nano"
 const nestedParentQuorumUnixNanoKey = "_nested_parent_quorum_unix_nano"
-const nestedParentExecHandleUnixNanoKey = "_nested_parent_exec_handle_unix_nano"
-const nestedParentEOProposeUnixNanoKey = "_nested_parent_eo_propose_unix_nano"
-const nestedParentEOBufferUnixNanoKey = "_nested_parent_eo_buffer_unix_nano"
 const nestedChildShimHandleStartUnixNanoKey = "_nested_child_shim_handle_start_unix_nano"
 const nestedChildShimEnqueueUnixNanoKey = "_nested_child_shim_enqueue_unix_nano"
 const nestedChildShimSendStartUnixNanoKey = "_nested_child_shim_send_start_unix_nano"
@@ -43,9 +40,6 @@ type nestedChildTimingStats struct {
 	backendCommitToBuffer    time.Duration
 	parentShimToBuffer       time.Duration
 	parentQuorumToBuffer     time.Duration
-	parentQuorumToHandle     time.Duration
-	parentHandleToEOPropose  time.Duration
-	parentEOProposeToBuffer  time.Duration
 	childShimHandleToBuffer  time.Duration
 	childShimEnqueueToBuffer time.Duration
 	childShimSendToBuffer    time.Duration
@@ -59,9 +53,6 @@ type nestedChildTimingStats struct {
 	maxBackendCommitToBuffer time.Duration
 	maxParentShimToBuffer    time.Duration
 	maxParentQuorumToBuffer  time.Duration
-	maxParentQuorumToHandle  time.Duration
-	maxParentHandleToEOProp  time.Duration
-	maxParentEOPropToBuffer  time.Duration
 	maxChildShimHandleToBuf  time.Duration
 	maxChildShimEnqueueToBuf time.Duration
 	maxChildShimSendToBuffer time.Duration
@@ -75,13 +66,11 @@ type nestedChildTimingStats struct {
 	missingBackendTimestamp  int
 	missingParentShimStamp   int
 	missingParentQuorumStamp int
-	missingParentEOStamp     int
 	missingChildReturnStamp  int
 	missingChildRequestStamp int
 	negativeDispatchDuration int
 	negativeBackendDuration  int
 	negativeParentDuration   int
-	negativeParentEODuration int
 	negativeChildDuration    int
 }
 
@@ -186,31 +175,6 @@ func (e *Exec) recordNestedResponseTiming(parentRequestID string, payload map[st
 		childStats.missingParentQuorumStamp++
 	}
 
-	bufferTime := now
-	if bufferUnixNano, ok := nestedInt64(payload[nestedParentEOBufferUnixNanoKey]); ok && bufferUnixNano > 0 {
-		bufferTime = time.Unix(0, bufferUnixNano)
-	} else {
-		childStats.missingParentEOStamp++
-	}
-	if parentQuorumUnixNano, ok := nestedInt64(payload[nestedParentQuorumUnixNanoKey]); ok && parentQuorumUnixNano > 0 {
-		if handleUnixNano, ok := nestedInt64(payload[nestedParentExecHandleUnixNanoKey]); ok && handleUnixNano > 0 {
-			recordNestedDuration(time.Unix(0, handleUnixNano).Sub(time.Unix(0, parentQuorumUnixNano)), &childStats.parentQuorumToHandle, &childStats.maxParentQuorumToHandle, &childStats.negativeParentEODuration)
-		} else {
-			childStats.missingParentEOStamp++
-		}
-	}
-	if handleUnixNano, ok := nestedInt64(payload[nestedParentExecHandleUnixNanoKey]); ok && handleUnixNano > 0 {
-		if proposeUnixNano, ok := nestedInt64(payload[nestedParentEOProposeUnixNanoKey]); ok && proposeUnixNano > 0 {
-			recordNestedDuration(time.Unix(0, proposeUnixNano).Sub(time.Unix(0, handleUnixNano)), &childStats.parentHandleToEOPropose, &childStats.maxParentHandleToEOProp, &childStats.negativeParentEODuration)
-		} else {
-			childStats.missingParentEOStamp++
-		}
-	}
-	if proposeUnixNano, ok := nestedInt64(payload[nestedParentEOProposeUnixNanoKey]); ok && proposeUnixNano > 0 {
-		recordNestedDuration(bufferTime.Sub(time.Unix(0, proposeUnixNano)), &childStats.parentEOProposeToBuffer, &childStats.maxParentEOPropToBuffer, &childStats.negativeParentEODuration)
-	} else {
-		childStats.missingParentEOStamp++
-	}
 	if childShimHandleUnixNano, ok := nestedInt64(payload[nestedChildShimHandleStartUnixNanoKey]); ok && childShimHandleUnixNano > 0 {
 		recordNestedDuration(now.Sub(time.Unix(0, childShimHandleUnixNano)), &childStats.childShimHandleToBuffer, &childStats.maxChildShimHandleToBuf, &childStats.negativeChildDuration)
 	} else {
@@ -237,8 +201,7 @@ func (e *Exec) nestedTimingLogsEnabled() bool {
 	if e == nil {
 		return false
 	}
-	return common.BoolOrDefault(e.RunConfig, nestedTimingLogRunConfigKey, false) ||
-		common.BoolOrDefault(e.RunConfig, execBottleneckProbeRunConfigKey, false)
+	return common.BoolOrDefault(e.RunConfig, nestedTimingLogRunConfigKey, false)
 }
 
 func (e *Exec) takeNestedResponseTimingStats(seqNum int) nestedResponseTimingSnapshot {

@@ -28,7 +28,6 @@ type NestedEORequestQuorumGate struct {
 	inner      NestedEOReplicator
 	timeout    time.Duration
 	onSelected func(string)
-	probe      *execBottleneckProbe
 
 	mu        sync.Mutex
 	windows   map[string]*nestedEORequestWindow
@@ -83,17 +82,6 @@ func (q *NestedEORequestQuorumGate) SetSelectedRequestHook(hook func(string)) {
 	q.onSelected = hook
 }
 
-func (q *NestedEORequestQuorumGate) SetBottleneckProbe(probe *execBottleneckProbe) {
-	q.probe = probe
-}
-
-func nestedEOQuorumProbe(q *NestedEORequestQuorumGate) *execBottleneckProbe {
-	if q == nil {
-		return nil
-	}
-	return q.probe
-}
-
 func (q *NestedEORequestQuorumGate) IsLeader() bool {
 	return q.inner != nil && q.inner.IsLeader()
 }
@@ -113,9 +101,6 @@ func (q *NestedEORequestQuorumGate) ProposeResponsePayload(requestID string, pay
 }
 
 func (q *NestedEORequestQuorumGate) SubmitNestedRequest(source string, requestID string, targets []string, payload map[string]any) map[string]any {
-	start := time.Now()
-	defer recordExecProbeDuration(nestedEOQuorumProbe(q), "NestedEORequestQuorumGate.SubmitNestedRequest", start)
-
 	if q == nil || q.inner == nil {
 		return map[string]any{"status": "eo_nested_request_quorum_not_configured", "request_id": requestID}
 	}
@@ -137,9 +122,6 @@ func (q *NestedEORequestQuorumGate) SubmitNestedRequest(source string, requestID
 }
 
 func (q *NestedEORequestQuorumGate) forwardNestedRequestUntilAccepted(source string, requestID string, targets []string, payload map[string]any) {
-	start := time.Now()
-	defer recordExecProbeDuration(q.probe, "NestedEORequestQuorumGate.forwardNestedRequestUntilAccepted", start)
-
 	deadline := time.Now().Add(q.timeout)
 	attempts := 0
 	var lastErr error
@@ -176,9 +158,6 @@ func (q *NestedEORequestQuorumGate) forwardNestedRequestUntilAccepted(source str
 }
 
 func (q *NestedEORequestQuorumGate) HandleNestedRequestMessage(payload map[string]any) map[string]any {
-	start := time.Now()
-	defer recordExecProbeDuration(nestedEOQuorumProbe(q), "NestedEORequestQuorumGate.HandleNestedRequestMessage", start)
-
 	if q == nil || q.inner == nil {
 		return map[string]any{"status": "eo_nested_request_quorum_not_configured"}
 	}
@@ -212,9 +191,6 @@ func (q *NestedEORequestQuorumGate) forwardMessage(source string, requestID stri
 }
 
 func (q *NestedEORequestQuorumGate) recordVote(source string, requestID string, targets []string, payload map[string]any) map[string]any {
-	start := time.Now()
-	defer recordExecProbeDuration(q.probe, "NestedEORequestQuorumGate.recordVote", start)
-
 	if source == "" {
 		source = q.name
 	}
@@ -240,9 +216,6 @@ func (q *NestedEORequestQuorumGate) completedRequestStatus(requestID string) (ma
 }
 
 func (q *NestedEORequestQuorumGate) recordVoteLocked(source string, requestID string, hash string, targets []string, payload map[string]any) (*nestedEOSelectedRequest, map[string]any) {
-	start := time.Now()
-	defer recordExecProbeDuration(q.probe, "NestedEORequestQuorumGate.recordVoteLocked", start)
-
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
@@ -291,9 +264,6 @@ func (q *NestedEORequestQuorumGate) recordVoteLocked(source string, requestID st
 }
 
 func (q *NestedEORequestQuorumGate) dispatchFallback(requestID string) {
-	start := time.Now()
-	defer recordExecProbeDuration(q.probe, "NestedEORequestQuorumGate.dispatchFallback", start)
-
 	var selected *nestedEOSelectedRequest
 	q.mu.Lock()
 	window := q.windows[requestID]
@@ -331,9 +301,6 @@ func (q *NestedEORequestQuorumGate) selectBucketLocked(requestID string, window 
 }
 
 func (q *NestedEORequestQuorumGate) dispatchSelected(selected *nestedEOSelectedRequest) {
-	start := time.Now()
-	defer recordExecProbeDuration(q.probe, "NestedEORequestQuorumGate.dispatchSelected", start)
-
 	if selected == nil {
 		return
 	}
@@ -353,7 +320,7 @@ func (q *NestedEORequestQuorumGate) dispatchSelected(selected *nestedEOSelectedR
 	if q.onSelected != nil {
 		q.onSelected(selected.requestID)
 	}
-	sendNestedRequestDirectWithProbe(selected.targets, outgoing, q.probe)
+	sendNestedRequestDirect(selected.targets, outgoing)
 }
 
 func deterministicNestedEOFallbackBucket(window *nestedEORequestWindow) *nestedEORequestBucket {
