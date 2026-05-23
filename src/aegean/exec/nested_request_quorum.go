@@ -23,7 +23,7 @@ const (
 	nestedEORequestQuorumSize = 2
 
 	DefaultNestedEORequestQuorumTimeout       = 5 * time.Second
-	DefaultNestedEORequestForwardRPCTimeout   = 200 * time.Millisecond
+	DefaultNestedEORequestForwardRPCTimeout   = time.Second
 	DefaultNestedEORequestForwardBatchSize    = 32
 	DefaultNestedEORequestForwardBatchTimeout = 500 * time.Microsecond
 
@@ -53,7 +53,6 @@ type NestedEORequestQuorumGate struct {
 
 type NestedEORequestQuorumGateConfig struct {
 	Timeout             time.Duration
-	ForwardRPCTimeout   time.Duration
 	ForwardBatchSize    int
 	ForwardBatchTimeout time.Duration
 }
@@ -131,7 +130,6 @@ func NewNestedEORequestQuorumGateWithTimeout(name string, inner NestedEOReplicat
 	config.Timeout = timeout
 	return NewNestedEORequestQuorumGateWithConfig(name, inner, NestedEORequestQuorumGateConfig{
 		Timeout:             config.Timeout,
-		ForwardRPCTimeout:   config.ForwardRPCTimeout,
 		ForwardBatchSize:    config.ForwardBatchSize,
 		ForwardBatchTimeout: config.ForwardBatchTimeout,
 	})
@@ -142,7 +140,6 @@ func newNestedEORequestQuorumGate(name string, inner NestedEOReplicator, timeout
 	config.Timeout = timeout
 	return NewNestedEORequestQuorumGateWithConfig(name, inner, NestedEORequestQuorumGateConfig{
 		Timeout:             config.Timeout,
-		ForwardRPCTimeout:   config.ForwardRPCTimeout,
 		ForwardBatchSize:    config.ForwardBatchSize,
 		ForwardBatchTimeout: config.ForwardBatchTimeout,
 	})
@@ -154,7 +151,7 @@ func NewNestedEORequestQuorumGateWithConfig(name string, inner NestedEOReplicato
 		name:                name,
 		inner:               inner,
 		timeout:             config.Timeout,
-		forwardRPCTimeout:   config.ForwardRPCTimeout,
+		forwardRPCTimeout:   DefaultNestedEORequestForwardRPCTimeout,
 		forwardBatchSize:    config.ForwardBatchSize,
 		forwardBatchTimeout: config.ForwardBatchTimeout,
 		windows:             make(map[string]*nestedEORequestWindow),
@@ -169,7 +166,6 @@ func NewNestedEORequestQuorumGateWithConfig(name string, inner NestedEOReplicato
 func defaultNestedEORequestQuorumGateConfig() NestedEORequestQuorumGateConfig {
 	return NestedEORequestQuorumGateConfig{
 		Timeout:             DefaultNestedEORequestQuorumTimeout,
-		ForwardRPCTimeout:   DefaultNestedEORequestForwardRPCTimeout,
 		ForwardBatchSize:    DefaultNestedEORequestForwardBatchSize,
 		ForwardBatchTimeout: DefaultNestedEORequestForwardBatchTimeout,
 	}
@@ -178,9 +174,6 @@ func defaultNestedEORequestQuorumGateConfig() NestedEORequestQuorumGateConfig {
 func normalizeNestedEORequestQuorumGateConfig(config NestedEORequestQuorumGateConfig) NestedEORequestQuorumGateConfig {
 	if config.Timeout <= 0 {
 		config.Timeout = DefaultNestedEORequestQuorumTimeout
-	}
-	if config.ForwardRPCTimeout <= 0 {
-		config.ForwardRPCTimeout = DefaultNestedEORequestForwardRPCTimeout
 	}
 	if config.ForwardBatchSize <= 0 {
 		config.ForwardBatchSize = DefaultNestedEORequestForwardBatchSize

@@ -131,11 +131,6 @@ func NewServer(name, host string, port int, clients []string, nodes []string, is
 				component,
 				exec.NestedEORequestQuorumGateConfig{
 					Timeout: nestedEORequestQuorumTimeout,
-					ForwardRPCTimeout: time.Duration(common.IntOrDefault(
-						runConfig,
-						"nested_eo_request_forward_rpc_timeout_ms",
-						int(exec.DefaultNestedEORequestForwardRPCTimeout/time.Millisecond),
-					)) * time.Millisecond,
 					ForwardBatchSize: common.IntOrDefault(
 						runConfig,
 						"nested_eo_request_forward_batch_size",

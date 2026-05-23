@@ -395,7 +395,6 @@ func TestNestedEORequestQuorumDispatchesBatchedVotes(t *testing.T) {
 func TestNestedEORequestQuorumGateConfigOverrides(t *testing.T) {
 	quorum := NewNestedEORequestQuorumGateWithConfig("node1", &fakeNestedEO{isLeader: true, leader: "node1"}, NestedEORequestQuorumGateConfig{
 		Timeout:             11 * time.Millisecond,
-		ForwardRPCTimeout:   12 * time.Millisecond,
 		ForwardBatchSize:    7,
 		ForwardBatchTimeout: 0,
 	})
@@ -403,8 +402,8 @@ func TestNestedEORequestQuorumGateConfigOverrides(t *testing.T) {
 	if quorum.timeout != 11*time.Millisecond {
 		t.Fatalf("timeout = %s, want 11ms", quorum.timeout)
 	}
-	if quorum.forwardRPCTimeout != 12*time.Millisecond {
-		t.Fatalf("forwardRPCTimeout = %s, want 12ms", quorum.forwardRPCTimeout)
+	if quorum.forwardRPCTimeout != DefaultNestedEORequestForwardRPCTimeout {
+		t.Fatalf("forwardRPCTimeout = %s, want %s", quorum.forwardRPCTimeout, DefaultNestedEORequestForwardRPCTimeout)
 	}
 	if quorum.forwardBatchSize != 7 {
 		t.Fatalf("forwardBatchSize = %d, want 7", quorum.forwardBatchSize)

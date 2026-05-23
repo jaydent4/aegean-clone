@@ -30,7 +30,6 @@ use_eo_after_quorum: true
 nested_eo_request_quorum_timeout_ms: 5000
 nested_eo_request_forward_batch_size: 32
 nested_eo_request_forward_batch_timeout_us: 500
-nested_eo_request_forward_rpc_timeout_ms: 200
 
 # Run & system configs
 run_timeout_seconds: 60
