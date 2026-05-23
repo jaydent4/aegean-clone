@@ -28,6 +28,7 @@ const nestedChildShimEnqueueUnixNanoKey = "_nested_child_shim_enqueue_unix_nano"
 const nestedChildShimSendStartUnixNanoKey = "_nested_child_shim_send_start_unix_nano"
 
 const defaultShimFanoutQueueSize = 8192
+const shimRequestQuorumStatsWindow = time.Second
 
 type Shim struct {
 	Name                 string
@@ -36,13 +37,38 @@ type Shim struct {
 	Clients              []string
 	Peers                []string
 	isPrimaryBatcher     bool
+	requestQuorumSize    int
 	requestQuorumHelper  *common.QuorumHelper
 	responseQuorumHelper *common.QuorumHelper
+	requestQuorumProbeMu sync.Mutex
+	requestQuorumProbe   map[string]*shimRequestQuorumProbe
+	requestQuorumStats   shimRequestQuorumStats
 	nestedReturnMu       sync.Mutex
 	nestedReturnStats    map[string]*nestedReturnBatchStats
 	nestedRequestMu      sync.Mutex
 	nestedRequestFirst   map[string]int64
 	fanoutQueues         map[string]chan map[string]any
+}
+
+type shimRequestQuorumProbe struct {
+	first     time.Time
+	senders   map[string]struct{}
+	completed bool
+}
+
+type shimRequestQuorumStats struct {
+	windowStart        time.Time
+	arrivals           int
+	firstArrivals      int
+	waitingArrivals    int
+	quorumReached      int
+	duplicateArrivals  int
+	postQuorumArrivals int
+	totalFirstToQuorum time.Duration
+	maxFirstToQuorum   time.Duration
+	addCount           int
+	totalAdd           time.Duration
+	maxAdd             time.Duration
 }
 
 type nestedReturnBatchStats struct {
@@ -85,9 +111,12 @@ func NewShim(name string, batcherCh chan<- map[string]any, execCh chan<- map[str
 		Clients:             clients,
 		Peers:               peers,
 		isPrimaryBatcher:    isPrimaryBatcher,
+		requestQuorumSize:   quorumSize,
 		requestQuorumHelper: common.NewQuorumHelper(quorumSize),
 		// TODO: quorumSize should depend on size of nested service
 		responseQuorumHelper: common.NewQuorumHelper(quorumSize),
+		requestQuorumProbe:   make(map[string]*shimRequestQuorumProbe),
+		requestQuorumStats:   shimRequestQuorumStats{windowStart: time.Now()},
 		nestedReturnStats:    make(map[string]*nestedReturnBatchStats),
 		nestedRequestFirst:   make(map[string]int64),
 		fanoutQueues:         make(map[string]chan map[string]any),
@@ -108,7 +137,12 @@ func (s *Shim) HandleRequestMessage(payload map[string]any) map[string]any {
 	if nestedTraceEnabled(payload) {
 		firstReceiveUnixNano = s.recordNestedRequestReceive(requestID, time.Now().UnixNano())
 	}
-	if !s.requestQuorumHelper.Add(requestID, sender) {
+	arrivalAt := time.Now()
+	addStart := time.Now()
+	quorumReached := s.requestQuorumHelper.Add(requestID, sender)
+	addDuration := time.Since(addStart)
+	s.recordRequestQuorumProbe(requestID, sender, arrivalAt, quorumReached, addDuration)
+	if !quorumReached {
 		return map[string]any{"status": "waiting_for_quorum"}
 	}
 	if nestedTraceEnabled(payload) {
@@ -119,6 +153,101 @@ func (s *Shim) HandleRequestMessage(payload map[string]any) map[string]any {
 		s.BatcherCh <- payload
 	}
 	return map[string]any{"status": "forwarded_to_mid_execs"}
+}
+
+func (s *Shim) recordRequestQuorumProbe(requestID any, sender string, arrivalAt time.Time, quorumReached bool, addDuration time.Duration) {
+	if s == nil || !s.isPrimaryBatcher {
+		return
+	}
+	if sender == "" {
+		sender = "unknown"
+	}
+	key := fmt.Sprintf("%v", requestID)
+
+	s.requestQuorumProbeMu.Lock()
+	defer s.requestQuorumProbeMu.Unlock()
+
+	if s.requestQuorumStats.windowStart.IsZero() {
+		s.requestQuorumStats.windowStart = arrivalAt
+	}
+	s.requestQuorumStats.arrivals++
+	s.requestQuorumStats.addCount++
+	s.requestQuorumStats.totalAdd += addDuration
+	if addDuration > s.requestQuorumStats.maxAdd {
+		s.requestQuorumStats.maxAdd = addDuration
+	}
+
+	window := s.requestQuorumProbe[key]
+	if window == nil {
+		window = &shimRequestQuorumProbe{
+			first:   arrivalAt,
+			senders: make(map[string]struct{}),
+		}
+		s.requestQuorumProbe[key] = window
+		s.requestQuorumStats.firstArrivals++
+	}
+
+	if window.completed {
+		s.requestQuorumStats.postQuorumArrivals++
+		s.maybeLogRequestQuorumStatsLocked(arrivalAt)
+		return
+	}
+
+	if _, exists := window.senders[sender]; exists {
+		s.requestQuorumStats.duplicateArrivals++
+		s.maybeLogRequestQuorumStatsLocked(arrivalAt)
+		return
+	}
+	window.senders[sender] = struct{}{}
+
+	if quorumReached {
+		window.completed = true
+		wait := arrivalAt.Sub(window.first)
+		if wait < 0 {
+			wait = 0
+		}
+		s.requestQuorumStats.quorumReached++
+		s.requestQuorumStats.totalFirstToQuorum += wait
+		if wait > s.requestQuorumStats.maxFirstToQuorum {
+			s.requestQuorumStats.maxFirstToQuorum = wait
+		}
+	} else {
+		s.requestQuorumStats.waitingArrivals++
+	}
+	s.maybeLogRequestQuorumStatsLocked(arrivalAt)
+}
+
+func (s *Shim) maybeLogRequestQuorumStatsLocked(now time.Time) {
+	elapsed := now.Sub(s.requestQuorumStats.windowStart)
+	if elapsed < shimRequestQuorumStatsWindow {
+		return
+	}
+	avgFirstToQuorumUs := int64(0)
+	if s.requestQuorumStats.quorumReached > 0 {
+		avgFirstToQuorumUs = s.requestQuorumStats.totalFirstToQuorum.Microseconds() / int64(s.requestQuorumStats.quorumReached)
+	}
+	avgAddUs := int64(0)
+	if s.requestQuorumStats.addCount > 0 {
+		avgAddUs = s.requestQuorumStats.totalAdd.Microseconds() / int64(s.requestQuorumStats.addCount)
+	}
+	log.Printf(
+		"%s: shim_request_quorum_stats window_ms=%d configured_quorum=%d arrivals=%d first_arrivals=%d waiting_arrivals=%d quorum_reached=%d duplicate_arrivals=%d post_quorum_arrivals=%d avg_first_to_quorum_us=%d max_first_to_quorum_us=%d avg_quorum_add_us=%d max_quorum_add_us=%d tracked_windows=%d",
+		s.Name,
+		elapsed.Milliseconds(),
+		s.requestQuorumSize,
+		s.requestQuorumStats.arrivals,
+		s.requestQuorumStats.firstArrivals,
+		s.requestQuorumStats.waitingArrivals,
+		s.requestQuorumStats.quorumReached,
+		s.requestQuorumStats.duplicateArrivals,
+		s.requestQuorumStats.postQuorumArrivals,
+		avgFirstToQuorumUs,
+		s.requestQuorumStats.maxFirstToQuorum.Microseconds(),
+		avgAddUs,
+		s.requestQuorumStats.maxAdd.Microseconds(),
+		len(s.requestQuorumProbe),
+	)
+	s.requestQuorumStats = shimRequestQuorumStats{windowStart: now}
 }
 
 func (s *Shim) recordNestedRequestReceive(requestID any, receiveUnixNano int64) int64 {

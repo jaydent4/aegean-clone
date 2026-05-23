@@ -126,10 +126,27 @@ func NewServer(name, host string, port int, clients []string, nodes []string, is
 				"nested_eo_request_quorum_timeout_ms",
 				int(exec.DefaultNestedEORequestQuorumTimeout/time.Millisecond),
 			)) * time.Millisecond
-			quorumGate := exec.NewNestedEORequestQuorumGateWithTimeout(
+			quorumGate := exec.NewNestedEORequestQuorumGateWithConfig(
 				name,
 				component,
-				nestedEORequestQuorumTimeout,
+				exec.NestedEORequestQuorumGateConfig{
+					Timeout: nestedEORequestQuorumTimeout,
+					ForwardRPCTimeout: time.Duration(common.IntOrDefault(
+						runConfig,
+						"nested_eo_request_forward_rpc_timeout_ms",
+						int(exec.DefaultNestedEORequestForwardRPCTimeout/time.Millisecond),
+					)) * time.Millisecond,
+					ForwardBatchSize: common.IntOrDefault(
+						runConfig,
+						"nested_eo_request_forward_batch_size",
+						exec.DefaultNestedEORequestForwardBatchSize,
+					),
+					ForwardBatchTimeout: time.Duration(common.IntOrDefault(
+						runConfig,
+						"nested_eo_request_forward_batch_timeout_us",
+						int(exec.DefaultNestedEORequestForwardBatchTimeout/time.Microsecond),
+					)) * time.Microsecond,
+				},
 			)
 			quorumGate.SetSelectedRequestHook(server.Exec.RegisterSelectedNestedRequest)
 			server.Exec.SetNestedEO(quorumGate)
@@ -248,7 +265,7 @@ func (s *Server) HandleMessage(payload map[string]any) map[string]any {
 			return map[string]any{"status": "error", "error": "eo not configured"}
 		}
 		return s.EO.HandleRaftMessage(payload)
-	case exec.MessageTypeEONestedRequest:
+	case exec.MessageTypeEONestedRequest, exec.MessageTypeEONestedRequestBatch:
 		return s.Exec.HandleNestedEORequestMessage(payload)
 	case "batch":
 		return s.Mixer.HandleBatchMessage(payload)

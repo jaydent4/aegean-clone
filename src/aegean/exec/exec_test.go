@@ -331,6 +331,89 @@ func TestNestedEORequestQuorumDispatchesAfterTwoMatchingRequests(t *testing.T) {
 	}
 }
 
+func TestNestedEORequestQuorumDispatchesBatchedVotes(t *testing.T) {
+	server := startTestServer(t, nil)
+	defer server.close()
+
+	quorum := newNestedEORequestQuorumGate("node1", &fakeNestedEO{isLeader: true, leader: "node1"}, 250*time.Millisecond)
+	request := map[string]any{
+		"type":       "request",
+		"request_id": "parent/child",
+		"timestamp":  123.0,
+		"sender":     "node2",
+		"op":         "default",
+		"op_payload": map[string]any{"value": "same"},
+	}
+	otherRequest := cloneMapAny(request)
+	otherRequest["request_id"] = "parent/other-child"
+
+	status := quorum.HandleNestedRequestMessage(map[string]any{
+		"type": MessageTypeEONestedRequestBatch,
+		"votes": []map[string]any{
+			{
+				"type":       MessageTypeEONestedRequest,
+				"request_id": "parent/child",
+				"request":    cloneMapAny(request),
+				"targets":    []string{"127.0.0.1"},
+				"sender":     "node2",
+			},
+			{
+				"type":       MessageTypeEONestedRequest,
+				"request_id": "parent/child",
+				"request":    cloneMapAny(request),
+				"targets":    []string{"127.0.0.1"},
+				"sender":     "node3",
+			},
+			{
+				"type":       MessageTypeEONestedRequest,
+				"request_id": "parent/other-child",
+				"request":    otherRequest,
+				"targets":    []string{"127.0.0.1"},
+				"sender":     "node4",
+			},
+		},
+	})
+	if status["status"] != "eo_nested_request_batch_processed" {
+		t.Fatalf("expected batch to be processed, got %v", status["status"])
+	}
+	if status["dispatched"] != 1 {
+		t.Fatalf("expected one dispatch from batch, got %v", status["dispatched"])
+	}
+
+	msg := expectMessage(t, server.received, "request")
+	if msg["request_id"] != "parent/child" {
+		t.Fatalf("expected request_id parent/child, got %v", msg["request_id"])
+	}
+
+	select {
+	case unexpected := <-server.received:
+		t.Fatalf("expected only the quorum request to dispatch, got %v", unexpected)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestNestedEORequestQuorumGateConfigOverrides(t *testing.T) {
+	quorum := NewNestedEORequestQuorumGateWithConfig("node1", &fakeNestedEO{isLeader: true, leader: "node1"}, NestedEORequestQuorumGateConfig{
+		Timeout:             11 * time.Millisecond,
+		ForwardRPCTimeout:   12 * time.Millisecond,
+		ForwardBatchSize:    7,
+		ForwardBatchTimeout: 0,
+	})
+
+	if quorum.timeout != 11*time.Millisecond {
+		t.Fatalf("timeout = %s, want 11ms", quorum.timeout)
+	}
+	if quorum.forwardRPCTimeout != 12*time.Millisecond {
+		t.Fatalf("forwardRPCTimeout = %s, want 12ms", quorum.forwardRPCTimeout)
+	}
+	if quorum.forwardBatchSize != 7 {
+		t.Fatalf("forwardBatchSize = %d, want 7", quorum.forwardBatchSize)
+	}
+	if quorum.forwardBatchTimeout != 0 {
+		t.Fatalf("forwardBatchTimeout = %s, want 0", quorum.forwardBatchTimeout)
+	}
+}
+
 func TestNestedEORequestQuorumRegistersSelectedRequestOnLeader(t *testing.T) {
 	server := startTestServer(t, nil)
 	defer server.close()
