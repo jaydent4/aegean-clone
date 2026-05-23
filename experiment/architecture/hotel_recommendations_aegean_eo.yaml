@@ -28,8 +28,8 @@ services:
     phaseQuorumSize: 2
     expectedExecVotes: 3
     batcher_config:
-      batch_size: 128
-      batch_timeout_ms: 30
+      batch_size: 512
+      batch_timeout_ms: 100
   profile:
     type: server
     clients:
