@@ -145,6 +145,7 @@ type Exec struct {
 	nestedDispatchTracker *nestedDispatchTracker
 	nestedTimingMu        sync.Mutex
 	nestedResponseTimings map[int]*nestedResponseTimingStats
+	nestedEOResponseStats *nestedEOResponseTimingStats
 	// Request execution hook
 	ExecuteRequest ExecuteRequestFunc
 }
@@ -213,6 +214,7 @@ func NewExec(name string, verifiers []string, peers []string, verifierCh chan<- 
 		coordStats:            coordinatorStats{windowStart: time.Now()},
 		nestedDispatchTracker: newNestedDispatchTracker(),
 		nestedResponseTimings: make(map[int]*nestedResponseTimingStats),
+		nestedEOResponseStats: newNestedEOResponseTimingStats(time.Now()),
 	}
 	exec.verifyResponseQuorum = common.NewQuorumHelper(verifyResponseQuorumSize)
 	exec.storeCheckpoint(0, stable.PrevHash, stable.KVStore, stable.MerkleRoot)

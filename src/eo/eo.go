@@ -24,6 +24,7 @@ type EO struct {
 	responseBatchStop     chan struct{}
 	responseBatchDone     chan struct{}
 	responseBatchStopOnce sync.Once
+	responseBatchStats    responseBatchStats
 
 	processMu         sync.Mutex
 	mu                sync.Mutex
@@ -64,14 +65,15 @@ func NewEO(cfg Config) (*EO, error) {
 	}
 
 	e := &EO{
-		name:              cfg.Name,
-		execute:           cfg.Execute,
-		commit:            commit,
-		forward:           cfg.Forward,
-		log:               make(map[uint64]Entry),
-		requestAttempts:   make(map[string]struct{}),
-		learnedSlots:      make(map[uint64]struct{}),
-		committedRequests: make(map[string]struct{}),
+		name:               cfg.Name,
+		execute:            cfg.Execute,
+		commit:             commit,
+		forward:            cfg.Forward,
+		log:                make(map[uint64]Entry),
+		requestAttempts:    make(map[string]struct{}),
+		learnedSlots:       make(map[uint64]struct{}),
+		committedRequests:  make(map[string]struct{}),
+		responseBatchStats: responseBatchStats{windowStart: time.Now()},
 	}
 	if cfg.ResponseBatchSize > 1 {
 		e.responseBatchSize = cfg.ResponseBatchSize
@@ -143,6 +145,7 @@ func (e *EO) ProposeResponsePayload(requestID string, payload map[string]any) er
 		RequestID: requestID,
 		Response:  cloneMap(payload),
 	}
+	stampPayloadNestedTiming(item.Response, nestedParentEOResponseProposeEnterUnixNanoKey, time.Now())
 	if e.responseBatchQueue != nil {
 		proposal := responseProposal{item: item}
 		select {
@@ -152,7 +155,9 @@ func (e *EO) ProposeResponsePayload(requestID string, payload map[string]any) er
 		}
 		return nil
 	}
-	return e.proposeEntry(entryFromItem(item))
+	entry := entryFromItem(item)
+	stampEntryNestedTiming(entry, nestedParentEOResponseRaftEnqueueUnixNanoKey, time.Now())
+	return e.proposeEntry(entry)
 }
 
 func (e *EO) proposeEntry(entry Entry) error {
@@ -173,6 +178,7 @@ func (e *EO) runResponseBatcher() {
 			e.flushResponseProposalQueue(batch)
 			return
 		case proposal := <-e.responseBatchQueue:
+			stampResponseProposalNestedTiming(&proposal, nestedParentEOResponseBatcherRecvUnixNanoKey, time.Now())
 			batch = append(batch[:0], proposal)
 			if e.responseBatchTimeout > 0 {
 				var stopped bool
@@ -185,6 +191,7 @@ func (e *EO) runResponseBatcher() {
 			for len(batch) < e.responseBatchSize {
 				select {
 				case next := <-e.responseBatchQueue:
+					stampResponseProposalNestedTiming(&next, nestedParentEOResponseBatcherRecvUnixNanoKey, time.Now())
 					batch = append(batch, next)
 				default:
 					break drain
@@ -205,6 +212,7 @@ func (e *EO) waitForResponseBatch(batch []responseProposal) ([]responseProposal,
 			e.flushResponseProposalQueue(batch)
 			return batch, true
 		case next := <-e.responseBatchQueue:
+			stampResponseProposalNestedTiming(&next, nestedParentEOResponseBatcherRecvUnixNanoKey, time.Now())
 			batch = append(batch, next)
 		case <-timer.C:
 			return batch, false
@@ -220,6 +228,7 @@ func (e *EO) flushResponseProposalQueue(batch []responseProposal) {
 		for len(batch) < e.responseBatchSize {
 			select {
 			case proposal := <-e.responseBatchQueue:
+				stampResponseProposalNestedTiming(&proposal, nestedParentEOResponseBatcherRecvUnixNanoKey, time.Now())
 				batch = append(batch, proposal)
 			default:
 				break drain
@@ -233,7 +242,10 @@ func (e *EO) flushResponseProposalQueue(batch []responseProposal) {
 }
 
 func (e *EO) proposeResponseBatch(batch []responseProposal) {
+	stampResponseProposalsNestedTiming(batch, nestedParentEOResponseBatchFlushUnixNanoKey, time.Now())
 	entry := entryFromResponseProposals(batch)
+	stampEntryNestedTiming(entry, nestedParentEOResponseRaftEnqueueUnixNanoKey, time.Now())
+	e.recordResponseBatch(len(batch))
 	err := e.proposeEntry(entry)
 	if err != nil {
 		log.Printf("%s: warning: EO response batch proposal failed responses=%d error=%v", e.name, len(batch), err)
@@ -401,6 +413,7 @@ func (e *EO) learnBatch(entries []CommittedEntry) bool {
 		if _, exists := e.learnedSlots[committed.Slot]; exists {
 			continue
 		}
+		stampEntryNestedTiming(committed.Entry, nestedParentEOResponseEOLearnUnixNanoKey, time.Now())
 		e.learnedSlots[committed.Slot] = struct{}{}
 		e.log[committed.Slot] = cloneEntry(committed.Entry)
 		if committed.Slot > e.learned {
@@ -432,6 +445,7 @@ func (e *EO) Process() {
 		return
 	}
 	for _, entry := range committedEntries {
+		stampEntryNestedTiming(entry.Entry, nestedParentEOResponseCommitCallUnixNanoKey, time.Now())
 		e.commit(entry)
 	}
 }
@@ -509,6 +523,7 @@ func (e *EO) dequeueCommittableEntries() []CommittedEntry {
 				continue
 			}
 			e.committedRequests[item.RequestID] = struct{}{}
+			stampPayloadNestedTiming(item.Response, nestedParentEOResponseEOProcessUnixNanoKey, time.Now())
 			committedEntries = append(committedEntries, CommittedEntry{
 				Slot:  nextSlot,
 				Entry: entryFromItem(item),
