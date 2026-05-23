@@ -15,6 +15,12 @@ const (
 
 // Entry is the ordered value replicated through the consensus box.
 type Entry struct {
+	RequestID string         `json:"request_id,omitempty"`
+	Response  map[string]any `json:"response,omitempty"`
+	Batch     []EntryItem    `json:"batch,omitempty"`
+}
+
+type EntryItem struct {
 	RequestID string         `json:"request_id"`
 	Response  map[string]any `json:"response"`
 }
@@ -100,4 +106,6 @@ type Config struct {
 	MaxSizePerMsg            uint64
 	RaftSendBatchSize        int
 	LearnBatchSize           int
+	ResponseBatchSize        int
+	ResponseBatchTimeout     time.Duration
 }

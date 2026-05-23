@@ -18,6 +18,8 @@ hotel_nested_send_all_replicas: true
 
 # Nested exact-once dispatch
 eo_raft_send_batch_size: 256
+eo_response_batch_size: 64
+eo_response_batch_timeout_us: 250
 eo_tick_interval_ms: 10
 eo_election_tick: 1000
 eo_heartbeat_tick: 1
@@ -26,6 +28,8 @@ nested_use_eo: true
 hotel_nested_use_eo: true
 use_eo_after_quorum: true
 nested_eo_request_quorum_timeout_ms: 5000
+exec_nested_timing_log: true
+exec_bottleneck_probe_log: true
 
 # Run & system configs
 run_timeout_seconds: 60

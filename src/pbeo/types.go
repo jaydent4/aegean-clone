@@ -97,4 +97,6 @@ type Config struct {
 	RaftSendBatchSize          int
 	EORaftSendBatchSize        int
 	EOLearnBatchSize           int
+	EOResponseBatchSize        int
+	EOResponseBatchTimeout     time.Duration
 }

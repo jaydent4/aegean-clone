@@ -42,6 +42,9 @@ func (b *parallelBatchRuntime) done() bool {
 }
 
 func (s *execScheduler) executeParallelBatches(e *Exec, parallelBatches [][]map[string]any, ndSeed int64, ndTimestamp float64) ([]map[string]any, executionSchedulerStats) {
+	start := time.Now()
+	defer recordExecProbeDuration(s.probe, "execScheduler.executeParallelBatches", start)
+
 	var stats executionSchedulerStats
 	batches, allScheduled := s.initParallelBatchRuntimes(parallelBatches)
 	if len(allScheduled) == 0 {
@@ -129,6 +132,7 @@ func (s *execScheduler) executeParallelBatches(e *Exec, parallelBatches [][]map[
 			// No batch in window can make progress; wait for nested response arrival
 			waitStart := time.Now()
 			<-s.nestedReadyCh
+			recordExecProbeDuration(s.probe, "execScheduler.waitNestedReady", waitStart)
 			stats.nestedWaits++
 			stats.nestedWait += time.Since(waitStart)
 		}
@@ -139,6 +143,9 @@ func (s *execScheduler) executeParallelBatches(e *Exec, parallelBatches [][]map[
 }
 
 func (s *execScheduler) executeSequentialBatches(e *Exec, parallelBatches [][]map[string]any, ndSeed int64, ndTimestamp float64) ([]map[string]any, executionSchedulerStats) {
+	start := time.Now()
+	defer recordExecProbeDuration(s.probe, "execScheduler.executeSequentialBatches", start)
+
 	var stats executionSchedulerStats
 	batches, allScheduled := s.initParallelBatchRuntimes(parallelBatches)
 	if len(allScheduled) == 0 {
@@ -167,6 +174,9 @@ func (s *execScheduler) executeSequentialBatches(e *Exec, parallelBatches [][]ma
 				callStart := time.Now()
 				output := e.ExecuteRequest(e, req.payload, ndSeed, ndTimestamp)
 				callDuration := time.Since(callStart)
+				if e != nil {
+					e.bottleneckProbe.record("Exec.ExecuteRequest", callDuration)
+				}
 				stats.workerCalls++
 				stats.workerExec += callDuration
 				if callDuration > stats.maxWorkerExec {
@@ -189,6 +199,7 @@ func (s *execScheduler) executeSequentialBatches(e *Exec, parallelBatches [][]ma
 				for !s.promoteOneNestedResponse(req.id) {
 					waitStart := time.Now()
 					<-s.nestedReadyCh
+					recordExecProbeDuration(s.probe, "execScheduler.waitNestedReady", waitStart)
 					stats.nestedWaits++
 					stats.nestedWait += time.Since(waitStart)
 				}
@@ -245,7 +256,11 @@ func (s *execScheduler) startParallelWorkers(
 				e.endRequestDispatchWait(task.req.payload)
 				start := time.Now()
 				output := e.ExecuteRequest(e, task.req.payload, ndSeed, ndTimestamp)
-				resultCh <- parallelWorkerResult{batch: task.batch, req: task.req, output: output, duration: time.Since(start)}
+				duration := time.Since(start)
+				if e != nil {
+					e.bottleneckProbe.record("Exec.ExecuteRequest", duration)
+				}
+				resultCh <- parallelWorkerResult{batch: task.batch, req: task.req, output: output, duration: duration}
 			}
 		}()
 	}

@@ -111,18 +111,18 @@ func ExecuteRequestSearch(e workflowRuntime, request map[string]any, ndSeed int6
 	case searchStageAwaitGeo:
 		stats.inc("hotel_search_stage_await_geo")
 		nestedStart := time.Now()
-		nestedResponses, ok := e.GetNestedResponses(requestID)
+		geoNested, nestedEntries := hotelSelectedNestedResponseFromRuntime(e, requestID, "geo")
 		stats.addDuration("hotel_search_get_nested_us", time.Since(nestedStart))
-		stats.add("hotel_search_nested_response_entries", int64(len(nestedResponses)))
+		stats.add("hotel_search_nested_response_entries", int64(nestedEntries))
 		readyStart := time.Now()
-		ready := ok && hotelNestedResponsesReady(nestedResponses, requestID, "geo")
+		ready := geoNested != nil
 		stats.addDuration("hotel_search_nested_ready_us", time.Since(readyStart))
 		if !ready {
 			stats.inc("hotel_search_wait_again_outputs")
 			return stats.finishBlocked(requestID, callStart)
 		}
 		selectStart := time.Now()
-		geoPayload := hotelNestedResponsePayload(hotelSelectedNestedResponse(nestedResponses, requestID, "geo"))
+		geoPayload := hotelNestedResponsePayload(geoNested)
 		hotelIDs := hotelPayloadStringSlice(geoPayload, "hotel_ids")
 		stats.addDuration("hotel_search_nested_select_us", time.Since(selectStart))
 		if len(hotelIDs) == 0 {
@@ -173,18 +173,18 @@ func ExecuteRequestSearch(e workflowRuntime, request map[string]any, ndSeed int6
 	case searchStageAwaitRate:
 		stats.inc("hotel_search_stage_await_rate")
 		nestedStart := time.Now()
-		nestedResponses, ok := e.GetNestedResponses(requestID)
+		rateNested, nestedEntries := hotelSelectedNestedResponseFromRuntime(e, requestID, "rate")
 		stats.addDuration("hotel_search_get_nested_us", time.Since(nestedStart))
-		stats.add("hotel_search_nested_response_entries", int64(len(nestedResponses)))
+		stats.add("hotel_search_nested_response_entries", int64(nestedEntries))
 		readyStart := time.Now()
-		ready := ok && hotelNestedResponsesReady(nestedResponses, requestID, "rate")
+		ready := rateNested != nil
 		stats.addDuration("hotel_search_nested_ready_us", time.Since(readyStart))
 		if !ready {
 			stats.inc("hotel_search_wait_again_outputs")
 			return stats.finishBlocked(requestID, callStart)
 		}
 		selectStart := time.Now()
-		ratePayload := hotelNestedResponsePayload(hotelSelectedNestedResponse(nestedResponses, requestID, "rate"))
+		ratePayload := hotelNestedResponsePayload(rateNested)
 		hotelIDs := hotelUniqueStable(hotelPayloadStringSlice(ratePayload, "hotel_ids"))
 		stats.addDuration("hotel_search_nested_select_us", time.Since(selectStart))
 		contextPayloadStart := time.Now()

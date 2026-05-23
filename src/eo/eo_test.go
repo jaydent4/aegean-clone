@@ -16,6 +16,16 @@ type fakeConsensusBox struct {
 	proposals []Entry
 }
 
+type blockingConsensusBox struct {
+	isLeader  bool
+	leader    string
+	started   chan struct{}
+	release   chan struct{}
+	blockOnce sync.Once
+	mu        sync.Mutex
+	proposals []Entry
+}
+
 func TestShouldTickRaftWithDisabledFollowerElections(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -58,6 +68,48 @@ func TestShouldTickRaftWithDisabledFollowerElections(t *testing.T) {
 	}
 }
 
+func TestCoalescePositiveAppRespRequests(t *testing.T) {
+	requests := []sendRequest{
+		{message: raftpb.Message{Type: raftpb.MsgAppResp, From: 2, To: 1, Term: 3, Index: 10}},
+		{message: raftpb.Message{Type: raftpb.MsgAppResp, From: 2, To: 1, Term: 3, Index: 11}},
+		{message: raftpb.Message{Type: raftpb.MsgHeartbeatResp, From: 2, To: 1, Term: 3}},
+		{message: raftpb.Message{Type: raftpb.MsgAppResp, From: 2, To: 1, Term: 3, Index: 12}},
+		{message: raftpb.Message{Type: raftpb.MsgAppResp, From: 2, To: 1, Term: 3, Index: 9}},
+		{message: raftpb.Message{Type: raftpb.MsgAppResp, From: 2, To: 1, Term: 3, Index: 13, Reject: true}},
+		{message: raftpb.Message{Type: raftpb.MsgAppResp, From: 2, To: 1, Term: 3, Index: 14}},
+	}
+
+	coalesced, dropped := coalescePositiveAppRespRequests(requests)
+
+	if dropped != 2 {
+		t.Fatalf("expected two coalesced app responses, got %d", dropped)
+	}
+	if len(coalesced) != 5 {
+		t.Fatalf("expected five messages after coalescing, got %d", len(coalesced))
+	}
+	want := []raftpb.MessageType{
+		raftpb.MsgAppResp,
+		raftpb.MsgHeartbeatResp,
+		raftpb.MsgAppResp,
+		raftpb.MsgAppResp,
+		raftpb.MsgAppResp,
+	}
+	for i, messageType := range want {
+		if coalesced[i].message.Type != messageType {
+			t.Fatalf("message %d type = %s, want %s", i, coalesced[i].message.Type, messageType)
+		}
+	}
+	if coalesced[0].message.Index != 11 {
+		t.Fatalf("expected first app response to keep highest index 11, got %d", coalesced[0].message.Index)
+	}
+	if coalesced[2].message.Index != 12 {
+		t.Fatalf("expected second app response run to keep highest index 12, got %d", coalesced[2].message.Index)
+	}
+	if !coalesced[3].message.Reject || coalesced[3].message.Index != 13 {
+		t.Fatalf("expected reject response to pass through, got %+v", coalesced[3].message)
+	}
+}
+
 func (f *fakeConsensusBox) IsLeader() bool {
 	return f.isLeader
 }
@@ -79,6 +131,40 @@ func (f *fakeConsensusBox) HandleMessage(message raftpb.Message) error {
 }
 
 func (f *fakeConsensusBox) Stop() {}
+
+func (b *blockingConsensusBox) IsLeader() bool {
+	return b.isLeader
+}
+
+func (b *blockingConsensusBox) Leader() (string, bool) {
+	if b.leader == "" {
+		return "", false
+	}
+	return b.leader, true
+}
+
+func (b *blockingConsensusBox) Propose(entry Entry) error {
+	b.blockOnce.Do(func() {
+		close(b.started)
+		<-b.release
+	})
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.proposals = append(b.proposals, entry)
+	return nil
+}
+
+func (b *blockingConsensusBox) HandleMessage(message raftpb.Message) error {
+	return nil
+}
+
+func (b *blockingConsensusBox) Stop() {}
+
+func (b *blockingConsensusBox) proposalSnapshot() []Entry {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]Entry(nil), b.proposals...)
+}
 
 func newTestEO(t *testing.T, box ConsensusBox, execute ExecuteFunc, commit CommitFunc, forward ForwardFunc) *EO {
 	t.Helper()
@@ -220,6 +306,133 @@ func TestEOProcessDeduplicatesRequestIDs(t *testing.T) {
 	}
 	if component.ProcessedIndex() != 3 {
 		t.Fatalf("expected duplicate slot to be processed, got processed index %d", component.ProcessedIndex())
+	}
+}
+
+func TestEOProcessExpandsBatchedEntries(t *testing.T) {
+	box := &fakeConsensusBox{isLeader: true, leader: "node1"}
+	committed := make([]CommittedEntry, 0, 2)
+
+	component := newTestEO(t, box, nil, func(entry CommittedEntry) {
+		committed = append(committed, entry)
+	}, nil)
+	defer component.Stop()
+
+	component.Learn(1, Entry{
+		RequestID: "r1",
+		Batch: []EntryItem{
+			{RequestID: "r1", Response: map[string]any{"status": "one"}},
+			{RequestID: "r2", Response: map[string]any{"status": "two"}},
+		},
+	})
+
+	if len(committed) != 2 {
+		t.Fatalf("expected two committed entries, got %d", len(committed))
+	}
+	if committed[0].Slot != 1 || committed[0].Entry.RequestID != "r1" {
+		t.Fatalf("expected slot 1 / r1 first, got slot %d request %q", committed[0].Slot, committed[0].Entry.RequestID)
+	}
+	if committed[1].Slot != 1 || committed[1].Entry.RequestID != "r2" {
+		t.Fatalf("expected slot 1 / r2 second, got slot %d request %q", committed[1].Slot, committed[1].Entry.RequestID)
+	}
+}
+
+func TestEOProposeResponsePayloadBatchesQueuedResponses(t *testing.T) {
+	box := &blockingConsensusBox{
+		isLeader: true,
+		leader:   "node1",
+		started:  make(chan struct{}),
+		release:  make(chan struct{}),
+	}
+	component, err := NewEO(Config{
+		Name:              "node1",
+		Peers:             []string{"node1", "node2", "node3"},
+		BoxFactory:        func(cfg BoxConfig, onLearn LearnFunc) (ConsensusBox, error) { return box, nil },
+		ResponseBatchSize: 3,
+	})
+	if err != nil {
+		t.Fatalf("NewEO error: %v", err)
+	}
+	defer component.Stop()
+
+	firstResult := make(chan error, 1)
+	go func() {
+		firstResult <- component.ProposeResponsePayload("r1", map[string]any{"request_id": "r1"})
+	}()
+	<-box.started
+
+	secondResult := make(chan error, 1)
+	thirdResult := make(chan error, 1)
+	go func() {
+		secondResult <- component.ProposeResponsePayload("r2", map[string]any{"request_id": "r2"})
+	}()
+	go func() {
+		thirdResult <- component.ProposeResponsePayload("r3", map[string]any{"request_id": "r3"})
+	}()
+	waitForResponseBatchQueueDepth(t, component.responseBatchQueue, 2)
+	close(box.release)
+
+	for name, result := range map[string]chan error{
+		"first":  firstResult,
+		"second": secondResult,
+		"third":  thirdResult,
+	} {
+		if err := <-result; err != nil {
+			t.Fatalf("%s proposal error: %v", name, err)
+		}
+	}
+	waitForProposals(t, box, 2)
+
+	proposals := box.proposalSnapshot()
+	if len(proposals) != 2 {
+		t.Fatalf("expected two raft proposals, got %d", len(proposals))
+	}
+	if proposals[0].RequestID != "r1" || len(proposals[0].Batch) != 0 {
+		t.Fatalf("expected first proposal to be single r1, got %+v", proposals[0])
+	}
+	if len(proposals[1].Batch) != 2 {
+		t.Fatalf("expected second proposal to batch two responses, got %+v", proposals[1])
+	}
+	batchedIDs := map[string]bool{}
+	for _, item := range proposals[1].Batch {
+		batchedIDs[item.RequestID] = true
+	}
+	if !batchedIDs["r2"] || !batchedIDs["r3"] {
+		t.Fatalf("expected batched r2/r3, got %+v", proposals[1].Batch)
+	}
+}
+
+func waitForProposals(t *testing.T, box *blockingConsensusBox, count int) {
+	t.Helper()
+	deadline := time.After(2 * time.Second)
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for %d proposals; got %d", count, len(box.proposalSnapshot()))
+		case <-ticker.C:
+			if len(box.proposalSnapshot()) >= count {
+				return
+			}
+		}
+	}
+}
+
+func waitForResponseBatchQueueDepth(t *testing.T, queue chan responseProposal, depth int) {
+	t.Helper()
+	deadline := time.After(2 * time.Second)
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for response batch queue depth %d; got %d", depth, len(queue))
+		case <-ticker.C:
+			if len(queue) >= depth {
+				return
+			}
+		}
 	}
 }
 

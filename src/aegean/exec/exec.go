@@ -145,6 +145,7 @@ type Exec struct {
 	nestedDispatchTracker *nestedDispatchTracker
 	nestedTimingMu        sync.Mutex
 	nestedResponseTimings map[int]*nestedResponseTimingStats
+	bottleneckProbe       *execBottleneckProbe
 	// Request execution hook
 	ExecuteRequest ExecuteRequestFunc
 }
@@ -186,6 +187,7 @@ func NewExec(name string, verifiers []string, peers []string, verifierCh chan<- 
 		PrevHash:   stable.PrevHash,
 		Verified:   false,
 	}
+	bottleneckProbe := newExecBottleneckProbe(name, initialRunConfig)
 	exec := &Exec{
 		Name:                  name,
 		Verifiers:             verifiers,
@@ -213,10 +215,11 @@ func NewExec(name string, verifiers []string, peers []string, verifierCh chan<- 
 		coordStats:            coordinatorStats{windowStart: time.Now()},
 		nestedDispatchTracker: newNestedDispatchTracker(),
 		nestedResponseTimings: make(map[int]*nestedResponseTimingStats),
+		bottleneckProbe:       bottleneckProbe,
 	}
 	exec.verifyResponseQuorum = common.NewQuorumHelper(verifyResponseQuorumSize)
 	exec.storeCheckpoint(0, stable.PrevHash, stable.KVStore, stable.MerkleRoot)
-	exec.scheduler = newExecScheduler(initialRunConfig)
+	exec.scheduler = newExecScheduler(initialRunConfig, bottleneckProbe)
 	go exec.runBatchExecutor()
 	go exec.runCoordinator()
 	return exec
@@ -304,6 +307,9 @@ func applyStateDelta(state map[string]string, delta map[string]string) {
 }
 
 func (e *Exec) BufferNestedResponse(payload map[string]any) bool {
+	start := time.Now()
+	defer recordExecProbeDuration(e.bottleneckProbe, "Exec.BufferNestedResponse", start)
+
 	if payload == nil {
 		return false
 	}
@@ -323,11 +329,25 @@ func (e *Exec) BufferNestedResponse(payload map[string]any) bool {
 }
 
 func (e *Exec) GetNestedResponses(requestID any) ([]map[string]any, bool) {
+	start := time.Now()
+	defer recordExecProbeDuration(e.bottleneckProbe, "Exec.GetNestedResponses", start)
+
 	canonicalID, ok := canonicalRequestID(requestID)
 	if !ok {
 		return nil, false
 	}
 	return e.scheduler.getNestedResponses(canonicalID)
+}
+
+func (e *Exec) GetNestedResponseByRequestID(requestID any, nestedRequestID string) (map[string]any, bool) {
+	start := time.Now()
+	defer recordExecProbeDuration(e.bottleneckProbe, "Exec.GetNestedResponseByRequestID", start)
+
+	canonicalID, ok := canonicalRequestID(requestID)
+	if !ok {
+		return nil, false
+	}
+	return e.scheduler.getNestedResponseByRequestID(canonicalID, nestedRequestID)
 }
 
 func (e *Exec) HandleBatchMessage(payload map[string]any) map[string]any {

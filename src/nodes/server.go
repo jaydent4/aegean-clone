@@ -113,6 +113,8 @@ func NewServer(name, host string, port int, clients []string, nodes []string, is
 			DisableFollowerElections: disableFollowerElections,
 			RaftSendBatchSize:        common.IntOrDefault(runConfig, "eo_raft_send_batch_size", 1),
 			LearnBatchSize:           common.IntOrDefault(runConfig, "eo_learn_batch_size", 256),
+			ResponseBatchSize:        common.IntOrDefault(runConfig, "eo_response_batch_size", 1),
+			ResponseBatchTimeout:     time.Duration(common.IntOrDefault(runConfig, "eo_response_batch_timeout_us", 0)) * time.Microsecond,
 		})
 		if err != nil {
 			panic(err)

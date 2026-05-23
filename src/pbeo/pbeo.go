@@ -595,6 +595,8 @@ func NewPBEO(cfg Config) (*PBEO, error) {
 		MaxSizePerMsg:            cfg.MaxSizePerMsg,
 		RaftSendBatchSize:        cfg.EORaftSendBatchSize,
 		LearnBatchSize:           cfg.EOLearnBatchSize,
+		ResponseBatchSize:        cfg.EOResponseBatchSize,
+		ResponseBatchTimeout:     cfg.EOResponseBatchTimeout,
 	})
 	if err != nil {
 		box.Stop()

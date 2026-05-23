@@ -3,6 +3,7 @@ package exec
 import (
 	"log"
 	"sync"
+	"time"
 )
 
 type NestedEOReplicator interface {
@@ -14,6 +15,10 @@ type NestedEOReplicator interface {
 type NestedEORequestQuorum interface {
 	SubmitNestedRequest(source string, requestID string, targets []string, payload map[string]any) map[string]any
 	HandleNestedRequestMessage(payload map[string]any) map[string]any
+}
+
+type nestedBottleneckProbeSink interface {
+	SetBottleneckProbe(*execBottleneckProbe)
 }
 
 type eoDispatchAction uint8
@@ -53,6 +58,9 @@ func newNestedDispatchTracker() *nestedDispatchTracker {
 
 func (e *Exec) SetNestedEO(replication NestedEOReplicator) {
 	e.nestedEO = replication
+	if sink, ok := replication.(nestedBottleneckProbeSink); ok {
+		sink.SetBottleneckProbe(e.bottleneckProbe)
+	}
 }
 
 func (e *Exec) NestedEOReady() bool {
@@ -71,6 +79,9 @@ func (e *Exec) RegisterSelectedNestedRequest(requestID string) {
 }
 
 func (e *Exec) DispatchNestedRequestEO(sourceRequest map[string]any, targets []string, outgoing map[string]any) {
+	start := time.Now()
+	defer recordExecProbeDuration(e.bottleneckProbe, "Exec.DispatchNestedRequestEO", start)
+
 	prepared, ok := e.prepareNestedDispatchPayload(sourceRequest, outgoing)
 	if !ok || len(targets) == 0 || e.nestedEO == nil {
 		return
@@ -90,7 +101,7 @@ func (e *Exec) DispatchNestedRequestEO(sourceRequest map[string]any, targets []s
 
 	switch e.nextEODispatchAction(prepared) {
 	case eoDispatchSendDirect:
-		sendNestedRequestDirect(targets, prepared)
+		sendNestedRequestDirectWithProbe(targets, prepared, e.bottleneckProbe)
 	case eoDispatchWaitForResponse:
 		return
 	case eoDispatchSkip:
@@ -114,6 +125,12 @@ func (e *Exec) ClaimNestedRequestEO(prepared map[string]any) bool {
 }
 
 func (e *Exec) HandleNestedResponseMessage(payload map[string]any) (map[string]any, bool) {
+	start := time.Now()
+	defer recordExecProbeDuration(e.bottleneckProbe, "Exec.HandleNestedResponseMessage", start)
+	if nestedTraceEnabled(payload) {
+		payload[nestedParentExecHandleUnixNanoKey] = start.UnixNano()
+	}
+
 	requestID, state, ok := e.nestedResponseState(payload)
 	if !ok {
 		if e.nestedEO != nil && payload != nil && payload["parent_request_id"] != nil {
@@ -148,8 +165,14 @@ func (e *Exec) HandleNestedResponseMessage(payload map[string]any) (map[string]a
 }
 
 func (e *Exec) BufferExactOnceNestedResponse(payload map[string]any) bool {
+	start := time.Now()
+	defer recordExecProbeDuration(e.bottleneckProbe, "Exec.BufferExactOnceNestedResponse", start)
+
 	if payload == nil {
 		return false
+	}
+	if nestedTraceEnabled(payload) {
+		payload[nestedParentEOBufferUnixNanoKey] = start.UnixNano()
 	}
 
 	requestID, ok := canonicalRequestID(payload["request_id"])
@@ -187,12 +210,12 @@ func (e *Exec) nextEODispatchAction(prepared map[string]any) eoDispatchAction {
 
 func (e *Exec) dispatchNestedRequestEOAfterRegister(requestID string, targets []string, prepared map[string]any) {
 	if e.nestedEO.IsLeader() {
-		sendNestedRequestDirect(targets, prepared)
+		sendNestedRequestDirectWithProbe(targets, prepared, e.bottleneckProbe)
 		return
 	}
 
 	if _, ok := e.nestedEO.Leader(); !ok {
-		sendNestedRequestDirect(targets, prepared)
+		sendNestedRequestDirectWithProbe(targets, prepared, e.bottleneckProbe)
 		return
 	}
 	_ = requestID
@@ -217,6 +240,9 @@ func (e *Exec) nestedResponseState(payload map[string]any) (string, nestedDispat
 }
 
 func (e *Exec) handlePendingNestedResponse(requestID string, payload map[string]any) (map[string]any, bool) {
+	start := time.Now()
+	defer recordExecProbeDuration(e.bottleneckProbe, "Exec.handlePendingNestedResponse", start)
+
 	if !e.nestedEO.IsLeader() {
 		if _, ok := e.nestedEO.Leader(); ok {
 			return nestedResponseStatus(requestID, nestedResponseWaitingForLeaderStatus), true
@@ -246,7 +272,13 @@ func (e *Exec) handlePendingNestedResponse(requestID string, payload map[string]
 
 	proposed := cloneMapAny(payload)
 	proposed["shim_quorum_aggregated"] = true
-	if err := e.nestedEO.ProposeResponsePayload(requestID, proposed); err != nil {
+	proposeStart := time.Now()
+	if nestedTraceEnabled(proposed) {
+		proposed[nestedParentEOProposeUnixNanoKey] = proposeStart.UnixNano()
+	}
+	err := e.nestedEO.ProposeResponsePayload(requestID, proposed)
+	recordExecProbeDuration(e.bottleneckProbe, "NestedEOReplicator.ProposeResponsePayload", proposeStart)
+	if err != nil {
 		e.nestedDispatchTracker.resetPending(requestID)
 		log.Printf(
 			"%s: warning: EO nested response proposal failed request_id=%s parent_request_id=%v child=%s sender=%v error=%v",
@@ -259,7 +291,6 @@ func (e *Exec) handlePendingNestedResponse(requestID string, payload map[string]
 		)
 		return nil, false
 	}
-
 	return nestedResponseStatus(requestID, nestedResponseProposedStatus), true
 }
 

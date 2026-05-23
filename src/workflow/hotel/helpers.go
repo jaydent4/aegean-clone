@@ -252,6 +252,25 @@ func hotelSelectedNestedResponse(nestedResponses []map[string]any, parentRequest
 	return nil
 }
 
+type hotelNestedResponseLookupRuntime interface {
+	GetNestedResponseByRequestID(requestID any, nestedRequestID string) (map[string]any, bool)
+}
+
+func hotelSelectedNestedResponseFromRuntime(e workflowRuntime, parentRequestID any, serviceName string) (map[string]any, int) {
+	expectedRequestID := hotelNestedRequestID(parentRequestID, serviceName)
+	if lookup, ok := e.(hotelNestedResponseLookupRuntime); ok {
+		if nested, ok := lookup.GetNestedResponseByRequestID(parentRequestID, expectedRequestID); ok {
+			return nested, 1
+		}
+		return nil, 0
+	}
+	nestedResponses, ok := e.GetNestedResponses(parentRequestID)
+	if !ok {
+		return nil, 0
+	}
+	return hotelSelectedNestedResponse(nestedResponses, parentRequestID, serviceName), len(nestedResponses)
+}
+
 func hotelFirstReadyNestedResponse(nestedResponses []map[string]any, parentRequestID any, serviceNames []string) (map[string]any, string) {
 	expected := make(map[string]string, len(serviceNames))
 	for _, serviceName := range serviceNames {

@@ -2,10 +2,14 @@ package eo
 
 import (
 	"fmt"
+	"log"
 	"sync"
+	"time"
 
 	"aegean/common"
 )
+
+const defaultResponseBatchQueueSize = 4096
 
 type EO struct {
 	name    string
@@ -13,6 +17,13 @@ type EO struct {
 	commit  CommitFunc
 	forward ForwardFunc
 	box     ConsensusBox
+
+	responseBatchSize     int
+	responseBatchTimeout  time.Duration
+	responseBatchQueue    chan responseProposal
+	responseBatchStop     chan struct{}
+	responseBatchDone     chan struct{}
+	responseBatchStopOnce sync.Once
 
 	processMu         sync.Mutex
 	mu                sync.Mutex
@@ -26,6 +37,10 @@ type EO struct {
 
 type asyncConsensusBox interface {
 	ProposeAsync(entry Entry) error
+}
+
+type responseProposal struct {
+	item EntryItem
 }
 
 func NewEO(cfg Config) (*EO, error) {
@@ -58,6 +73,13 @@ func NewEO(cfg Config) (*EO, error) {
 		learnedSlots:      make(map[uint64]struct{}),
 		committedRequests: make(map[string]struct{}),
 	}
+	if cfg.ResponseBatchSize > 1 {
+		e.responseBatchSize = cfg.ResponseBatchSize
+		e.responseBatchTimeout = cfg.ResponseBatchTimeout
+		e.responseBatchQueue = make(chan responseProposal, defaultResponseBatchQueueSize)
+		e.responseBatchStop = make(chan struct{})
+		e.responseBatchDone = make(chan struct{})
+	}
 
 	box, err := factory(BoxConfig{
 		Name:                     cfg.Name,
@@ -78,6 +100,9 @@ func NewEO(cfg Config) (*EO, error) {
 		return nil, err
 	}
 	e.box = box
+	if e.responseBatchQueue != nil {
+		go e.runResponseBatcher()
+	}
 	return e, nil
 }
 
@@ -104,6 +129,7 @@ func (e *EO) Primary() (string, bool) {
 }
 
 func (e *EO) Stop() {
+	e.stopResponseBatcher()
 	if e.box != nil {
 		e.box.Stop()
 	}
@@ -113,14 +139,165 @@ func (e *EO) ProposeResponsePayload(requestID string, payload map[string]any) er
 	if requestID == "" {
 		return fmt.Errorf("eo propose requires a request_id")
 	}
-	entry := Entry{
+	item := EntryItem{
 		RequestID: requestID,
 		Response:  cloneMap(payload),
 	}
+	if e.responseBatchQueue != nil {
+		proposal := responseProposal{item: item}
+		select {
+		case <-e.responseBatchStop:
+			return fmt.Errorf("eo stopped")
+		case e.responseBatchQueue <- proposal:
+		}
+		return nil
+	}
+	return e.proposeEntry(entryFromItem(item))
+}
+
+func (e *EO) proposeEntry(entry Entry) error {
 	if box, ok := e.box.(asyncConsensusBox); ok {
 		return box.ProposeAsync(entry)
 	}
 	return e.box.Propose(entry)
+}
+
+func (e *EO) runResponseBatcher() {
+	defer close(e.responseBatchDone)
+
+	batch := make([]responseProposal, 0, e.responseBatchSize)
+	windowStart := time.Now()
+	var windowBatches int64
+	var windowResponses int64
+	var maxBatchSize int
+	var maxQueueDepth int
+
+	recordBatch := func(batchSize int, queueDepthBeforeDrain int, queueDepthAfterDrain int) {
+		if !eoRaftWindowLogsEnabled() {
+			return
+		}
+		windowBatches++
+		windowResponses += int64(batchSize)
+		if batchSize > maxBatchSize {
+			maxBatchSize = batchSize
+		}
+		if queueDepthBeforeDrain > maxQueueDepth {
+			maxQueueDepth = queueDepthBeforeDrain
+		}
+		if queueDepthAfterDrain > maxQueueDepth {
+			maxQueueDepth = queueDepthAfterDrain
+		}
+		elapsed := time.Since(windowStart)
+		if elapsed < 5*time.Second {
+			return
+		}
+		avgBatch := 0.0
+		if windowBatches > 0 {
+			avgBatch = float64(windowResponses) / float64(windowBatches)
+		}
+		log.Printf(
+			"%s: eo_response_batcher_window window_ms=%d batches=%d responses=%d responses_per_s=%.1f avg_batch=%.2f batch_size_max=%d queue_depth_max=%d",
+			e.name,
+			elapsed.Milliseconds(),
+			windowBatches,
+			windowResponses,
+			float64(windowResponses)/elapsed.Seconds(),
+			avgBatch,
+			maxBatchSize,
+			maxQueueDepth,
+		)
+		windowStart = time.Now()
+		windowBatches = 0
+		windowResponses = 0
+		maxBatchSize = 0
+		maxQueueDepth = 0
+	}
+
+	for {
+		select {
+		case <-e.responseBatchStop:
+			e.flushResponseProposalQueue(batch, recordBatch)
+			return
+		case proposal := <-e.responseBatchQueue:
+			batch = append(batch[:0], proposal)
+			queueDepthBeforeDrain := len(e.responseBatchQueue)
+			if e.responseBatchTimeout > 0 {
+				var stopped bool
+				batch, stopped = e.waitForResponseBatch(batch)
+				if stopped {
+					return
+				}
+			}
+		drain:
+			for len(batch) < e.responseBatchSize {
+				select {
+				case next := <-e.responseBatchQueue:
+					batch = append(batch, next)
+				default:
+					break drain
+				}
+			}
+			queueDepthAfterDrain := len(e.responseBatchQueue)
+			e.proposeResponseBatch(batch)
+			recordBatch(len(batch), queueDepthBeforeDrain, queueDepthAfterDrain)
+		}
+	}
+}
+
+func (e *EO) waitForResponseBatch(batch []responseProposal) ([]responseProposal, bool) {
+	timer := time.NewTimer(e.responseBatchTimeout)
+	defer timer.Stop()
+	for len(batch) < e.responseBatchSize {
+		select {
+		case <-e.responseBatchStop:
+			e.proposeResponseBatch(batch)
+			e.flushResponseProposalQueue(batch, func(int, int, int) {})
+			return batch, true
+		case next := <-e.responseBatchQueue:
+			batch = append(batch, next)
+		case <-timer.C:
+			return batch, false
+		}
+	}
+	return batch, false
+}
+
+func (e *EO) flushResponseProposalQueue(batch []responseProposal, recordBatch func(int, int, int)) {
+	for {
+		batch = batch[:0]
+	drain:
+		for len(batch) < e.responseBatchSize {
+			select {
+			case proposal := <-e.responseBatchQueue:
+				batch = append(batch, proposal)
+			default:
+				break drain
+			}
+		}
+		if len(batch) == 0 {
+			return
+		}
+		e.proposeResponseBatch(batch)
+		recordBatch(len(batch), len(batch), len(e.responseBatchQueue))
+	}
+}
+
+func (e *EO) proposeResponseBatch(batch []responseProposal) {
+	entry := entryFromResponseProposals(batch)
+	err := e.proposeEntry(entry)
+	if err != nil {
+		log.Printf("%s: warning: EO response batch proposal failed responses=%d error=%v", e.name, len(batch), err)
+	}
+}
+
+func (e *EO) stopResponseBatcher() {
+	if e.responseBatchStop == nil {
+		return
+	}
+	e.responseBatchStopOnce.Do(func() {
+		close(e.responseBatchStop)
+		<-e.responseBatchDone
+	})
 }
 
 func (e *EO) HandleMessage(payload map[string]any) map[string]any {
@@ -374,15 +551,57 @@ func (e *EO) dequeueCommittableEntries() []CommittedEntry {
 			return committedEntries
 		}
 		e.processed = nextSlot
-		if _, duplicate := e.committedRequests[entry.RequestID]; duplicate {
-			continue
+		for _, item := range entryItems(entry) {
+			if item.RequestID == "" {
+				continue
+			}
+			if _, duplicate := e.committedRequests[item.RequestID]; duplicate {
+				continue
+			}
+			e.committedRequests[item.RequestID] = struct{}{}
+			committedEntries = append(committedEntries, CommittedEntry{
+				Slot:  nextSlot,
+				Entry: entryFromItem(item),
+			})
 		}
-		e.committedRequests[entry.RequestID] = struct{}{}
-		committedEntries = append(committedEntries, CommittedEntry{
-			Slot:  nextSlot,
-			Entry: entry,
-		})
 	}
+}
+
+func entryFromItem(item EntryItem) Entry {
+	return Entry{
+		RequestID: item.RequestID,
+		Response:  item.Response,
+	}
+}
+
+func entryFromResponseProposals(proposals []responseProposal) Entry {
+	if len(proposals) == 0 {
+		return Entry{}
+	}
+	if len(proposals) == 1 {
+		return entryFromItem(proposals[0].item)
+	}
+	batch := make([]EntryItem, len(proposals))
+	for i, proposal := range proposals {
+		batch[i] = proposal.item
+	}
+	return Entry{
+		RequestID: batch[0].RequestID,
+		Batch:     batch,
+	}
+}
+
+func entryItems(entry Entry) []EntryItem {
+	if len(entry.Batch) > 0 {
+		return entry.Batch
+	}
+	if entry.RequestID == "" {
+		return nil
+	}
+	return []EntryItem{{
+		RequestID: entry.RequestID,
+		Response:  entry.Response,
+	}}
 }
 
 func cloneMap(input map[string]any) map[string]any {
@@ -397,9 +616,21 @@ func cloneMap(input map[string]any) map[string]any {
 }
 
 func cloneEntry(entry Entry) Entry {
+	batch := make([]EntryItem, 0, len(entry.Batch))
+	for _, item := range entry.Batch {
+		batch = append(batch, cloneEntryItem(item))
+	}
 	return Entry{
 		RequestID: entry.RequestID,
 		Response:  cloneMap(entry.Response),
+		Batch:     batch,
+	}
+}
+
+func cloneEntryItem(item EntryItem) EntryItem {
+	return EntryItem{
+		RequestID: item.RequestID,
+		Response:  cloneMap(item.Response),
 	}
 }
 

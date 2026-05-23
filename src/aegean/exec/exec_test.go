@@ -313,6 +313,22 @@ func TestNestedEORequestQuorumDispatchesAfterTwoMatchingRequests(t *testing.T) {
 	if msg["sender"] != "node1" {
 		t.Fatalf("expected selected request sender to be EO leader node1, got %v", msg["sender"])
 	}
+
+	status := quorum.HandleNestedRequestMessage(map[string]any{
+		"type":       "eo_nested_request",
+		"request_id": "parent/child",
+		"request":    forwarded,
+		"targets":    []string{"127.0.0.1"},
+		"sender":     "node3",
+	})
+	if status["status"] != "eo_nested_request_already_dispatched" {
+		t.Fatalf("expected late vote to be ignored, got %v", status["status"])
+	}
+	select {
+	case unexpected := <-server.received:
+		t.Fatalf("expected late vote not to dispatch, got %v", unexpected)
+	case <-time.After(50 * time.Millisecond):
+	}
 }
 
 func TestNestedEORequestQuorumRegistersSelectedRequestOnLeader(t *testing.T) {
@@ -467,12 +483,58 @@ func TestExecHandleNestedResponseMessageEOProposesAndApplies(t *testing.T) {
 		t.Fatalf("expected buffered request_id parent/child, got %v", nestedResponses[0]["request_id"])
 	}
 
+	nestedResponse, ok := exec.GetNestedResponseByRequestID("parent", "parent/child")
+	if !ok {
+		t.Fatalf("expected direct nested response lookup to find parent/child")
+	}
+	if nestedResponse["request_id"] != "parent/child" {
+		t.Fatalf("expected direct lookup request_id parent/child, got %v", nestedResponse["request_id"])
+	}
+
 	ignored, handled := exec.HandleNestedResponseMessage(responsePayload)
 	if !handled {
 		t.Fatalf("expected completed EO response to be swallowed")
 	}
 	if ignored["status"] != "eo_nested_response_ignored" {
 		t.Fatalf("expected eo_nested_response_ignored, got %v", ignored["status"])
+	}
+}
+
+func TestExecGetNestedResponseByRequestIDReturnsAggregatedMatch(t *testing.T) {
+	exec, _, _ := newTestExec("node1", []string{"node1"}, nil)
+
+	if nestedResponse, ok := exec.GetNestedResponseByRequestID("parent", "parent/child"); ok {
+		t.Fatalf("expected no response before buffering, got %v", nestedResponse)
+	}
+
+	if !exec.BufferNestedResponse(map[string]any{
+		"request_id":             "parent/child",
+		"parent_request_id":      "parent",
+		"shim_quorum_aggregated": false,
+		"value":                  "raw",
+	}) {
+		t.Fatalf("expected raw nested response to buffer")
+	}
+	if !exec.BufferNestedResponse(map[string]any{
+		"request_id":             "parent/child",
+		"parent_request_id":      "parent",
+		"shim_quorum_aggregated": true,
+		"value":                  "aggregated",
+	}) {
+		t.Fatalf("expected aggregated nested response to buffer")
+	}
+
+	nestedResponse, ok := exec.GetNestedResponseByRequestID("parent", "parent/child")
+	if !ok {
+		t.Fatalf("expected aggregated nested response lookup to succeed")
+	}
+	if nestedResponse["value"] != "aggregated" {
+		t.Fatalf("expected aggregated response, got %v", nestedResponse["value"])
+	}
+	nestedResponse["value"] = "mutated"
+	nestedResponse, ok = exec.GetNestedResponseByRequestID("parent", "parent/child")
+	if !ok || nestedResponse["value"] != "aggregated" {
+		t.Fatalf("expected lookup to return cloned top-level response, got %v", nestedResponse)
 	}
 }
 

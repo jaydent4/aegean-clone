@@ -10,12 +10,15 @@ import (
 )
 
 func (e *Exec) DispatchNestedRequestDirect(sourceRequest map[string]any, targets []string, outgoing map[string]any) {
+	start := time.Now()
+	defer recordExecProbeDuration(e.bottleneckProbe, "Exec.DispatchNestedRequestDirect", start)
+
 	prepared, ok := e.prepareNestedDispatchPayload(sourceRequest, outgoing)
 	if !ok || len(targets) == 0 {
 		return
 	}
 
-	sendNestedRequestDirect(targets, prepared)
+	sendNestedRequestDirectWithProbe(targets, prepared, e.bottleneckProbe)
 }
 
 func (e *Exec) PrepareNestedRequestPayload(sourceRequest map[string]any, outgoing map[string]any) (map[string]any, bool) {
@@ -37,6 +40,13 @@ func (e *Exec) prepareNestedDispatchPayload(sourceRequest map[string]any, outgoi
 }
 
 func sendNestedRequestDirect(targets []string, outgoing map[string]any) {
+	sendNestedRequestDirectWithProbe(targets, outgoing, nil)
+}
+
+func sendNestedRequestDirectWithProbe(targets []string, outgoing map[string]any, probe *execBottleneckProbe) {
+	start := time.Now()
+	defer recordExecProbeDuration(probe, "sendNestedRequestDirect", start)
+
 	serviceTargets := append([]string{}, targets...)
 	sort.Strings(serviceTargets)
 	traceEnabled := nestedTraceEnabled(outgoing)

@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
+	"os"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -20,13 +23,15 @@ import (
 var errConsensusBoxStopped = errors.New("eo consensus box stopped")
 
 type proposalRequest struct {
-	entry  Entry
-	result chan error
-	span   trace.Span
+	entry    Entry
+	result   chan error
+	span     trace.Span
+	enqueued time.Time
 }
 
 type stepRequest struct {
-	message raftpb.Message
+	message  raftpb.Message
+	enqueued time.Time
 }
 
 type asyncLearnRequest struct {
@@ -37,6 +42,11 @@ type asyncLearnRequest struct {
 
 type unreachablePeer struct {
 	id uint64
+}
+
+type sendRequest struct {
+	message  raftpb.Message
+	enqueued time.Time
 }
 
 type pendingAppendSignal struct {
@@ -71,6 +81,9 @@ type drainReadyStats struct {
 	learnEnqueueNanos int64
 	learnNanos        int64
 	advanceNanos      int64
+	readyNanos        int64
+	messageNanos      int64
+	commitNanos       int64
 }
 
 type raftConsensusBox struct {
@@ -89,7 +102,7 @@ type raftConsensusBox struct {
 	proposals       chan proposalRequest
 	prioritySteps   chan stepRequest
 	backgroundSteps chan stepRequest
-	sendQueues      map[uint64]chan raftpb.Message
+	sendQueues      map[uint64]chan sendRequest
 	sendBatchSize   int
 	learnBatchSize  int
 	learnQueue      chan asyncLearnRequest
@@ -200,6 +213,16 @@ func (w *raftLoopTraceWindowStats) recordDrain(stats drainReadyStats, duration t
 	w.addDuration("learn_enqueue", time.Duration(stats.learnEnqueueNanos))
 	w.addDuration("learn_committed", time.Duration(stats.learnNanos))
 	w.addDuration("advance", time.Duration(stats.advanceNanos))
+	w.addDuration("ready_read", time.Duration(stats.readyNanos))
+	w.addDuration("ready_messages", time.Duration(stats.messageNanos))
+	w.addDuration("ready_commits", time.Duration(stats.commitNanos))
+}
+
+func (w *raftLoopTraceWindowStats) recordStepRequest(queueName string, request stepRequest) {
+	if !request.enqueued.IsZero() {
+		w.addDuration(queueName+"_step_queue_wait", time.Since(request.enqueued))
+	}
+	w.addCount(queueName+"_step_type_"+raftMessageTypeName(request.message.Type), 1)
 }
 
 func (w *raftLoopTraceWindowStats) maybeFlush(leaderID uint64, reason string) {
@@ -256,7 +279,51 @@ func (w *raftLoopTraceWindowStats) flush(leaderID uint64, reason string) {
 		trace.WithAttributes(attrs...),
 	)
 	span.End(trace.WithTimestamp(now))
+	w.logWindow(leaderID, elapsed)
 	w.reset(now)
+}
+
+func (w *raftLoopTraceWindowStats) logWindow(leaderID uint64, elapsed time.Duration) {
+	if !eoRaftWindowLogsEnabled() {
+		return
+	}
+	iterations := w.counts["iterations"]
+	iterationsPerSec := float64(0)
+	if elapsed > 0 {
+		iterationsPerSec = float64(iterations) / elapsed.Seconds()
+	}
+	log.Printf(
+		"%s: %s_raft_loop_window window_ms=%d leader=%t iter_per_s=%.1f proposals=%d priority_steps=%d background_steps=%d ready_batches=%d ready_committed=%d ready_messages=%d proposal_queue_wait_us=%d priority_step_queue_wait_us=%d background_step_queue_wait_us=%d handler_us=%d raw_propose_us=%d raw_step_us=%d drain_ready_us=%d ready_read_us=%d ready_messages_us=%d ready_commits_us=%d send_enqueue_us=%d learn_committed_us=%d advance_us=%d proposals_q_max=%d priority_q_max=%d background_q_max=%d send_unreachable_q_max=%d learn_q_max=%d",
+		w.nodeName,
+		w.component,
+		elapsed.Milliseconds(),
+		leaderID == w.selfID && w.selfID != 0,
+		iterationsPerSec,
+		w.counts["proposals"],
+		w.counts["priority_steps"],
+		w.counts["background_steps"],
+		w.counts["ready_batches"],
+		w.counts["ready_committed_entries"],
+		w.counts["ready_messages"],
+		w.durations["proposal_queue_wait"].Microseconds(),
+		w.durations["priority_step_queue_wait"].Microseconds(),
+		w.durations["background_step_queue_wait"].Microseconds(),
+		w.durations["handler"].Microseconds(),
+		w.durations["raw_propose"].Microseconds(),
+		w.durations["raw_step"].Microseconds(),
+		w.durations["drain_ready"].Microseconds(),
+		w.durations["ready_read"].Microseconds(),
+		w.durations["ready_messages"].Microseconds(),
+		w.durations["ready_commits"].Microseconds(),
+		w.durations["send_enqueue"].Microseconds(),
+		w.durations["learn_committed"].Microseconds(),
+		w.durations["advance"].Microseconds(),
+		w.maxGauges["proposals_queued"],
+		w.maxGauges["priority_steps_queued"],
+		w.maxGauges["background_steps_queued"],
+		w.maxGauges["unreachable_queued"],
+		w.maxGauges["learn_queued"],
+	)
 }
 
 func sortedInt64MapKeys(values map[string]int64) []string {
@@ -400,7 +467,194 @@ func (w *raftLearnWorkerTraceWindowStats) flush(leaderID uint64, reason string) 
 		trace.WithAttributes(attrs...),
 	)
 	span.End(trace.WithTimestamp(now))
+	w.logWindow(leaderID, elapsed)
 	w.reset(now)
+}
+
+func (w *raftLearnWorkerTraceWindowStats) logWindow(leaderID uint64, elapsed time.Duration) {
+	if !eoRaftWindowLogsEnabled() {
+		return
+	}
+	entriesPerSec := float64(0)
+	if elapsed > 0 {
+		entriesPerSec = float64(w.counts["entries"]) / elapsed.Seconds()
+	}
+	log.Printf(
+		"%s: eo_raft_learn_worker_window window_ms=%d leader=%t entries_per_s=%.1f batches=%d entries=%d queue_wait_us=%d callback_us=%d batch_size_max=%d queue_depth_max=%d",
+		w.nodeName,
+		elapsed.Milliseconds(),
+		leaderID == w.selfID && w.selfID != 0,
+		entriesPerSec,
+		w.counts["batches"],
+		w.counts["entries"],
+		w.durations["queue_wait"].Microseconds(),
+		w.durations["callback"].Microseconds(),
+		w.maxGauges["batch_size"],
+		w.maxGauges["queue_depth_before_drain"],
+	)
+}
+
+type raftSendWorkerTraceWindowStats struct {
+	nodeName       string
+	selfID         uint64
+	peerID         uint64
+	peer           string
+	start          time.Time
+	counts         map[string]int64
+	durations      map[string]time.Duration
+	durationCounts map[string]int64
+	maxDurations   map[string]time.Duration
+	lastGauges     map[string]int64
+	maxGauges      map[string]int64
+}
+
+func newRaftSendWorkerTraceWindowStats(nodeName string, selfID uint64, peerID uint64, peer string) *raftSendWorkerTraceWindowStats {
+	w := &raftSendWorkerTraceWindowStats{
+		nodeName: nodeName,
+		selfID:   selfID,
+		peerID:   peerID,
+		peer:     peer,
+	}
+	w.reset(time.Now())
+	return w
+}
+
+func (w *raftSendWorkerTraceWindowStats) reset(start time.Time) {
+	w.start = start
+	w.counts = make(map[string]int64)
+	w.durations = make(map[string]time.Duration)
+	w.durationCounts = make(map[string]int64)
+	w.maxDurations = make(map[string]time.Duration)
+	w.lastGauges = make(map[string]int64)
+	w.maxGauges = make(map[string]int64)
+}
+
+func (w *raftSendWorkerTraceWindowStats) addCount(name string, value int64) {
+	if value == 0 {
+		return
+	}
+	w.counts[name] += value
+}
+
+func (w *raftSendWorkerTraceWindowStats) addDuration(name string, duration time.Duration) {
+	if duration <= 0 {
+		return
+	}
+	w.durations[name] += duration
+	w.durationCounts[name]++
+	if duration > w.maxDurations[name] {
+		w.maxDurations[name] = duration
+	}
+}
+
+func (w *raftSendWorkerTraceWindowStats) observeGauge(name string, value int) {
+	v := int64(value)
+	w.lastGauges[name] = v
+	if v > w.maxGauges[name] {
+		w.maxGauges[name] = v
+	}
+}
+
+func (w *raftSendWorkerTraceWindowStats) recordBatch(batch []sendRequest, queueDepthBeforeDrain int, queueDepthAfterDrain int, sendStarted time.Time, sendDuration time.Duration, sendError bool) {
+	w.addCount("batches", 1)
+	w.addCount("messages", int64(len(batch)))
+	w.addDuration("send_rpc", sendDuration)
+	for _, request := range batch {
+		if !request.enqueued.IsZero() {
+			w.addDuration("queue_wait", sendStarted.Sub(request.enqueued))
+		}
+		w.addCount("message_type_"+raftMessageTypeName(request.message.Type), 1)
+	}
+	if sendError {
+		w.addCount("send_errors", 1)
+	}
+	w.observeGauge("batch_size", len(batch))
+	w.observeGauge("queue_depth_before_drain", queueDepthBeforeDrain)
+	w.observeGauge("queue_depth_after_drain", queueDepthAfterDrain)
+}
+
+func (w *raftSendWorkerTraceWindowStats) maybeFlush(leaderID uint64, reason string) {
+	if time.Since(w.start) >= raftLoopTraceWindow {
+		w.flush(leaderID, reason)
+	}
+}
+
+func (w *raftSendWorkerTraceWindowStats) flush(leaderID uint64, reason string) {
+	if w.counts["batches"] == 0 {
+		w.reset(time.Now())
+		return
+	}
+	now := time.Now()
+	elapsed := now.Sub(w.start)
+	attrs := []attribute.KeyValue{
+		attribute.String("raft.loop.component", "eo"),
+		attribute.String("node.name", w.nodeName),
+		attribute.Int64("raft.node_id", int64(w.selfID)),
+		attribute.Int64("raft.leader_id", int64(leaderID)),
+		attribute.Bool("raft.loop.is_leader", leaderID == w.selfID && w.selfID != 0),
+		attribute.String("raft.peer", w.peer),
+		attribute.Int64("raft.peer_id", int64(w.peerID)),
+		attribute.String("eo.raft.send_worker.flush_reason", reason),
+		attribute.Int64("eo.raft.send_worker.window_us", elapsed.Microseconds()),
+	}
+	for _, key := range sortedInt64MapKeys(w.counts) {
+		attrs = append(attrs, attribute.Int64("eo.raft.send_worker.count."+key, w.counts[key]))
+	}
+	for _, key := range sortedDurationMapKeys(w.durations) {
+		total := w.durations[key]
+		count := w.durationCounts[key]
+		avg := time.Duration(0)
+		if count > 0 {
+			avg = total / time.Duration(count)
+		}
+		attrs = append(attrs,
+			attribute.Int64("eo.raft.send_worker.duration."+key+".count", count),
+			attribute.Int64("eo.raft.send_worker.duration."+key+".total_us", total.Microseconds()),
+			attribute.Int64("eo.raft.send_worker.duration."+key+".avg_us", avg.Microseconds()),
+			attribute.Int64("eo.raft.send_worker.duration."+key+".max_us", w.maxDurations[key].Microseconds()),
+		)
+	}
+	for _, key := range sortedInt64MapKeys(w.lastGauges) {
+		attrs = append(attrs,
+			attribute.Int64("eo.raft.send_worker.gauge."+key+".last", w.lastGauges[key]),
+			attribute.Int64("eo.raft.send_worker.gauge."+key+".max", w.maxGauges[key]),
+		)
+	}
+
+	_, span := telemetry.Tracer("aegean").Start(
+		context.Background(),
+		"eo.raft.send_worker.window",
+		trace.WithTimestamp(w.start),
+		trace.WithAttributes(attrs...),
+	)
+	span.End(trace.WithTimestamp(now))
+	w.logWindow(leaderID, elapsed)
+	w.reset(now)
+}
+
+func (w *raftSendWorkerTraceWindowStats) logWindow(leaderID uint64, elapsed time.Duration) {
+	if !eoRaftWindowLogsEnabled() {
+		return
+	}
+	messagesPerSec := float64(0)
+	if elapsed > 0 {
+		messagesPerSec = float64(w.counts["messages"]) / elapsed.Seconds()
+	}
+	log.Printf(
+		"%s: eo_raft_send_worker_window peer=%s window_ms=%d leader=%t messages_per_s=%.1f batches=%d messages=%d send_errors=%d queue_wait_us=%d send_rpc_us=%d batch_size_max=%d queue_depth_max=%d",
+		w.nodeName,
+		w.peer,
+		elapsed.Milliseconds(),
+		leaderID == w.selfID && w.selfID != 0,
+		messagesPerSec,
+		w.counts["batches"],
+		w.counts["messages"],
+		w.counts["send_errors"],
+		w.durations["queue_wait"].Microseconds(),
+		w.durations["send_rpc"].Microseconds(),
+		w.maxGauges["batch_size"],
+		w.maxGauges["queue_depth_before_drain"],
+	)
 }
 
 func newRaftConsensusBox(cfg BoxConfig, onLearn LearnFunc) (ConsensusBox, error) {
@@ -501,7 +755,7 @@ func newRaftConsensusBox(cfg BoxConfig, onLearn LearnFunc) (ConsensusBox, error)
 		proposals:       make(chan proposalRequest, raftProposalQueueSize),
 		prioritySteps:   make(chan stepRequest, 1024),
 		backgroundSteps: make(chan stepRequest, 1024),
-		sendQueues:      make(map[uint64]chan raftpb.Message),
+		sendQueues:      make(map[uint64]chan sendRequest),
 		sendBatchSize:   sendBatchSize,
 		learnBatchSize:  learnBatchSize,
 		learnQueue:      make(chan asyncLearnRequest, raftAsyncLearnQueueSize),
@@ -518,7 +772,7 @@ func newRaftConsensusBox(cfg BoxConfig, onLearn LearnFunc) (ConsensusBox, error)
 		if id == selfID {
 			continue
 		}
-		queue := make(chan raftpb.Message, raftAsyncSendQueueSize)
+		queue := make(chan sendRequest, raftAsyncSendQueueSize)
 		box.sendQueues[id] = queue
 		go box.runSendWorker(id, queue)
 	}
@@ -596,6 +850,10 @@ func (b *raftConsensusBox) ProposeAsync(entry Entry) error {
 }
 
 func (b *raftConsensusBox) enqueueProposal(request proposalRequest) error {
+	if request.enqueued.IsZero() {
+		request.enqueued = time.Now()
+	}
+
 	select {
 	case <-b.stopCh:
 		return errConsensusBoxStopped
@@ -615,7 +873,7 @@ func (b *raftConsensusBox) enqueueProposal(request proposalRequest) error {
 }
 
 func (b *raftConsensusBox) HandleMessage(message raftpb.Message) error {
-	request := stepRequest{message: message}
+	request := stepRequest{message: message, enqueued: time.Now()}
 	queue := b.stepQueue(message)
 	select {
 	case <-b.doneCh:
@@ -712,6 +970,7 @@ func (b *raftConsensusBox) run(rawNode *raft.RawNode, storage *raft.MemoryStorag
 		case request := <-b.prioritySteps:
 			selectWait := time.Since(selectStart)
 			handlerStart := time.Now()
+			loopTrace.recordStepRequest("priority", request)
 			stepDuration, drainStats, drainDuration := b.processStep(rawNode, storage, request)
 			handlerDuration := time.Since(handlerStart)
 			loopTrace.addCount("iterations", 1)
@@ -752,6 +1011,9 @@ func (b *raftConsensusBox) run(rawNode *raft.RawNode, storage *raft.MemoryStorag
 		case request := <-b.proposals:
 			selectWait := time.Since(selectStart)
 			handlerStart := time.Now()
+			if !request.enqueued.IsZero() {
+				loopTrace.addDuration("proposal_queue_wait", time.Since(request.enqueued))
+			}
 			proposalSpan := b.startProposalLoopTrace(request.entry)
 			b.rememberRequestTrace(request.entry, request.span)
 			marshalStart := time.Now()
@@ -811,6 +1073,7 @@ func (b *raftConsensusBox) run(rawNode *raft.RawNode, storage *raft.MemoryStorag
 		case request := <-b.prioritySteps:
 			selectWait := time.Since(selectStart)
 			handlerStart := time.Now()
+			loopTrace.recordStepRequest("priority", request)
 			stepDuration, drainStats, drainDuration := b.processStep(rawNode, storage, request)
 			loopTrace.addCount("iterations", 1)
 			loopTrace.addCount("priority_steps", 1)
@@ -823,6 +1086,7 @@ func (b *raftConsensusBox) run(rawNode *raft.RawNode, storage *raft.MemoryStorag
 		case request := <-b.backgroundSteps:
 			selectWait := time.Since(selectStart)
 			handlerStart := time.Now()
+			loopTrace.recordStepRequest("background", request)
 			stepDuration, drainStats, drainDuration := b.processStep(rawNode, storage, request)
 			loopTrace.addCount("iterations", 1)
 			loopTrace.addCount("background_steps", 1)
@@ -882,7 +1146,9 @@ func (b *raftConsensusBox) drainReady(rawNode *raft.RawNode, storage *raft.Memor
 	stats := drainReadyStats{}
 
 	for rawNode.HasReady() {
+		readyStart := time.Now()
 		ready := rawNode.Ready()
+		stats.readyNanos += time.Since(readyStart).Nanoseconds()
 		stats.readyBatches++
 		stats.entries += len(ready.Entries)
 		stats.committedEntries += len(ready.CommittedEntries)
@@ -910,6 +1176,7 @@ func (b *raftConsensusBox) drainReady(rawNode *raft.RawNode, storage *raft.Memor
 			stats.storageNanos += time.Since(storageStart).Nanoseconds()
 		}
 
+		messageStart := time.Now()
 		for _, message := range ready.Messages {
 			if message.To == b.selfID {
 				stats.selfMessages++
@@ -928,12 +1195,15 @@ func (b *raftConsensusBox) drainReady(rawNode *raft.RawNode, storage *raft.Memor
 			}
 			stats.sendEnqueueNanos += time.Since(sendStart).Nanoseconds()
 		}
+		stats.messageNanos += time.Since(messageStart).Nanoseconds()
 
+		commitStart := time.Now()
 		for _, entry := range ready.CommittedEntries {
 			learnStart := time.Now()
 			b.learnCommittedEntry(rawNode, entry, &stats)
 			stats.learnNanos += time.Since(learnStart).Nanoseconds()
 		}
+		stats.commitNanos += time.Since(commitStart).Nanoseconds()
 
 		advanceStart := time.Now()
 		rawNode.Advance(ready)
@@ -947,10 +1217,11 @@ func (b *raftConsensusBox) enqueueSend(peer string, message raftpb.Message) bool
 	if queue == nil {
 		return false
 	}
+	request := sendRequest{message: message, enqueued: time.Now()}
 	select {
 	case <-b.stopCh:
 		return false
-	case queue <- message:
+	case queue <- request:
 		b.trackAppendAckSignals(message)
 		if isCommitIndexMessage(message) {
 			b.finishCommitSignals(message.To, message.Commit)
@@ -975,15 +1246,23 @@ func isPriorityStep(messageType raftpb.MessageType) bool {
 	}
 }
 
-func (b *raftConsensusBox) runSendWorker(peerID uint64, queue <-chan raftpb.Message) {
+func (b *raftConsensusBox) runSendWorker(peerID uint64, queue <-chan sendRequest) {
 	peer := b.peers[peerID]
+	workerTrace := newRaftSendWorkerTraceWindowStats(b.name, b.selfID, peerID, peer)
+	defer workerTrace.flush(b.leaderID.Load(), "stop")
+	requests := make([]sendRequest, 0, b.sendBatchSize)
+	messages := make([]raftpb.Message, 0, b.sendBatchSize)
 	for {
 		select {
 		case <-b.stopCh:
 			return
-		case message := <-queue:
+		case request := <-queue:
 			if b.sendBatchSize <= 1 {
-				if err := b.send(peer, message); err != nil {
+				sendStart := time.Now()
+				err := b.send(peer, request.message)
+				workerTrace.recordBatch([]sendRequest{request}, len(queue), len(queue), sendStart, time.Since(sendStart), err != nil)
+				workerTrace.maybeFlush(b.leaderID.Load(), "window")
+				if err != nil {
 					select {
 					case b.unreachable <- unreachablePeer{id: peerID}:
 					case <-b.stopCh:
@@ -992,17 +1271,31 @@ func (b *raftConsensusBox) runSendWorker(peerID uint64, queue <-chan raftpb.Mess
 				}
 				continue
 			}
-			messages := []raftpb.Message{message}
+			requests = append(requests[:0], request)
+			queueDepthBeforeDrain := len(queue)
 		drain:
-			for len(messages) < b.sendBatchSize {
+			for len(requests) < b.sendBatchSize {
 				select {
 				case next := <-queue:
-					messages = append(messages, next)
+					requests = append(requests, next)
 				default:
 					break drain
 				}
 			}
-			if err := b.sendBatch(peer, messages); err != nil {
+			queueDepthAfterDrain := len(queue)
+			sentRequests, coalesced := coalescePositiveAppRespRequests(requests)
+			if coalesced > 0 {
+				workerTrace.addCount("coalesced_app_responses", int64(coalesced))
+			}
+			messages = messages[:0]
+			for _, request := range sentRequests {
+				messages = append(messages, request.message)
+			}
+			sendStart := time.Now()
+			err := b.sendBatch(peer, messages)
+			workerTrace.recordBatch(sentRequests, queueDepthBeforeDrain, queueDepthAfterDrain, sendStart, time.Since(sendStart), err != nil)
+			workerTrace.maybeFlush(b.leaderID.Load(), "window")
+			if err != nil {
 				select {
 				case b.unreachable <- unreachablePeer{id: peerID}:
 				case <-b.stopCh:
@@ -1012,6 +1305,53 @@ func (b *raftConsensusBox) runSendWorker(peerID uint64, queue <-chan raftpb.Mess
 			}
 		}
 	}
+}
+
+func coalescePositiveAppRespRequests(requests []sendRequest) ([]sendRequest, int) {
+	if len(requests) <= 1 {
+		return requests, 0
+	}
+
+	out := requests[:0]
+	var latest sendRequest
+	haveLatest := false
+	coalesced := 0
+	flushLatest := func() {
+		if haveLatest {
+			out = append(out, latest)
+			haveLatest = false
+		}
+	}
+
+	for _, request := range requests {
+		if isCoalescablePositiveAppResp(request.message) {
+			if haveLatest && !sameAppRespStream(latest.message, request.message) {
+				flushLatest()
+			}
+			if haveLatest {
+				coalesced++
+				if request.message.Index >= latest.message.Index {
+					latest = request
+				}
+				continue
+			}
+			latest = request
+			haveLatest = true
+			continue
+		}
+		flushLatest()
+		out = append(out, request)
+	}
+	flushLatest()
+	return out, coalesced
+}
+
+func isCoalescablePositiveAppResp(message raftpb.Message) bool {
+	return message.Type == raftpb.MsgAppResp && !message.Reject && message.Index > 0
+}
+
+func sameAppRespStream(left raftpb.Message, right raftpb.Message) bool {
+	return left.From == right.From && left.To == right.To && left.Term == right.Term
 }
 
 func (b *raftConsensusBox) learnCommittedEntry(rawNode *raft.RawNode, entry raftpb.Entry, stats *drainReadyStats) {
@@ -1396,6 +1736,25 @@ func isCommitIndexMessage(message raftpb.Message) bool {
 	}
 	switch message.Type {
 	case raftpb.MsgApp, raftpb.MsgHeartbeat:
+		return true
+	default:
+		return false
+	}
+}
+
+func raftMessageTypeName(messageType raftpb.MessageType) string {
+	name := messageType.String()
+	name = strings.TrimPrefix(name, "Msg")
+	name = strings.ToLower(name)
+	if name == "" {
+		return "unknown"
+	}
+	return name
+}
+
+func eoRaftWindowLogsEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("AEGEAN_ENABLE_LOGGING"))) {
+	case "1", "true", "yes", "on":
 		return true
 	default:
 		return false

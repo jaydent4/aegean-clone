@@ -2,6 +2,7 @@ package exec
 
 import (
 	"sync"
+	"time"
 
 	"aegean/common"
 )
@@ -14,9 +15,10 @@ type execScheduler struct {
 	nestedReadyCh          chan struct{}
 	contextStore           *requestContextStore
 	parallelWindowK        int
+	probe                  *execBottleneckProbe
 }
 
-func newExecScheduler(runConfig map[string]any) *execScheduler {
+func newExecScheduler(runConfig map[string]any, probe *execBottleneckProbe) *execScheduler {
 	return &execScheduler{
 		inflightRequests:       make(map[string]*scheduledRequest),
 		nestedResponses:        make(map[string][]map[string]any),
@@ -24,10 +26,14 @@ func newExecScheduler(runConfig map[string]any) *execScheduler {
 		nestedReadyCh:          make(chan struct{}, 1),
 		contextStore:           newRequestContextStore(),
 		parallelWindowK:        common.MustInt(runConfig, "parallel_window_k"),
+		probe:                  probe,
 	}
 }
 
 func (s *execScheduler) enqueueNestedResponse(requestID string, payload map[string]any) bool {
+	start := time.Now()
+	defer recordExecProbeDuration(s.probe, "execScheduler.enqueueNestedResponse", start)
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.pendingNestedResponses[requestID] = append(s.pendingNestedResponses[requestID], payload)
@@ -45,6 +51,9 @@ func (s *execScheduler) hasPendingNestedResponse(requestID string) bool {
 }
 
 func (s *execScheduler) promoteOneNestedResponse(requestID string) bool {
+	start := time.Now()
+	defer recordExecProbeDuration(s.probe, "execScheduler.promoteOneNestedResponse", start)
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	pending := s.pendingNestedResponses[requestID]
@@ -62,6 +71,9 @@ func (s *execScheduler) promoteOneNestedResponse(requestID string) bool {
 }
 
 func (s *execScheduler) getNestedResponses(requestID string) ([]map[string]any, bool) {
+	start := time.Now()
+	defer recordExecProbeDuration(s.probe, "execScheduler.getNestedResponses", start)
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	queue := s.nestedResponses[requestID]
@@ -77,6 +89,27 @@ func (s *execScheduler) getNestedResponses(requestID string) ([]map[string]any, 
 		out = append(out, cloneMapAny(item))
 	}
 	return out, true
+}
+
+func (s *execScheduler) getNestedResponseByRequestID(requestID string, nestedRequestID string) (map[string]any, bool) {
+	start := time.Now()
+	defer recordExecProbeDuration(s.probe, "execScheduler.getNestedResponseByRequestID", start)
+
+	if nestedRequestID == "" {
+		return nil, false
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if response, ok := findAggregatedNestedResponseByRequestID(s.nestedResponses[requestID], nestedRequestID); ok {
+		return cloneMapAny(response), true
+	}
+	if _, inflight := s.inflightRequests[requestID]; !inflight {
+		if response, ok := findAggregatedNestedResponseByRequestID(s.pendingNestedResponses[requestID], nestedRequestID); ok {
+			return cloneMapAny(response), true
+		}
+	}
+	return nil, false
 }
 
 func (s *execScheduler) clearNestedResponses(requestIDs []string) {
@@ -97,6 +130,19 @@ func cloneMapAny(src map[string]any) map[string]any {
 		out[key] = value
 	}
 	return out
+}
+
+func findAggregatedNestedResponseByRequestID(queue []map[string]any, nestedRequestID string) (map[string]any, bool) {
+	for _, item := range queue {
+		if shimAggregated, _ := item["shim_quorum_aggregated"].(bool); !shimAggregated {
+			continue
+		}
+		requestID, _ := item["request_id"].(string)
+		if requestID == nestedRequestID {
+			return item, true
+		}
+	}
+	return nil, false
 }
 
 func (e *Exec) executeParallelBatches(parallelBatches [][]map[string]any, ndSeed int64, ndTimestamp float64) ([]map[string]any, executionSchedulerStats) {
