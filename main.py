@@ -143,18 +143,6 @@ def load_run_config(run_config_path):
     if not isinstance(run_timeout_seconds, int) or run_timeout_seconds <= 0:
         raise ValueError("run config must include positive integer 'run_timeout_seconds'")
 
-    nested_eo_request_quorum_timeout_ms = data.get("nested_eo_request_quorum_timeout_ms")
-    if (
-        nested_eo_request_quorum_timeout_ms is not None
-        and (
-            not isinstance(nested_eo_request_quorum_timeout_ms, int)
-            or nested_eo_request_quorum_timeout_ms <= 0
-        )
-    ):
-        raise ValueError(
-            "run config field 'nested_eo_request_quorum_timeout_ms' must be a positive integer"
-        )
-
     clear_local_redis_on_start = data.get("clear_local_redis_on_start")
     if clear_local_redis_on_start is not None and not isinstance(clear_local_redis_on_start, bool):
         raise ValueError("run config field 'clear_local_redis_on_start' must be a bool")

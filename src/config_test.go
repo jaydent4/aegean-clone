@@ -26,7 +26,7 @@ func TestLoadRunConfigResolvesArchitectureSiblingToRunsDir(t *testing.T) {
 	}
 
 	runConfigPath := filepath.Join(runDir, "worker_4.yaml")
-	if err := os.WriteFile(runConfigPath, []byte("architecture: basic_oha.yaml\nworker_count: 4\nrun_timeout_seconds: 30\nnested_eo_request_quorum_timeout_ms: 5000\n"), 0o644); err != nil {
+	if err := os.WriteFile(runConfigPath, []byte("architecture: basic_oha.yaml\nworker_count: 4\nrun_timeout_seconds: 30\n"), 0o644); err != nil {
 		t.Fatalf("write run config: %v", err)
 	}
 
@@ -43,9 +43,6 @@ func TestLoadRunConfigResolvesArchitectureSiblingToRunsDir(t *testing.T) {
 	}
 	if got := cfg.Params["run_timeout_seconds"]; got != 30 {
 		t.Fatalf("run_timeout_seconds = %#v, want 30", got)
-	}
-	if got := cfg.Params["nested_eo_request_quorum_timeout_ms"]; got != 5000 {
-		t.Fatalf("nested_eo_request_quorum_timeout_ms = %#v, want 5000", got)
 	}
 }
 

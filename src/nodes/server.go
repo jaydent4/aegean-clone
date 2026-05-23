@@ -121,16 +121,10 @@ func NewServer(name, host string, port int, clients []string, nodes []string, is
 		}
 		server.EO = component
 		if common.BoolOrDefault(runConfig, "use_eo_after_quorum", false) {
-			nestedEORequestQuorumTimeout := time.Duration(common.IntOrDefault(
-				runConfig,
-				"nested_eo_request_quorum_timeout_ms",
-				int(exec.DefaultNestedEORequestQuorumTimeout/time.Millisecond),
-			)) * time.Millisecond
 			quorumGate := exec.NewNestedEORequestQuorumGateWithConfig(
 				name,
 				component,
 				exec.NestedEORequestQuorumGateConfig{
-					Timeout: nestedEORequestQuorumTimeout,
 					ForwardBatchSize: common.IntOrDefault(
 						runConfig,
 						"nested_eo_request_forward_batch_size",

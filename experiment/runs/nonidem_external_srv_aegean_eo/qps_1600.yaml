@@ -21,7 +21,6 @@ eo_heartbeat_tick: 1
 eo_disable_follower_elections: true
 nested_use_eo: true
 use_eo_after_quorum: true
-nested_eo_request_quorum_timeout_ms: 5000
 
 # Run & system configs
 run_timeout_seconds: 60

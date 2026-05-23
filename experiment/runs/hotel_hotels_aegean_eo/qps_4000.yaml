@@ -27,7 +27,6 @@ eo_disable_follower_elections: true
 nested_use_eo: true
 hotel_nested_use_eo: true
 use_eo_after_quorum: true
-nested_eo_request_quorum_timeout_ms: 5000
 nested_eo_request_forward_batch_size: 32
 nested_eo_request_forward_batch_timeout_us: 500
 

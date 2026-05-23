@@ -144,9 +144,6 @@ func loadRunConfig(path string) (RunConfig, error) {
 	if err := requirePositiveIntegerField(raw, "run_timeout_seconds"); err != nil {
 		return RunConfig{}, fmt.Errorf("run config %s %w", path, err)
 	}
-	if err := requireOptionalPositiveIntegerField(raw, "nested_eo_request_quorum_timeout_ms"); err != nil {
-		return RunConfig{}, fmt.Errorf("run config %s %w", path, err)
-	}
 	if !filepath.IsAbs(architecture) {
 		architecture, err = resolveArchitecturePath(path, architecture)
 		if err != nil {

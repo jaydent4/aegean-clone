@@ -15,7 +15,6 @@ value_length: 50000
 nested_use_eo: true
 aegean_nested_use_eo: true
 use_eo_after_quorum: true
-nested_eo_request_quorum_timeout_ms: 5000
 run_timeout_seconds: 60
 parallel_window_k: 16
 worker_count: 16
