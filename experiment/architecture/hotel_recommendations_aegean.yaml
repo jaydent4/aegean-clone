@@ -28,8 +28,8 @@ services:
     phaseQuorumSize: 2
     expectedExecVotes: 3
     batcher_config:
-      batch_size: 12
-      batch_timeout_ms: 4
+      batch_size: 128
+      batch_timeout_ms: 30
   profile:
     type: server
     clients:
@@ -48,8 +48,8 @@ services:
     phaseQuorumSize: 2
     expectedExecVotes: 3
     batcher_config:
-      batch_size: 12
-      batch_timeout_ms: 4
+      batch_size: 64
+      batch_timeout_ms: 1
   recommendation_1:
     type: server
     clients:
@@ -70,8 +70,8 @@ services:
     run_config:
       hotel_recommendation_pool: pool_1
     batcher_config:
-      batch_size: 12
-      batch_timeout_ms: 4
+      batch_size: 64
+      batch_timeout_ms: 1
   recommendation_2:
     type: server
     clients:
@@ -92,8 +92,8 @@ services:
     run_config:
       hotel_recommendation_pool: pool_2
     batcher_config:
-      batch_size: 12
-      batch_timeout_ms: 4
+      batch_size: 64
+      batch_timeout_ms: 1
   recommendation_3:
     type: server
     clients:
@@ -114,8 +114,8 @@ services:
     run_config:
       hotel_recommendation_pool: pool_3
     batcher_config:
-      batch_size: 12
-      batch_timeout_ms: 4
+      batch_size: 64
+      batch_timeout_ms: 1
 nodes:
   node0:
     service: client
