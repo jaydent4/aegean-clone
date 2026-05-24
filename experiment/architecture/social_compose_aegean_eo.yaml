@@ -29,8 +29,8 @@ services:
     phaseQuorumSize: 2
     expectedExecVotes: 3
     batcher_config:
-      batch_size: 24
-      batch_timeout_ms: 10
+      batch_size: 64
+      batch_timeout_ms: 1
   user_timeline:
     type: server
     clients:
@@ -47,8 +47,8 @@ services:
     phaseQuorumSize: 2
     expectedExecVotes: 3
     batcher_config:
-      batch_size: 24
-      batch_timeout_ms: 10
+      batch_size: 64
+      batch_timeout_ms: 1
   home_timeline:
     type: server
     clients:
@@ -65,8 +65,8 @@ services:
     phaseQuorumSize: 2
     expectedExecVotes: 3
     batcher_config:
-      batch_size: 24
-      batch_timeout_ms: 10
+      batch_size: 128
+      batch_timeout_ms: 30
   social_graph:
     type: server
     clients:
@@ -85,8 +85,8 @@ services:
     phaseQuorumSize: 2
     expectedExecVotes: 3
     batcher_config:
-      batch_size: 24
-      batch_timeout_ms: 10
+      batch_size: 64
+      batch_timeout_ms: 1
 nodes:
   node0:
     service: client

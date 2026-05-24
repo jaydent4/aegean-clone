@@ -2,7 +2,7 @@
 architecture: social_compose_aegean_eo.yaml
 
 # k6 config
-k6_qps: 100
+k6_qps: 2375
 warmup_duration: 10s
 warmup_graceful_stop: 45s
 duration: 15s
