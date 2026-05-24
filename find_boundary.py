@@ -21,7 +21,7 @@ REPO_ROOT = Path(__file__).resolve().parent
 DEFAULT_LOWER_QPS = 0
 DEFAULT_UPPER_QPS = 10_000
 DEFAULT_MIN_P90_SECONDS = 0.2
-DEFAULT_MAX_P90_SECONDS = 0.4
+DEFAULT_MAX_P90_SECONDS = 0.3
 DEFAULT_NODE_COUNT = 26
 
 K6_QPS_YAML_RE = re.compile(r"^(\s*k6_qps\s*:\s*)([^#\n]*?)(\s*(?:#.*)?)$", re.MULTILINE)
