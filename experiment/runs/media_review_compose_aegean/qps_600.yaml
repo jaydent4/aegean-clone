@@ -2,7 +2,7 @@
 architecture: media_review_compose_aegean.yaml
 
 # k6 config
-k6_qps: 45
+k6_qps: 600
 warmup_duration: 10s
 warmup_graceful_stop: 45s
 duration: 15s
