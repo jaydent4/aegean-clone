@@ -12,8 +12,8 @@ import (
 	reqraceworkflow "aegean/workflow/req_race"
 	responseworkflow "aegean/workflow/response"
 	socialworkflow "aegean/workflow/social"
+	spinworkflow "aegean/workflow/spin"
 	supersimpleworkflow "aegean/workflow/supersimple"
-	workerworkflow "aegean/workflow/worker"
 	writeworkflow "aegean/workflow/write"
 )
 
@@ -46,7 +46,7 @@ var ClientWorkflows = map[string]func(c *nodes.Client){
 	"social_k6_open_read_user_timeline_client":   socialworkflow.K6OpenReadUserTimelineClientRequestLogic,
 	"supersimple_oha_client":                     supersimpleworkflow.OhaClientRequestLogic,
 	"supersimple_k6_closed_client":               supersimpleworkflow.K6ClosedClientRequestLogic,
-	"worker_k6_open_client":                      workerworkflow.K6OpenClientRequestLogic,
+	"spin_k6_open_client":                        spinworkflow.K6OpenClientRequestLogic,
 	"write_k6_open_client":                       writeworkflow.K6OpenClientRequestLogic,
 }
 
@@ -137,8 +137,8 @@ var ExecWorkflows = map[string]exec.ExecuteRequestFunc{
 	},
 	"supersimple_middle":  supersimpleworkflow.ExecuteRequestMiddle,
 	"supersimple_backend": supersimpleworkflow.ExecuteRequestServer,
-	"worker_middle":       workerworkflow.ExecuteRequestMiddle,
-	"worker_backend":      workerworkflow.ExecuteRequestBackend,
+	"spin_middle":         spinworkflow.ExecuteRequestMiddle,
+	"spin_backend":        spinworkflow.ExecuteRequestBackend,
 	"write_middle":        writeworkflow.ExecuteRequestMiddle,
 	"write_backend":       writeworkflow.ExecuteRequestBackend,
 }
@@ -159,7 +159,7 @@ var InitStateWorkflows = map[string]exec.InitStateFunc{
 		return socialworkflow.InitState(e)
 	},
 	"supersimple_default": supersimpleworkflow.InitState,
-	"worker_default":      workerworkflow.InitState,
+	"spin_default":        spinworkflow.InitState,
 	"write_default":       writeworkflow.InitState,
 }
 
@@ -170,8 +170,8 @@ var PBEOExecWorkflows = map[string]pbeo.ExecuteRequestFunc{
 	"response_backend_pbeo":         responseworkflow.ExecuteRequestBackendPBEO,
 	"write_middle_pbeo":             writeworkflow.ExecuteRequestMiddlePBEO,
 	"write_backend_pbeo":            writeworkflow.ExecuteRequestBackendPBEO,
-	"worker_middle_pbeo":            workerworkflow.ExecuteRequestMiddlePBEO,
-	"worker_backend_pbeo":           workerworkflow.ExecuteRequestBackendPBEO,
+	"spin_middle_pbeo":              spinworkflow.ExecuteRequestMiddlePBEO,
+	"spin_backend_pbeo":             spinworkflow.ExecuteRequestBackendPBEO,
 	"hotel_frontend_pbeo":           hotelworkflow.ExecuteRequestFrontendPBEO,
 	"hotel_search_pbeo":             hotelworkflow.ExecuteRequestSearchPBEO,
 	"hotel_geo_pbeo":                hotelworkflow.ExecuteRequestGeoPBEO,
@@ -202,7 +202,7 @@ var PBEOInitStateWorkflows = map[string]pbeo.InitStateFunc{
 	"aegean_pbeo_default":   aegeanworkflow.InitStatePBEO,
 	"response_pbeo_default": responseworkflow.InitStatePBEO,
 	"write_pbeo_default":    writeworkflow.InitStatePBEO,
-	"worker_pbeo_default":   workerworkflow.InitStatePBEO,
+	"spin_pbeo_default":     spinworkflow.InitStatePBEO,
 	"hotel_pbeo_default":    hotelworkflow.InitStatePBEO,
 	"media_pbeo_default":    mediaworkflow.InitStatePBEO,
 	"social_pbeo_default":   socialworkflow.InitStatePBEO,
@@ -238,8 +238,8 @@ var UnreplicatedWorkflows = map[string]unreplicated.WorkflowFunc{
 	"response_backend":         responseworkflow.ExecuteRequestBackendDirect,
 	"write_backend":            writeworkflow.ExecuteRequestBackendDirect,
 	"write_middle":             writeworkflow.ExecuteRequestMiddleDirect,
-	"worker_backend":           workerworkflow.ExecuteRequestBackendDirect,
-	"worker_middle":            workerworkflow.ExecuteRequestMiddleDirect,
+	"spin_backend":             spinworkflow.ExecuteRequestBackendDirect,
+	"spin_middle":              spinworkflow.ExecuteRequestMiddleDirect,
 }
 
 var UnreplicatedInitStateWorkflows = map[string]unreplicated.InitStateFunc{
@@ -250,7 +250,7 @@ var UnreplicatedInitStateWorkflows = map[string]unreplicated.InitStateFunc{
 	"response_default": responseworkflow.InitStateDirect,
 	"social_default":   socialworkflow.InitStateDirect,
 	"write_default":    writeworkflow.InitStateDirect,
-	"worker_default":   workerworkflow.InitStateDirect,
+	"spin_default":     spinworkflow.InitStateDirect,
 }
 
 var ExternalServiceInitWorkflows = map[string]func(es *nodes.ExternalService){

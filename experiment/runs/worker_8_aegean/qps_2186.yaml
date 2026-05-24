@@ -1,5 +1,5 @@
 ---
-architecture: spin_aegean.yaml
+architecture: worker_aegean.yaml
 
 # K6 configs
 k6_qps: 2186

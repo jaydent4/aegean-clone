@@ -6,7 +6,7 @@ services:
     - node1
     - node2
     - node3
-    client_workflow: worker_k6_open_client
+    client_workflow: spin_k6_open_client
   middle:
     type: server
     clients:
@@ -15,8 +15,8 @@ services:
     - node1
     - node2
     - node3
-    exec_workflow: worker_middle
-    init_state_workflow: worker_default
+    exec_workflow: spin_middle
+    init_state_workflow: spin_default
     shimQuorumSize: 1
     verifyResponseQuorumSize: 1
     execVerifyQuorumSize: 2
@@ -35,8 +35,8 @@ services:
     - node4
     - node5
     - node6
-    exec_workflow: worker_backend
-    init_state_workflow: worker_default
+    exec_workflow: spin_backend
+    init_state_workflow: spin_default
     shimQuorumSize: 2
     verifyResponseQuorumSize: 1
     execVerifyQuorumSize: 2

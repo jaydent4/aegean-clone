@@ -1,4 +1,4 @@
-package workerworkflow
+package spinworkflow
 
 import (
 	"aegean/common"
@@ -25,14 +25,14 @@ func K6OpenClientRequestLogic(c *nodes.Client) {
 	c.WaitForNodesReady(c.ReadyNodes)
 	k6TargetURL := fmt.Sprintf("http://%s:8000/", c.Name)
 
-	baseConfig := workerK6OpenRunConfig{
+	baseConfig := spinK6OpenRunConfig{
 		rate:            k6QPS,
 		preAllocatedVUs: k6PreAllocatedVUs,
 		maxVUs:          k6MaxVUs,
 		targetURL:       k6TargetURL,
 		deadline:        k6CommandDeadline,
 		sender:          c.Name,
-		scriptPath:      "workflow/worker/k6_open_client.js",
+		scriptPath:      "workflow/spin/k6_open_client.js",
 		gracefulStop:    k6GracefulStop,
 	}
 
@@ -46,14 +46,14 @@ func K6OpenClientRequestLogic(c *nodes.Client) {
 		return c.DrainPendingRequests(k6CommandDeadline)
 	}); err != nil {
 		if err == context.DeadlineExceeded {
-			log.Printf("worker k6 client request logic timed out after %s", k6CommandDeadline)
+			log.Printf("spin k6 client request logic timed out after %s", k6CommandDeadline)
 			return
 		}
-		log.Printf("worker k6 client request logic failed: %v", err)
+		log.Printf("spin k6 client request logic failed: %v", err)
 	}
 }
 
-type workerK6OpenRunConfig struct {
+type spinK6OpenRunConfig struct {
 	rate            int
 	duration        string
 	preAllocatedVUs int
@@ -66,19 +66,19 @@ type workerK6OpenRunConfig struct {
 	suppressOutput  bool
 }
 
-func runK6Open(config workerK6OpenRunConfig) error {
+func runK6Open(config spinK6OpenRunConfig) error {
 	ctx, cancel := context.WithTimeout(context.Background(), config.deadline)
 	defer cancel()
 
 	args := []string{
 		"run",
-		"-e", "WORKER_TARGET_URL=" + config.targetURL,
-		"-e", "WORKER_SENDER=" + config.sender,
-		"-e", "WORKER_RATE=" + strconv.Itoa(config.rate),
-		"-e", "WORKER_DURATION=" + config.duration,
-		"-e", "WORKER_GRACEFUL_STOP=" + config.gracefulStop,
-		"-e", "WORKER_PRE_ALLOCATED_VUS=" + strconv.Itoa(config.preAllocatedVUs),
-		"-e", "WORKER_MAX_VUS=" + strconv.Itoa(config.maxVUs),
+		"-e", "SPIN_TARGET_URL=" + config.targetURL,
+		"-e", "SPIN_SENDER=" + config.sender,
+		"-e", "SPIN_RATE=" + strconv.Itoa(config.rate),
+		"-e", "SPIN_DURATION=" + config.duration,
+		"-e", "SPIN_GRACEFUL_STOP=" + config.gracefulStop,
+		"-e", "SPIN_PRE_ALLOCATED_VUS=" + strconv.Itoa(config.preAllocatedVUs),
+		"-e", "SPIN_MAX_VUS=" + strconv.Itoa(config.maxVUs),
 		config.scriptPath,
 	}
 

@@ -6,7 +6,7 @@ services:
     - node1
     - node2
     - node3
-    client_workflow: worker_k6_open_client
+    client_workflow: spin_k6_open_client
   middle:
     type: pbeo_server
     clients:
@@ -15,8 +15,8 @@ services:
     - node1
     - node2
     - node3
-    exec_workflow: worker_middle_pbeo
-    init_state_workflow: worker_pbeo_default
+    exec_workflow: spin_middle_pbeo
+    init_state_workflow: spin_pbeo_default
   backend:
     type: pbeo_server
     clients:
@@ -27,8 +27,8 @@ services:
     - node4
     - node5
     - node6
-    exec_workflow: worker_backend_pbeo
-    init_state_workflow: worker_pbeo_default
+    exec_workflow: spin_backend_pbeo
+    init_state_workflow: spin_pbeo_default
 nodes:
   node0:
     service: client
