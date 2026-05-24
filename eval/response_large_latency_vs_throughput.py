@@ -86,7 +86,7 @@ def main() -> int:
     ax.set_ylabel("Latency (ms)")
     ax.set_title("Response Large Latency vs Realized Throughput")
     ax.set_xlim(left=0)
-    ax.set_ylim(0, 2000)
+    ax.set_ylim(0, 400)
     ax.grid(True, linestyle="--", alpha=0.35)
     ax.legend(frameon=True, loc="upper left")
     fig.tight_layout()

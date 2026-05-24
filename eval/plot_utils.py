@@ -156,6 +156,7 @@ def plot_latency(rows, output_path: Path, x_label: str, title: str,
     plt.xlabel(x_label)
     plt.ylabel("Latency (ms)")
     plt.title(title)
+    plt.ylim(0, 400)
     plt.grid(True, linestyle="--", alpha=0.4)
     plt.legend()
     plt.tight_layout()
