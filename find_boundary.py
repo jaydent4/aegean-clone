@@ -9,6 +9,7 @@ import math
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -21,8 +22,10 @@ REPO_ROOT = Path(__file__).resolve().parent
 DEFAULT_LOWER_QPS = 0
 DEFAULT_UPPER_QPS = 10_000
 DEFAULT_MIN_P90_SECONDS = 0.2
-DEFAULT_MAX_P90_SECONDS = 0.3
+DEFAULT_MAX_P90_SECONDS = 0.4
 DEFAULT_NODE_COUNT = 26
+BOUNDARY_CONFIG_NAME = "qps_boundary.yaml"
+DEFAULT_REPO_SCRIPT = "eval/repo.py" if (REPO_ROOT / "eval" / "repo.py").is_file() else "setup/repo.py"
 
 K6_QPS_YAML_RE = re.compile(r"^(\s*k6_qps\s*:\s*)([^#\n]*?)(\s*(?:#.*)?)$", re.MULTILINE)
 THROUGHPUT_RE = re.compile(r"http_reqs\.*:\s+\d+\s+([0-9.]+)/s")
@@ -132,6 +135,40 @@ def display_path(path: Path) -> str:
         return str(path.resolve())
 
 
+def qps_config_paths(run_dir: Path) -> list[Path]:
+    return sorted(path for path in run_dir.glob("qps_*.yaml") if path.is_file())
+
+
+def pick_source_qps_config(run_dir: Path) -> Path:
+    candidates = qps_config_paths(run_dir)
+    if not candidates:
+        raise BoundaryError(f"{display_path(run_dir)} must contain at least one qps_*.yaml file")
+
+    non_boundary = [path for path in candidates if path.name != BOUNDARY_CONFIG_NAME]
+    return non_boundary[0] if non_boundary else candidates[0]
+
+
+def create_boundary_config(run_dir: Path) -> Path:
+    source_path = pick_source_qps_config(run_dir)
+    boundary_path = run_dir / BOUNDARY_CONFIG_NAME
+    if source_path != boundary_path:
+        shutil.copy2(source_path, boundary_path)
+    print(
+        f"Boundary config: copied {display_path(source_path)} -> {display_path(boundary_path)}",
+        flush=True,
+    )
+    return boundary_path
+
+
+def resolve_boundary_config_path(config_arg: str) -> Path:
+    path = Path(config_arg).expanduser().resolve()
+    if path.is_dir():
+        return create_boundary_config(path)
+    if path.is_file():
+        return path
+    raise BoundaryError(f"config path does not exist or is not a file/directory: {path}")
+
+
 def run_streaming_command(cmd: list[str], *, cwd: Path) -> list[str]:
     print(f"$ {shlex.join(cmd)}", flush=True)
     tail: deque[str] = deque(maxlen=80)
@@ -159,6 +196,22 @@ def run_streaming_command(cmd: list[str], *, cwd: Path) -> list[str]:
         )
 
     return list(tail)
+
+
+def prepare_remote_repo(args: argparse.Namespace) -> None:
+    repo_script = getattr(args, "repo_script", DEFAULT_REPO_SCRIPT)
+    run_streaming_command(["git", "add", "."], cwd=REPO_ROOT)
+    run_streaming_command([args.python_bin, repo_script, str(args.node_count), "--upload"], cwd=REPO_ROOT)
+
+
+def run_main_config(args: argparse.Namespace, config_path: Path) -> None:
+    cmd = [args.python_bin, "main.py"]
+    if getattr(args, "_binary_ready", False):
+        cmd.append("--skip-binary-build")
+    cmd.append(str(config_path))
+
+    run_streaming_command(cmd, cwd=REPO_ROOT)
+    args._binary_ready = True
 
 
 def parse_fresh_result_metrics(result_dir: Path, started_at: float) -> Metrics:
@@ -195,11 +248,10 @@ def run_trial(args: argparse.Namespace, config_path: Path, result_dir: Path, qps
     print(f"\n=== Testing k6_qps={qps} ===", flush=True)
     set_k6_qps(config_path, qps)
 
-    run_streaming_command(["git", "add", "."], cwd=REPO_ROOT)
-    run_streaming_command([args.python_bin, "setup/repo.py", str(args.node_count), "--upload"], cwd=REPO_ROOT)
+    prepare_remote_repo(args)
 
     started_at = time.time()
-    run_streaming_command([args.python_bin, "main.py", str(config_path)], cwd=REPO_ROOT)
+    run_main_config(args, config_path)
     metrics = parse_fresh_result_metrics(result_dir, started_at)
 
     trial = Trial(
@@ -227,10 +279,7 @@ def distance_from_target_band(trial: Trial, min_p90: float, max_p90: float) -> f
 
 
 def find_boundary(args: argparse.Namespace) -> int:
-    config_path = Path(args.config_path).expanduser().resolve()
-    if not config_path.is_file():
-        raise BoundaryError(f"config path does not exist or is not a file: {config_path}")
-
+    config_path = resolve_boundary_config_path(args.config_path)
     result_dir = resolve_results_dir(config_path)
     lower = args.lower
     upper = args.upper
@@ -287,6 +336,7 @@ def find_boundary(args: argparse.Namespace) -> int:
 
     if trials:
         best = min(trials, key=lambda trial: distance_from_target_band(trial, args.min_p90, args.max_p90))
+        set_k6_qps(config_path, best.qps)
         print(
             "\nNo QPS in the target band was found. Closest trial: "
             f"qps={best.qps}, throughput={best.throughput:.2f}/s, "
@@ -302,7 +352,13 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Binary-search k6_qps until p90 latency is inside a target band.",
     )
-    parser.add_argument("config_path", help="Run config YAML/JSON file containing k6_qps.")
+    parser.add_argument(
+        "config_path",
+        help=(
+            "Run config YAML/JSON file containing k6_qps, or a run directory "
+            "containing qps_*.yaml. Directories are tuned via qps_boundary.yaml."
+        ),
+    )
     parser.add_argument("--lower", type=int, default=DEFAULT_LOWER_QPS, help="Inclusive lower QPS bound.")
     parser.add_argument("--upper", type=int, default=DEFAULT_UPPER_QPS, help="Inclusive upper QPS bound.")
     parser.add_argument(
@@ -330,6 +386,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="Python executable used for setup/repo.py and main.py.",
     )
     parser.add_argument(
+        "--repo-script",
+        default=DEFAULT_REPO_SCRIPT,
+        help=f"Repo upload script path relative to the repo root. Defaults to {DEFAULT_REPO_SCRIPT}.",
+    )
+    parser.add_argument(
         "--max-steps",
         type=int,
         default=None,
@@ -349,6 +410,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         parser.error("--node-count must be positive")
     if args.max_steps is not None and args.max_steps <= 0:
         parser.error("--max-steps must be positive when provided")
+    if not (REPO_ROOT / args.repo_script).is_file():
+        parser.error(f"--repo-script does not exist: {args.repo_script}")
 
     return args
 

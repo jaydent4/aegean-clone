@@ -23,8 +23,9 @@ from find_boundary import (
     display_path,
     distance_from_target_band,
     parse_fresh_result_metrics,
+    prepare_remote_repo,
     resolve_results_dir,
-    run_streaming_command,
+    run_main_config,
     set_k6_qps,
 )
 
@@ -80,11 +81,10 @@ def run_trial(args: argparse.Namespace, config_path: Path, result_dir: Path, qps
     print(f"\n=== Boundary trial k6_qps={qps} ===", flush=True)
     set_k6_qps(config_path, qps)
 
-    run_streaming_command(["git", "add", "."], cwd=REPO_ROOT)
-    run_streaming_command([args.python_bin, args.repo_script, str(args.node_count), "--upload"], cwd=REPO_ROOT)
+    prepare_remote_repo(args)
 
     started_at = time.time()
-    run_streaming_command([args.python_bin, "main.py", str(config_path)], cwd=REPO_ROOT)
+    run_main_config(args, config_path)
     metrics = parse_fresh_result_metrics(result_dir, started_at)
 
     trial = Trial(
@@ -228,9 +228,8 @@ def create_gather_config(boundary_path: Path, qps: int) -> Path:
 
 def run_gather_config(args: argparse.Namespace, config_path: Path) -> None:
     print(f"\n=== Gathering {display_path(config_path)} ===", flush=True)
-    run_streaming_command(["git", "add", "."], cwd=REPO_ROOT)
-    run_streaming_command([args.python_bin, args.repo_script, str(args.node_count), "--upload"], cwd=REPO_ROOT)
-    run_streaming_command([args.python_bin, "main.py", str(config_path)], cwd=REPO_ROOT)
+    prepare_remote_repo(args)
+    run_main_config(args, config_path)
 
 
 def gather_runs(args: argparse.Namespace, boundary_path: Path, boundary_qps: int) -> None:
