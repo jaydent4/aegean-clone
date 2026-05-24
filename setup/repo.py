@@ -62,11 +62,20 @@ fi
 
 parent_dir="$($SUDO dirname /app)"
 $SUDO mkdir -p "$parent_dir"
+preserve_dir="$(mktemp -d /tmp/aegean-bin.XXXXXX)"
+trap '$SUDO rm -rf "$preserve_dir"' EXIT
+if [ -d /app/bin ]; then
+  $SUDO cp -a /app/bin "$preserve_dir/bin"
+fi
 if [ -e /app ]; then
   $SUDO rm -rf /app
 fi
 $SUDO mkdir -p /app
 $SUDO tar -xf - -C /app
+if [ -d "$preserve_dir/bin" ]; then
+  $SUDO rm -rf /app/bin
+  $SUDO cp -a "$preserve_dir/bin" /app/bin
+fi
 $SUDO chown -R "$(id -un):$(id -gn)" /app
 """
     return body
