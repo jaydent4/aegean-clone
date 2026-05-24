@@ -1355,6 +1355,141 @@ func TestExecRollbackReplaysUncommittedBatch(t *testing.T) {
 	}, "expected uncommitted batch to be replayed once after rollback")
 }
 
+func TestExecRollbackReplaysPromotedNestedResponsesSequentially(t *testing.T) {
+	verifierCh := make(chan map[string]any, 8)
+	shimCh := make(chan map[string]any, 8)
+	var mu sync.Mutex
+	runCount := 0
+	var exec *Exec
+	exec = NewExec("exec1", []string{"exec1"}, nil, verifierCh, shimCh, 1,
+		func(_ *Exec, request map[string]any, _ int64, _ float64) map[string]any {
+			mu.Lock()
+			runCount++
+			mu.Unlock()
+
+			requestID := request["request_id"]
+			stageAny, _ := exec.GetRequestContextValue(requestID, "stage")
+			stage, _ := stageAny.(string)
+			if stage == "await_child" {
+				if nestedResponses, ok := exec.GetNestedResponses(requestID); ok && len(nestedResponses) > 0 {
+					exec.ClearRequestContext(requestID)
+					exec.WriteKV("replayed:"+requestID.(string), "done")
+					return map[string]any{"request_id": requestID, "status": "ok"}
+				}
+				return map[string]any{"request_id": requestID, "status": "blocked_for_nested_response"}
+			}
+			_ = exec.SetRequestContextValue(requestID, "stage", "await_child")
+			return map[string]any{"request_id": requestID, "status": "blocked_for_nested_response"}
+		},
+		nil,
+		requiredExecRunConfig(),
+	)
+
+	stableKV := map[string]string{"stable": "yes"}
+	stableMerkle := merkle.NewTreeFromMap(stableKV)
+	exec.stableState = State{
+		KVStore:    common.CopyStringMap(stableKV),
+		Merkle:     stableMerkle.Clone(),
+		MerkleRoot: stableMerkle.Root(),
+		SeqNum:     2,
+		PrevHash:   "stable-token",
+		Verified:   true,
+	}
+	exec.workingState = State{
+		KVStore:    common.CopyStringMap(stableKV),
+		Merkle:     stableMerkle.Clone(),
+		MerkleRoot: stableMerkle.Root(),
+		SeqNum:     2,
+		PrevHash:   "stable-token",
+		Verified:   false,
+	}
+	exec.storeCheckpoint(2, "stable-token", stableMerkle.SnapshotMap(), stableMerkle.Root())
+	exec.nextBatchSeq = 3
+	exec.nextVerifySeq = 3
+
+	done := make(chan map[string]any, 1)
+	go func() {
+		done <- exec.handleBatch(map[string]any{
+			"type":    "batch",
+			"seq_num": 3,
+			"parallel_batches": [][]map[string]any{
+				{map[string]any{"request_id": "r3", "op": "block"}},
+			},
+		})
+	}()
+
+	waitForCondition(t, 500*time.Millisecond, func() bool {
+		stage, ok := exec.GetRequestContextValue("r3", "stage")
+		return ok && stage == "await_child"
+	}, "expected original execution to block after setting stage")
+	if !exec.BufferNestedResponse(map[string]any{
+		"request_id":        "r3/child",
+		"parent_request_id": "r3",
+		"status":            "ready",
+	}) {
+		t.Fatalf("expected nested response to be accepted for original execution")
+	}
+
+	select {
+	case resp := <-done:
+		if resp["status"] != "executed" {
+			t.Fatalf("expected original batch to execute, got %v", resp["status"])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for original batch execution")
+	}
+
+	mu.Lock()
+	initialRunCount := runCount
+	mu.Unlock()
+	if initialRunCount != 2 {
+		t.Fatalf("expected original blocked request to run twice, got %d", initialRunCount)
+	}
+
+	resp := exec.HandleVerifyResponseMessage(map[string]any{
+		"type":             "verify_response",
+		"view":             2,
+		"seq_num":          2,
+		"token":            "stable-token",
+		"force_sequential": true,
+		"verifier_id":      "ver1",
+	})
+	if resp["status"] != "buffered" {
+		t.Fatalf("expected buffered response status, got %v", resp["status"])
+	}
+
+	waitForCondition(t, 2*time.Second, func() bool {
+		mu.Lock()
+		count := runCount
+		mu.Unlock()
+		if count != 4 {
+			return false
+		}
+		exec.mu.Lock()
+		pending, ok := exec.pendingExecResults[3]
+		exec.mu.Unlock()
+		return ok && len(pending.outputs) == 1 && pending.outputs[0]["status"] == "ok"
+	}, "expected rollback replay to complete using the promoted nested response")
+}
+
+func TestExecAcceptsGenesisRollbackVerifyResponse(t *testing.T) {
+	exec, _, _ := newTestExec("exec1", []string{"exec1"}, nil)
+	resp := exec.handleVerifyResponse(map[string]any{
+		"type":             "verify_response",
+		"view":             2,
+		"seq_num":          0,
+		"token":            "",
+		"force_sequential": true,
+		"verifier_id":      "ver1",
+	})
+	if resp["status"] != "processed" || resp["decision"] != "rollback" {
+		t.Fatalf("expected genesis rollback to be processed, got %v", resp)
+	}
+	if !exec.forceSequential {
+		t.Fatalf("expected genesis rollback to force sequential replay")
+	}
+}
+
 // Hashing is deterministic across different map insertion orders
 func TestComputeStateHashDeterministicOrdering(t *testing.T) {
 	exec, _, _ := newTestExec("exec1", nil, nil)

@@ -106,6 +106,43 @@ func (s *execScheduler) clearNestedResponses(requestIDs []string) {
 	}
 }
 
+func (s *execScheduler) prepareRequestsForReplay(requestIDs []string) {
+	if len(requestIDs) == 0 {
+		return
+	}
+
+	needsWake := false
+	s.mu.Lock()
+	for _, requestID := range requestIDs {
+		promoted := s.nestedResponses[requestID]
+		if len(promoted) > 0 {
+			pending := s.pendingNestedResponses[requestID]
+			rewound := make([]map[string]any, 0, len(promoted)+len(pending))
+			rewound = append(rewound, promoted...)
+			rewound = append(rewound, pending...)
+			s.pendingNestedResponses[requestID] = rewound
+			delete(s.nestedResponses, requestID)
+			needsWake = true
+		}
+	}
+	if needsWake {
+		select {
+		case s.nestedReadyCh <- struct{}{}:
+		default:
+		}
+	}
+	s.mu.Unlock()
+
+	for _, requestID := range requestIDs {
+		s.contextStore.clearByIDExcept(
+			requestID,
+			postNestedVerifyGateWaitSpanContextKey,
+			requestVerifyGateWaitSpanContextKey,
+			requestVerifyWaitSpanContextKey,
+		)
+	}
+}
+
 func cloneMapAny(src map[string]any) map[string]any {
 	if src == nil {
 		return nil

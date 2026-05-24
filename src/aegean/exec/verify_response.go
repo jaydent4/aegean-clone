@@ -2,6 +2,7 @@ package exec
 
 import (
 	"log"
+	"strings"
 	"time"
 
 	"aegean/common"
@@ -52,8 +53,12 @@ func (e *Exec) handleVerifyResponse(payload map[string]any) map[string]any {
 	view := common.GetInt(payload, "view")
 	forceSequential, forceOK := payload["force_sequential"].(bool)
 	verifierID, _ := payload["verifier_id"].(string)
-	if payload["view"] == nil || !forceOK || verifierID == "" || agreedToken == "" {
+	allowsEmptyGenesisToken := forceOK && forceSequential && seqNum == 0
+	if payload["view"] == nil || !forceOK || verifierID == "" || (agreedToken == "" && !allowsEmptyGenesisToken) {
 		return map[string]any{"status": "invalid_verify_response", "resolved": false}
+	}
+	if agreedToken == "" && allowsEmptyGenesisToken {
+		agreedToken = strings.Repeat("0", 64)
 	}
 
 	e.mu.Lock()

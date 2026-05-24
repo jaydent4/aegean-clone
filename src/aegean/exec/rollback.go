@@ -24,14 +24,26 @@ func (e *Exec) rollbackTo(seqNum int, token string) bool {
 	}
 	sort.Ints(replaySeqs)
 
+	replayPayloads := make([]map[string]any, 0, len(replaySeqs))
+	replayRequestIDs := make([]string, 0)
+	seenReplayRequestIDs := make(map[string]struct{})
+	for _, replaySeq := range replaySeqs {
+		payload := e.replayableBatchInputs[replaySeq]
+		replayPayloads = append(replayPayloads, payload)
+		for _, requestID := range requestIDsForBatchPayload(payload) {
+			if _, seen := seenReplayRequestIDs[requestID]; seen {
+				continue
+			}
+			seenReplayRequestIDs[requestID] = struct{}{}
+			replayRequestIDs = append(replayRequestIDs, requestID)
+		}
+	}
+
 	// Discard pending work above rollback point
 	for pendingSeq := range e.pendingExecResults {
 		if pendingSeq > seqNum {
 			delete(e.pendingExecResults, pendingSeq)
 		}
-	}
-	for _, replaySeq := range replaySeqs {
-		e.ingressCh <- ingressEvent{kind: ingressBatchEvent, payload: e.replayableBatchInputs[replaySeq]}
 	}
 	e.nextBatchSeq = seqNum + 1
 	e.nextVerifySeq = seqNum + 1
@@ -52,5 +64,31 @@ func (e *Exec) rollbackTo(seqNum int, token string) bool {
 	e.workingState.Merkle = nil
 	e.workingState.MerkleRoot = checkpoint.MerkleRoot
 	e.stateMu.Unlock()
+
+	e.scheduler.prepareRequestsForReplay(replayRequestIDs)
+	for _, payload := range replayPayloads {
+		e.ingressCh <- ingressEvent{kind: ingressBatchEvent, payload: payload}
+	}
 	return true
+}
+
+func requestIDsForBatchPayload(payload map[string]any) []string {
+	if payload == nil {
+		return nil
+	}
+	parallelBatches, ok := payload["parallel_batches"].([][]map[string]any)
+	if !ok {
+		return nil
+	}
+	requestIDs := make([]string, 0)
+	for _, batch := range parallelBatches {
+		for _, request := range batch {
+			requestID, ok := canonicalRequestID(request["request_id"])
+			if !ok {
+				continue
+			}
+			requestIDs = append(requestIDs, requestID)
+		}
+	}
+	return requestIDs
 }
