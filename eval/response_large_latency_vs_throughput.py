@@ -9,7 +9,7 @@ from plot_utils import parse_metrics_log
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 RESULTS_ROOT = REPO_ROOT / "results"
-OUTPUT_PATH = RESULTS_ROOT / "response_large" / "latency_vs_throughput.png"
+OUTPUT_PATH = RESULTS_ROOT / "response_large_aegean" / "latency_vs_throughput.png"
 
 SERIES = [
     (

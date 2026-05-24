@@ -23,7 +23,7 @@ def main() -> None:
 
     output_path = generate_comparison_plot(
         title="Non-Idempotent External Service Latency vs Realized Throughput",
-        output_path=args.results_root / "nonidem_external_srv" / args.filename,
+        output_path=args.results_root / "nonidem_external_srv_aegean" / args.filename,
         series_specs=[
             SeriesSpec("Aegean", args.results_root / "nonidem_external_srv_aegean"),
             SeriesSpec("Aegean+EO", args.results_root / "nonidem_external_srv_aegean_eo"),

@@ -183,7 +183,7 @@ def plot_latency_vs_throughput(
 
 
 def output_path_for(results_root: Path, workload_name: str, filename: str) -> Path:
-    return results_root / workload_name / filename
+    return results_root / f"{workload_name}_aegean" / filename
 
 
 def generate_workload_plot(
