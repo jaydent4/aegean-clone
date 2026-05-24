@@ -18,6 +18,7 @@ from find_boundary import (
     DEFAULT_NODE_COUNT,
     DEFAULT_UPPER_QPS,
     BoundaryError,
+    K6MetricsParseError,
     Trial,
     display_path,
     distance_from_target_band,
@@ -128,7 +129,17 @@ def find_boundary_qps(args: argparse.Namespace, config_path: Path) -> BoundaryRe
 
         tested.add(qps)
         steps += 1
-        trial = run_trial(args, config_path, result_dir, qps)
+        try:
+            trial = run_trial(args, config_path, result_dir, qps)
+        except K6MetricsParseError as exc:
+            upper = qps - 1
+            print(
+                "Could not parse k6 metrics at "
+                f"qps={qps}; treating load as too high and lowering upper bound to {upper}. "
+                f"Details: {exc}",
+                flush=True,
+            )
+            continue
         trials.append(trial)
 
         if args.min_p90 <= trial.p90_seconds <= args.max_p90:
