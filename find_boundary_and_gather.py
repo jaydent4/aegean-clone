@@ -262,6 +262,32 @@ def remove_boundary_config(boundary_path: Path | None) -> bool:
     return True
 
 
+def remove_boundary_result(boundary_path: Path | None) -> bool:
+    if boundary_path is None:
+        return True
+
+    try:
+        result_path = resolve_results_dir(boundary_path)
+    except BoundaryError as exc:
+        print(f"error: could not resolve boundary result path: {exc}", file=sys.stderr)
+        return False
+
+    if not result_path.exists():
+        return True
+
+    try:
+        if result_path.is_dir():
+            shutil.rmtree(result_path)
+        else:
+            result_path.unlink()
+    except OSError as exc:
+        print(f"error: could not remove {display_path(result_path)}: {exc}", file=sys.stderr)
+        return False
+
+    print(f"Removed boundary result {display_path(result_path)}", flush=True)
+    return True
+
+
 def validate_args(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
     if args.lower < 0 or args.upper < 0:
         parser.error("--lower and --upper must be non-negative")
@@ -340,6 +366,8 @@ def main(argv: list[str]) -> int:
         print(f"error: {exc}", file=sys.stderr)
         exit_code = 1
 
+    if not remove_boundary_result(boundary_path):
+        exit_code = 1
     if not remove_boundary_config(boundary_path):
         exit_code = 1
     return exit_code
