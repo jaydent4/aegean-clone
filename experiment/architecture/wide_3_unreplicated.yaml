@@ -1,0 +1,52 @@
+---
+services:
+  client:
+    type: client
+    next:
+    - node1
+    client_workflow: spin_k6_open_client
+  middle:
+    type: unreplicated_server
+    clients:
+    - node0
+    nodes:
+    - node1
+    exec_workflow: spin_wide_middle
+    init_state_workflow: spin_default
+    run_config:
+      spin_wide_backend_prefix: backend
+  backend1:
+    type: unreplicated_server
+    clients:
+    - node1
+    nodes:
+    - node2
+    exec_workflow: spin_backend
+    init_state_workflow: spin_default
+  backend2:
+    type: unreplicated_server
+    clients:
+    - node1
+    nodes:
+    - node3
+    exec_workflow: spin_backend
+    init_state_workflow: spin_default
+  backend3:
+    type: unreplicated_server
+    clients:
+    - node1
+    nodes:
+    - node4
+    exec_workflow: spin_backend
+    init_state_workflow: spin_default
+nodes:
+  node0:
+    service: client
+  node1:
+    service: middle
+  node2:
+    service: backend1
+  node3:
+    service: backend2
+  node4:
+    service: backend3

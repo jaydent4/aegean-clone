@@ -1,0 +1,35 @@
+---
+services:
+  client:
+    type: client
+    next:
+    - node1
+    client_workflow: spin_k6_open_client
+  deep1:
+    type: unreplicated_server
+    clients:
+    - node0
+    nodes:
+    - node1
+    exec_workflow: spin_chain
+    init_state_workflow: spin_default
+    run_config:
+      spin_stage: 1
+      spin_next_service: deep2
+  deep2:
+    type: unreplicated_server
+    clients:
+    - node1
+    nodes:
+    - node2
+    exec_workflow: spin_chain
+    init_state_workflow: spin_default
+    run_config:
+      spin_stage: 2
+nodes:
+  node0:
+    service: client
+  node1:
+    service: deep1
+  node2:
+    service: deep2

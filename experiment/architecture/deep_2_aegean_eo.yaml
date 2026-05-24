@@ -1,0 +1,73 @@
+---
+services:
+  client:
+    type: client
+    next:
+    - node1
+    - node2
+    - node3
+    client_workflow: spin_k6_open_client
+  deep1:
+    type: server
+    clients:
+    - node0
+    nodes:
+    - node1
+    - node2
+    - node3
+    exec_workflow: spin_chain
+    init_state_workflow: spin_default
+    shimQuorumSize: 1
+    verifyResponseQuorumSize: 1
+    execVerifyQuorumSize: 2
+    phaseQuorumSize: 2
+    expectedExecVotes: 3
+    batcher_config:
+      batch_size: 128
+      batch_timeout_ms: 30
+    run_config:
+      spin_stage: 1
+      spin_next_service: deep2
+  deep2:
+    type: server
+    clients:
+    - node1
+    - node2
+    - node3
+    nodes:
+    - node4
+    - node5
+    - node6
+    exec_workflow: spin_chain
+    init_state_workflow: spin_default
+    shimQuorumSize: 1
+    verifyResponseQuorumSize: 1
+    execVerifyQuorumSize: 2
+    phaseQuorumSize: 2
+    expectedExecVotes: 3
+    batcher_config:
+      batch_size: 64
+      batch_timeout_ms: 1
+    run_config:
+      spin_stage: 2
+nodes:
+  node0:
+    service: client
+  node1:
+    service: deep1
+    is_primary_batcher: true
+  node2:
+    service: deep1
+    is_primary_batcher: false
+  node3:
+    service: deep1
+    is_primary_batcher: false
+  node4:
+    service: deep2
+    is_primary_batcher: true
+  node5:
+    service: deep2
+    is_primary_batcher: false
+  node6:
+    service: deep2
+    is_primary_batcher: false
