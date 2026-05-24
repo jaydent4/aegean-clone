@@ -432,10 +432,13 @@ def launch_nodes(
     enable_pprof=False,
     enable_tracing=False,
     enable_logging=False,
+    skip_binary_build=False,
 ):
     logger.info("Launching %d nodes with %d worker(s)", len(node_names), len(node_names))
-    if node_names:
+    if node_names and not skip_binary_build:
         ensure_binaries_ready(node_names)
+    elif node_names:
+        logger.info("Skipping binary build/distribution; assuming %s exists on all nodes", REMOTE_BINARY_PATH)
 
     remote_config_path = shlex.quote(f"../{config_path}")
     profiled_node = os.environ.get("AEGEAN_PROFILE_NODE", "").strip()
@@ -712,6 +715,7 @@ def run_experiment(
     enable_tracing=False,
     enable_logging=False,
     timestamped=False,
+    skip_binary_build=False,
 ):
     _, relative_run_config_path, architecture_path, run_config = load_run_config(config_path)
     node_names, client_names, node_services = load_experiment_topology(architecture_path)
@@ -729,6 +733,7 @@ def run_experiment(
         enable_pprof=enable_pprof,
         enable_tracing=enable_tracing,
         enable_logging=enable_logging,
+        skip_binary_build=skip_binary_build,
     )
     logger.info("Waiting for all nodes to become ready")
     all_nodes_ready = wait_for_nodes_ready(node_names, timeout=120.0, poll_interval=1.0)
@@ -775,6 +780,7 @@ def run_experiment_n_times(
     enable_pprof=False,
     enable_tracing=False,
     enable_logging=False,
+    skip_binary_build=False,
 ):
     logger.info("Running experiment %d times: %s", n, config_path)
     run_dirs = []
@@ -789,6 +795,7 @@ def run_experiment_n_times(
             enable_tracing=enable_tracing,
             enable_logging=enable_logging,
             timestamped=True,
+            skip_binary_build=skip_binary_build,
         )
         run_dirs.append(run_dir)
 
@@ -846,6 +853,7 @@ def run_config_paths(
     enable_tracing=False,
     enable_logging=False,
     resume=False,
+    skip_binary_build=False,
 ):
     completed_items = []
     for config_path in config_paths:
@@ -869,6 +877,7 @@ def run_config_paths(
                 enable_pprof=enable_pprof,
                 enable_tracing=enable_tracing,
                 enable_logging=enable_logging,
+                skip_binary_build=skip_binary_build,
             )
             completed_items.append(output_path)
         else:
@@ -877,6 +886,7 @@ def run_config_paths(
                 enable_pprof=enable_pprof,
                 enable_tracing=enable_tracing,
                 enable_logging=enable_logging,
+                skip_binary_build=skip_binary_build,
             )
             completed_items.append(run_dir)
     return completed_items
@@ -960,6 +970,11 @@ def main():
         "--email",
         help="Send a completion email to this address after all requested runs finish.",
     )
+    parser.add_argument(
+        "--skip-binary-build",
+        action="store_true",
+        help="Assume /app/bin/aegean-node already exists on all nodes; do not build or distribute it.",
+    )
     args = parser.parse_args()
 
     enable_pprof = args.enable_pprof
@@ -994,6 +1009,7 @@ def main():
         enable_tracing=enable_tracing,
         enable_logging=enable_logging,
         resume=args.resume,
+        skip_binary_build=args.skip_binary_build,
     )
 
     if args.runs > 1 and len(completed_items) == 1 and not args.all and not args.config_dir:
