@@ -34,11 +34,11 @@ python find_boundary.py experiment/runs/social_compose_nonidem_graph_unreplicate
 # python find_boundary.py experiment/runs/response_small_pbeo/ --lower 0 --upper 30000 --min-p90 0.2 --max-p90 0.4
 # python find_boundary.py experiment/runs/response_small_unreplicated/ --lower 0 --upper 30000 --min-p90 0.2 --max-p90 0.4
 
-# python find_boundary.py experiment/runs/worker_2_aegean/ --lower 0 --upper 10000 --min-p90 0.2 --max-p90 0.4
-# python find_boundary.py experiment/runs/worker_2_aegean_eo/ --lower 0 --upper 10000 --min-p90 0.2 --max-p90 0.4
+python find_boundary.py experiment/runs/worker_2_aegean/ --lower 0 --upper 10000 --min-p90 0.2 --max-p90 0.4
+python find_boundary.py experiment/runs/worker_2_aegean_eo/ --lower 0 --upper 10000 --min-p90 0.2 --max-p90 0.4
 
-# python find_boundary.py experiment/runs/worker_8_aegean/ --lower 0 --upper 10000 --min-p90 0.2 --max-p90 0.4
-# python find_boundary.py experiment/runs/worker_8_aegean_eo/ --lower 0 --upper 10000 --min-p90 0.2 --max-p90 0.4
+python find_boundary.py experiment/runs/worker_8_aegean/ --lower 0 --upper 10000 --min-p90 0.2 --max-p90 0.4
+python find_boundary.py experiment/runs/worker_8_aegean_eo/ --lower 0 --upper 10000 --min-p90 0.2 --max-p90 0.4
 
 # python find_boundary.py experiment/runs/write_large_aegean/ --lower 0 --upper 8000 --min-p90 0.2 --max-p90 0.4
 # python find_boundary.py experiment/runs/write_large_aegean_eo/ --lower 0 --upper 8000 --min-p90 0.2 --max-p90 0.4

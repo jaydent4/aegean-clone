@@ -33,11 +33,11 @@ python gather.py experiment/runs/response_small_aegean_eo/ --boundary-qps 7351
 python gather.py experiment/runs/response_small_pbeo/ --boundary-qps 6300
 python gather.py experiment/runs/response_small_unreplicated/ --boundary-qps 9300
 
-python gather.py experiment/runs/worker_2_aegean/ --boundary-qps 4374
-python gather.py experiment/runs/worker_2_aegean_eo/ --boundary-qps 4374
+python gather.py experiment/runs/worker_2_aegean/ --boundary-qps 1000
+python gather.py experiment/runs/worker_2_aegean_eo/ --boundary-qps 1000
 
-python gather.py experiment/runs/worker_2_aegean/ --boundary-qps 4530
-python gather.py experiment/runs/worker_2_aegean_eo/ --boundary-qps 4339
+python gather.py experiment/runs/worker_2_aegean/ --boundary-qps 1000
+python gather.py experiment/runs/worker_2_aegean_eo/ --boundary-qps 1000
 
 python gather.py experiment/runs/write_large_aegean/ --boundary-qps 2686
 python gather.py experiment/runs/write_large_aegean_eo/ --boundary-qps 2499
