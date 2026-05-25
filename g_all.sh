@@ -31,7 +31,7 @@ python gather.py experiment/runs/response_large_unreplicated/ --boundary-qps 124
 python gather.py experiment/runs/response_medium_aegean/ --boundary-qps 3983
 python gather.py experiment/runs/response_medium_aegean_eo/ --boundary-qps 3788
 python gather.py experiment/runs/response_medium_pbeo/ --boundary-qps 4627
-# python gather.py experiment/runs/response_medium_unreplicated/ --boundary-qps 0
+python gather.py experiment/runs/response_medium_unreplicated/ --boundary-qps 5936
 
 python gather.py experiment/runs/response_small_aegean/ --boundary-qps 6093
 python gather.py experiment/runs/response_small_aegean_eo/ --boundary-qps 7351
@@ -75,19 +75,19 @@ python gather.py experiment/runs/deep_3_unreplicated/ --boundary-qps 4999
 python gather.py experiment/runs/deep_4_aegean/ --boundary-qps 1499
 python gather.py experiment/runs/deep_4_aegean_eo/ --boundary-qps 1499
 python gather.py experiment/runs/deep_4_pbeo/ --boundary-qps 2311
-# python gather.py experiment/runs/deep_4_unreplicated/ --boundary-qps 0
+python gather.py experiment/runs/deep_4_unreplicated/ --boundary-qps 5546
 
-# python gather.py experiment/runs/wide_1_aegean/ --boundary-qps 0
-# python gather.py experiment/runs/wide_1_aegean_eo/ --boundary-qps 0
-# python gather.py experiment/runs/wide_1_pbeo/ --boundary-qps 0
-# python gather.py experiment/runs/wide_1_unreplicated/ --boundary-qps 0
+python gather.py experiment/runs/wide_1_aegean/ --boundary-qps 4452
+python gather.py experiment/runs/wide_1_aegean_eo/ --boundary-qps 4236
+python gather.py experiment/runs/wide_1_pbeo/ --boundary-qps 4686
+python gather.py experiment/runs/wide_1_unreplicated/ --boundary-qps 4999
 
-# python gather.py experiment/runs/wide_2_aegean/ --boundary-qps 0
-# python gather.py experiment/runs/wide_2_aegean_eo/ --boundary-qps 0
-# python gather.py experiment/runs/wide_2_pbeo/ --boundary-qps 0
-# python gather.py experiment/runs/wide_2_unreplicated/ --boundary-qps 0
+python gather.py experiment/runs/wide_2_aegean/ --boundary-qps 3749
+python gather.py experiment/runs/wide_2_aegean_eo/ --boundary-qps 3319
+python gather.py experiment/runs/wide_2_pbeo/ --boundary-qps 3124
+python gather.py experiment/runs/wide_2_unreplicated/ --boundary-qps 4598
 
-# python gather.py experiment/runs/wide_3_aegean/ --boundary-qps 5156
-# python gather.py experiment/runs/wide_3_aegean_eo/ --boundary-qps 4374
-# python gather.py experiment/runs/wide_3_pbeo/ --boundary-qps 2499
-# python gather.py experiment/runs/wide_3_unreplicated/ --boundary-qps 7499
+python gather.py experiment/runs/wide_3_aegean/ --boundary-qps 3592
+python gather.py experiment/runs/wide_3_aegean_eo/ --boundary-qps 3124
+python gather.py experiment/runs/wide_3_pbeo/ --boundary-qps 1999
+python gather.py experiment/runs/wide_3_unreplicated/ --boundary-qps 4939 # inaccurate
