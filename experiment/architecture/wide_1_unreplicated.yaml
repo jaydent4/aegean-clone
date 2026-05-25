@@ -23,30 +23,6 @@ services:
     - node2
     exec_workflow: spin_backend
     init_state_workflow: spin_default
-  backend2:
-    type: unreplicated_server
-    clients:
-    - node1
-    nodes:
-    - node3
-    exec_workflow: spin_backend
-    init_state_workflow: spin_default
-  backend3:
-    type: unreplicated_server
-    clients:
-    - node1
-    nodes:
-    - node4
-    exec_workflow: spin_backend
-    init_state_workflow: spin_default
-  backend4:
-    type: unreplicated_server
-    clients:
-    - node1
-    nodes:
-    - node5
-    exec_workflow: spin_backend
-    init_state_workflow: spin_default
 nodes:
   node0:
     service: client
@@ -54,9 +30,3 @@ nodes:
     service: middle
   node2:
     service: backend1
-  node3:
-    service: backend2
-  node4:
-    service: backend3
-  node5:
-    service: backend4
