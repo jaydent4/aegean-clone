@@ -14,20 +14,24 @@ func resetSocialGraphNonidemState() {
 }
 
 func socialGraphFollowersForResponse(e workflowRuntime, userID string, stableFollowers []string) ([]string, uint64) {
-	if !common.BoolOrDefault(e.GetRunConfig(), socialGraphNonidemConfigKey, false) {
+	return socialGraphFollowersForRunConfig(e.GetRunConfig(), userID, stableFollowers)
+}
+
+func socialGraphFollowersForRunConfig(runConfig map[string]any, userID string, stableFollowers []string) ([]string, uint64) {
+	if !common.BoolOrDefault(runConfig, socialGraphNonidemConfigKey, false) {
 		return append([]string{}, stableFollowers...), 0
 	}
 
 	version := socialGraphNonidemCounter.Add(1)
-	userCount := common.MustInt(e.GetRunConfig(), "social_user_count")
+	userCount := common.MustInt(runConfig, "social_user_count")
 	if userCount <= 1 {
 		return []string{}, version
 	}
 
 	followerCount := common.IntOrDefault(
-		e.GetRunConfig(),
+		runConfig,
 		"social_graph_nonidem_followers_per_response",
-		common.IntOrDefault(e.GetRunConfig(), "social_followers_per_user", len(stableFollowers)),
+		common.IntOrDefault(runConfig, "social_followers_per_user", len(stableFollowers)),
 	)
 	if followerCount < 0 {
 		followerCount = 0

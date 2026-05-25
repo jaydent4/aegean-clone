@@ -262,8 +262,10 @@ var UnreplicatedInitStateWorkflows = map[string]unreplicated.InitStateFunc{
 var ExternalServiceInitWorkflows = map[string]func(es *nodes.ExternalService){
 	"default":              externalsrvworkflow.InitExternalService,
 	"external_srv_default": externalsrvworkflow.InitExternalService,
+	"social_graph_default": socialworkflow.InitSocialGraphExternalService,
 }
 
 var ExternalServiceWorkflows = map[string]func(es *nodes.ExternalService, payload map[string]any) map[string]any{
 	"external_srv_external_service": externalsrvworkflow.ExternalServiceLogic,
+	"social_graph_external_service": socialworkflow.ExternalServiceSocialGraph,
 }

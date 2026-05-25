@@ -62,6 +62,29 @@ func TestSocialGraphNonidemFollowersChangeAcrossCalls(t *testing.T) {
 	}
 }
 
+func TestSocialGraphExternalResponseChangesEveryCall(t *testing.T) {
+	resetSocialGraphNonidemState()
+	runConfig := map[string]any{
+		"social_user_count":         8,
+		"social_followers_per_user": 3,
+		"social_graph_nonidem":      true,
+	}
+	request := socialGraphFollowersRequest("request-1/social_graph", "user-3")
+
+	first := socialGraphExternalResponse(runConfig, request)
+	second := socialGraphExternalResponse(runConfig, request)
+
+	if !reflect.DeepEqual(first["social_graph_nonidem_version"], uint64(1)) {
+		t.Fatalf("first external nonidem version = %#v, want 1", first["social_graph_nonidem_version"])
+	}
+	if !reflect.DeepEqual(second["social_graph_nonidem_version"], uint64(2)) {
+		t.Fatalf("second external nonidem version = %#v, want 2", second["social_graph_nonidem_version"])
+	}
+	if reflect.DeepEqual(first["followers"], second["followers"]) {
+		t.Fatalf("external nonidem followers did not change: %#v", first["followers"])
+	}
+}
+
 func newSocialGraphTestRuntime(nonidem bool) *socialGraphTestRuntime {
 	runtime := &socialGraphTestRuntime{
 		runConfig: map[string]any{

@@ -101,6 +101,9 @@ func ExecuteRequestHomeTimeline(e workflowRuntime, request map[string]any, ndSee
 				"user_id":    userID,
 				"followers":  followers,
 			}
+			if nonidemVersion, ok := nestedResponse["social_graph_nonidem_version"]; ok {
+				response["social_graph_nonidem_version"] = nonidemVersion
+			}
 			if parentRequestID, ok := request["parent_request_id"]; ok && parentRequestID != nil {
 				response["parent_request_id"] = parentRequestID
 			}

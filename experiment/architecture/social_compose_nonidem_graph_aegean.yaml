@@ -68,15 +68,9 @@ services:
       batch_size: 64
       batch_timeout_ms: 10
   social_graph:
-    type: unreplicated_server
-    clients:
-    - node8
-    - node9
-    - node10
-    nodes:
-    - node11
-    exec_workflow: social_social_graph
-    init_state_workflow: social_default
+    type: external_service
+    external_service_workflow: social_graph_external_service
+    external_service_init_state: social_graph_default
 nodes:
   node0:
     service: client
