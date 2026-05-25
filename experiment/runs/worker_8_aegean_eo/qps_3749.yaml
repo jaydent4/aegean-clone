@@ -1,0 +1,34 @@
+---
+architecture: worker_aegean_eo.yaml
+
+# K6 configs
+k6_qps: 3749
+warmup_duration: 10s
+warmup_graceful_stop: 45s
+duration: 15s
+k6_pre_allocated_vus: 0
+k6_max_vus: 10000
+
+# Worker workflow configs
+worker_spin_ms: 1
+
+# Nested exact-once dispatch
+eo_raft_send_batch_size: 256
+eo_response_batch_size: 64
+eo_response_batch_timeout_us: 250
+eo_tick_interval_ms: 10
+eo_election_tick: 1000
+eo_heartbeat_tick: 1
+eo_disable_follower_elections: true
+nested_use_eo: true
+worker_nested_use_eo: true
+use_eo_after_quorum: true
+nested_eo_request_forward_batch_size: 32
+nested_eo_request_forward_batch_timeout_us: 500
+
+# Run & system configs
+run_timeout_seconds: 60
+parallel_window_k: 16
+worker_count: 8
+gomaxprocs: 32
+merkle: treap

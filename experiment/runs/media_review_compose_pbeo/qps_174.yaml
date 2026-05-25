@@ -1,0 +1,38 @@
+---
+architecture: media_review_compose_pbeo.yaml
+
+# k6 config
+k6_qps: 174
+warmup_duration: 10s
+warmup_graceful_stop: 45s
+duration: 15s
+k6_pre_allocated_vus: 0
+k6_max_vus: 10000
+
+# Media review-compose workflow config
+media_user_count: 1000
+media_movie_count: 1000
+media_review_text_length: 256
+media_max_reviews_per_index: 100
+media_nested_send_all_replicas: false
+
+# EO configs
+eo_raft_send_batch_size: 256
+eo_response_batch_size: 128
+eo_response_batch_timeout_us: 250
+eo_disable_follower_elections: true
+
+# PBEO configs
+pbeo_raft_send_batch_size: 256
+pbeo_tick_interval_ms: 10
+pbeo_election_tick: 1000
+pbeo_heartbeat_tick: 1
+pbeo_max_executing_requests: 512
+pbeo_commit_drain_batch_size: 256
+pbeo_disable_follower_elections: true
+
+# Run & system configs
+run_timeout_seconds: 60
+parallel_window_k: 16
+worker_count: 16
+gomaxprocs: 32

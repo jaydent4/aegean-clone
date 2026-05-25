@@ -1,0 +1,19 @@
+---
+architecture: response_unreplicated.yaml
+
+# K6 configs
+k6_qps: 5936
+warmup_duration: 10s
+warmup_graceful_stop: 45s
+duration: 15s
+k6_pre_allocated_vus: 0
+k6_max_vus: 10000
+
+# Response workflow configs
+response_size_bytes: 10240
+
+# Run & system configs
+run_timeout_seconds: 60
+parallel_window_k: 16
+worker_count: 16
+gomaxprocs: 32

@@ -1,0 +1,38 @@
+---
+architecture: hotel_recommendations_pbeo.yaml
+
+# k6 config
+k6_qps: 4699
+warmup_duration: 10s
+warmup_graceful_stop: 45s
+duration: 15s
+k6_pre_allocated_vus: 0
+k6_max_vus: 10000
+
+# Hotel recommendation path config
+hotel_hotel_count: 80
+hotel_user_count: 501
+hotel_search_radius_km: 10.0
+hotel_search_max_results: 5
+hotel_nested_send_all_replicas: false
+
+# EO configs
+eo_raft_send_batch_size: 256
+eo_response_batch_size: 128
+eo_response_batch_timeout_us: 250
+eo_disable_follower_elections: true
+
+# PBEO configs
+pbeo_raft_send_batch_size: 256
+pbeo_tick_interval_ms: 10
+pbeo_election_tick: 1000
+pbeo_heartbeat_tick: 1
+pbeo_max_executing_requests: 512
+pbeo_commit_drain_batch_size: 256
+pbeo_disable_follower_elections: true
+
+# Run & system configs
+run_timeout_seconds: 60
+parallel_window_k: 16
+worker_count: 16
+gomaxprocs: 32
