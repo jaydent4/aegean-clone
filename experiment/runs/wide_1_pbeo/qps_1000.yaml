@@ -1,5 +1,5 @@
 ---
-architecture: wide_4_pbeo.yaml
+architecture: wide_1_pbeo.yaml
 
 # K6 configs
 k6_qps: 1000
@@ -10,7 +10,7 @@ k6_pre_allocated_vus: 0
 k6_max_vus: 10000
 
 # Wide spin workflow configs
-width: 4
+width: 1
 spin_ms: 0.1
 
 # PBEO configs

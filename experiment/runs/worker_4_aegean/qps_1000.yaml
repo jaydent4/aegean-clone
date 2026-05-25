@@ -2,7 +2,7 @@
 architecture: worker_aegean.yaml
 
 # K6 configs
-k6_qps: 1500
+k6_qps: 1000
 warmup_duration: 10s
 warmup_graceful_stop: 45s
 duration: 15s
@@ -15,6 +15,6 @@ worker_spin_ms: 1
 # Run & system configs
 run_timeout_seconds: 60
 parallel_window_k: 16
-worker_count: 2
+worker_count: 4
 gomaxprocs: 32
 merkle: treap

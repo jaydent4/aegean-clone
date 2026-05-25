@@ -1,5 +1,5 @@
 ---
-architecture: wide_4_unreplicated.yaml
+architecture: write_unreplicated.yaml
 
 # K6 configs
 k6_qps: 1000
@@ -9,13 +9,11 @@ duration: 15s
 k6_pre_allocated_vus: 0
 k6_max_vus: 10000
 
-# Wide spin workflow configs
-width: 4
-spin_ms: 0.1
+# Write workflow configs
+write_value_size_bytes: 10240
 
 # Run & system configs
 run_timeout_seconds: 60
 parallel_window_k: 16
 worker_count: 16
 gomaxprocs: 32
-merkle: treap
