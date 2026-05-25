@@ -115,6 +115,7 @@ func (e *Exec) requestStateTransfer(minStableSeq int, _ int) bool {
 		e.workingState.KVStore = common.CopyStringMap(merged)
 		e.workingState.Merkle = mergedMerkle.Clone()
 		e.workingState.MerkleRoot = mergedMerkle.Root()
+		e.batchCtx = nil
 		e.stateMu.Unlock()
 		e.mu.Lock()
 		e.stableState = State{
@@ -127,16 +128,11 @@ func (e *Exec) requestStateTransfer(minStableSeq int, _ int) bool {
 		}
 		e.storeCheckpoint(e.stableState.SeqNum, e.stableState.PrevHash, merged, mergedMerkle.Root())
 		e.forceSequential = false
+		e.executionEpoch++
 		for seq := range e.pendingExecResults {
 			delete(e.pendingExecResults, seq)
 		}
-		replaySeqs := make([]int, 0)
-		for seq := range e.replayableBatchInputs {
-			if seq > e.stableState.SeqNum {
-				replaySeqs = append(replaySeqs, seq)
-			}
-		}
-		sort.Ints(replaySeqs)
+		replaySeqs := e.prepareReplayAfterStateTransferLocked()
 		for _, replaySeq := range replaySeqs {
 			e.ingressCh <- ingressEvent{kind: ingressBatchEvent, payload: e.replayableBatchInputs[replaySeq]}
 		}
@@ -146,6 +142,29 @@ func (e *Exec) requestStateTransfer(minStableSeq int, _ int) bool {
 		return true
 	}
 	return false
+}
+
+func (e *Exec) prepareReplayAfterStateTransferLocked() []int {
+	replaySeqs := make([]int, 0)
+	replayRequestIDs := make([]string, 0)
+	seenReplayRequestIDs := make(map[string]struct{})
+	for seq := range e.replayableBatchInputs {
+		if seq <= e.stableState.SeqNum {
+			continue
+		}
+		replaySeqs = append(replaySeqs, seq)
+		for _, requestID := range requestIDsForBatchPayload(e.replayableBatchInputs[seq]) {
+			if _, seen := seenReplayRequestIDs[requestID]; seen {
+				continue
+			}
+			seenReplayRequestIDs[requestID] = struct{}{}
+			replayRequestIDs = append(replayRequestIDs, requestID)
+		}
+	}
+	sort.Ints(replaySeqs)
+	e.scheduler.prepareRequestsForReplay(replayRequestIDs)
+	e.nestedDispatchTracker.prepareParentsForReplay(replayRequestIDs)
+	return replaySeqs
 }
 
 func (e *Exec) handleStateTransferRequest(payload map[string]any) map[string]any {

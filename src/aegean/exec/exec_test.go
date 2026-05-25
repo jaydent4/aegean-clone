@@ -885,6 +885,63 @@ func TestExecVerifyMismatchTriggersStateTransfer(t *testing.T) {
 	}
 }
 
+func TestStateTransferReplayPreparationRewindsNestedResponses(t *testing.T) {
+	exec, _, _ := newTestExec("exec1", []string{"exec1"}, nil)
+	exec.stableState.SeqNum = 5
+	exec.replayableBatchInputs[6] = map[string]any{
+		"type":    "batch",
+		"seq_num": 6,
+		"parallel_batches": makeParallelBatches(
+			makeSpinRequest("r1", "k1", "v1", "k1"),
+		),
+	}
+	if !exec.SetRequestContextValue("r1", "stage", "await_nested") {
+		t.Fatalf("failed to seed request context")
+	}
+
+	exec.scheduler.mu.Lock()
+	exec.scheduler.nestedResponses["r1"] = []map[string]any{
+		{"request_id": "r1/social_graph", "shim_quorum_aggregated": true},
+	}
+	exec.scheduler.pendingNestedResponses["r1"] = []map[string]any{
+		{"request_id": "r1/late", "shim_quorum_aggregated": true},
+	}
+	exec.scheduler.mu.Unlock()
+	exec.nestedDispatchTracker.markCompleted("r1/social_graph")
+	exec.nestedDispatchTracker.registerPending("r1/unselected")
+	exec.nestedDispatchTracker.markSelected("r1/selected")
+
+	exec.mu.Lock()
+	replaySeqs := exec.prepareReplayAfterStateTransferLocked()
+	exec.mu.Unlock()
+
+	if len(replaySeqs) != 1 || replaySeqs[0] != 6 {
+		t.Fatalf("expected replay seq [6], got %v", replaySeqs)
+	}
+	exec.scheduler.mu.Lock()
+	promoted := len(exec.scheduler.nestedResponses["r1"])
+	pending := len(exec.scheduler.pendingNestedResponses["r1"])
+	exec.scheduler.mu.Unlock()
+	if promoted != 0 {
+		t.Fatalf("expected promoted nested responses rewound, got %d", promoted)
+	}
+	if pending != 2 {
+		t.Fatalf("expected pending nested responses to include rewound response, got %d", pending)
+	}
+	if _, ok := exec.GetRequestContextValue("r1", "stage"); ok {
+		t.Fatalf("expected replay preparation to clear request context")
+	}
+	if state, tracked := exec.nestedDispatchTracker.state("r1/social_graph"); !tracked || state != nestedDispatchCompleted {
+		t.Fatalf("expected replay preparation to keep completed nested dispatch state, got tracked=%t state=%v", tracked, state)
+	}
+	if _, tracked := exec.nestedDispatchTracker.state("r1/unselected"); tracked {
+		t.Fatalf("expected replay preparation to clear unselected nested dispatch state")
+	}
+	if state, tracked := exec.nestedDispatchTracker.state("r1/selected"); !tracked || state != nestedDispatchSelected {
+		t.Fatalf("expected replay preparation to keep selected nested dispatch state, got tracked=%t state=%v", tracked, state)
+	}
+}
+
 // Out-of-order batches are buffered until the missing seq arrives
 func TestExecBuffersOutOfOrderBatches(t *testing.T) {
 	exec, _, _ := newTestExec("exec1", []string{"exec1"}, nil)
@@ -1984,6 +2041,106 @@ func TestExecForceSequentialDisablesParallelYield(t *testing.T) {
 
 	if got := exec.ReadKV("next_batch_progress"); got != "yes" {
 		t.Fatalf("expected later batch to run after blocked request resumed")
+	}
+}
+
+func TestExecRollbackCancelsBlockedBatchExecution(t *testing.T) {
+	verifierCh := make(chan map[string]any, 8)
+	shimCh := make(chan map[string]any, 8)
+	started := make(chan struct{}, 1)
+	var exec *Exec
+	exec = NewExec("exec1", []string{"exec1"}, nil, verifierCh, shimCh, 1,
+		func(_ *Exec, request map[string]any, _ int64, _ float64) map[string]any {
+			op, _ := request["op"].(string)
+			requestID := request["request_id"]
+			switch op {
+			case "block":
+				select {
+				case started <- struct{}{}:
+				default:
+				}
+				if nestedResponses, ok := exec.GetNestedResponses(requestID); ok && len(nestedResponses) > 0 {
+					return map[string]any{"request_id": requestID, "status": "ok"}
+				}
+				return map[string]any{"request_id": requestID, "status": "blocked_for_nested_response"}
+			case "mark":
+				exec.WriteKV("after_rollback", "yes")
+				return map[string]any{"request_id": requestID, "status": "ok"}
+			default:
+				return map[string]any{"request_id": requestID, "status": "error"}
+			}
+		},
+		nil,
+		requiredExecRunConfig(),
+	)
+	exec.forceSequential = true
+
+	exec.HandleBatchMessage(map[string]any{
+		"type":    "batch",
+		"seq_num": 1,
+		"parallel_batches": [][]map[string]any{
+			{map[string]any{"request_id": "r1", "op": "block"}},
+		},
+	})
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for blocked execution to start")
+	}
+	waitForCondition(t, 500*time.Millisecond, func() bool {
+		exec.mu.Lock()
+		defer exec.mu.Unlock()
+		return exec.batchExecuting
+	}, "expected first batch to be executing")
+
+	exec.mu.Lock()
+	stableToken := exec.stableState.PrevHash
+	exec.mu.Unlock()
+	if !exec.rollbackTo(0, stableToken) {
+		t.Fatalf("expected rollback to genesis checkpoint to succeed")
+	}
+	if !exec.BufferNestedResponse(map[string]any{"request_id": "r1", "status": "ready"}) {
+		t.Fatalf("expected nested response to be accepted for replayed request")
+	}
+	waitForCondition(t, 500*time.Millisecond, func() bool {
+		exec.mu.Lock()
+		defer exec.mu.Unlock()
+		return !exec.batchExecuting
+	}, "expected rollback replay to finish after canceling the stale executor")
+
+	exec.HandleBatchMessage(map[string]any{
+		"type":    "batch",
+		"seq_num": 2,
+		"parallel_batches": [][]map[string]any{
+			{map[string]any{"request_id": "r2", "op": "mark"}},
+		},
+	})
+	waitForCondition(t, 500*time.Millisecond, func() bool {
+		return exec.ReadKV("after_rollback") == "yes"
+	}, "expected executor to process a new batch after rollback cancellation")
+}
+
+func TestExecFlushNextBatchCapturesReplayInputBeforeExecutionCompletes(t *testing.T) {
+	exec, _, _ := newTestExec("exec1", nil, nil)
+	payload := map[string]any{
+		"type":    "batch",
+		"seq_num": 1,
+		"parallel_batches": makeParallelBatches(
+			makeSpinRequest("r1", "k1", "v1", "1"),
+		),
+	}
+	exec.batchBuffer.Add(1, payload)
+
+	if !exec.flushNextBatch() {
+		t.Fatalf("expected batch to be flushed")
+	}
+
+	exec.mu.Lock()
+	stored := exec.replayableBatchInputs[1]
+	exec.mu.Unlock()
+	if stored == nil {
+		t.Fatalf("expected replay input to be captured before execution completes")
 	}
 }
 

@@ -46,6 +46,8 @@ func (e *Exec) flushNextBatch() bool {
 		if e.nextBatchSeq == seq {
 			e.nextBatchSeq++
 		}
+		e.replayableBatchInputs[seq] = msg
+		epoch := e.executionEpoch
 		e.batchExecuting = true
 		e.mu.Unlock()
 		if queueSpanAny, ok := msg["_batch_queue_wait_span"]; ok {
@@ -80,12 +82,12 @@ func (e *Exec) flushNextBatch() bool {
 		if batchServiceSpan != nil && batchServiceSpan.IsRecording() {
 			msg["_batch_service_span"] = batchServiceSpan
 		}
-		e.batchExecCh <- batchExecutionTask{payload: msg}
+		e.batchExecCh <- batchExecutionTask{payload: msg, epoch: epoch}
 	}
 	return true
 }
 
-func (e *Exec) executeBatch(payload map[string]any) *batchExecutionResult {
+func (e *Exec) executeBatch(payload map[string]any, epoch uint64) *batchExecutionResult {
 	totalStart := time.Now()
 
 	seqNum := common.GetInt(payload, "seq_num")
@@ -98,7 +100,7 @@ func (e *Exec) executeBatch(payload map[string]any) *batchExecutionResult {
 
 	parallelBatches, ok := parallelBatchesAny.([][]map[string]any)
 	if !ok {
-		return &batchExecutionResult{seqNum: seqNum, payload: payload}
+		return &batchExecutionResult{seqNum: seqNum, payload: payload, epoch: epoch}
 	}
 	requestCount := batchRequestCount(parallelBatches)
 	var nestedArrivalStats nestedResponseTimingSnapshot
@@ -129,13 +131,23 @@ func (e *Exec) executeBatch(payload map[string]any) *batchExecutionResult {
 	e.mu.Unlock()
 	var outputs []map[string]any
 	var schedulerStats executionSchedulerStats
+	var canceled bool
 	executeStart := time.Now()
 	if forceSequential {
-		outputs, schedulerStats = e.executeSequentialBatches(parallelBatches, ndSeed, ndTimestamp)
+		outputs, schedulerStats, canceled = e.executeSequentialBatches(parallelBatches, ndSeed, ndTimestamp, epoch)
 	} else {
-		outputs, schedulerStats = e.executeParallelBatches(parallelBatches, ndSeed, ndTimestamp)
+		outputs, schedulerStats, canceled = e.executeParallelBatches(parallelBatches, ndSeed, ndTimestamp, epoch)
 	}
 	executeDuration := time.Since(executeStart)
+	if canceled || e.executionEpochChanged(epoch) {
+		return &batchExecutionResult{
+			seqNum:           seqNum,
+			payload:          payload,
+			epoch:            epoch,
+			canceled:         true,
+			batchServiceSpan: batchServiceSpanFromPayload(payload),
+		}
+	}
 
 	e.stateMu.Lock()
 	pendingNewKeys := 0
@@ -365,6 +377,7 @@ func (e *Exec) executeBatch(payload map[string]any) *batchExecutionResult {
 	return &batchExecutionResult{
 		seqNum:           seqNum,
 		payload:          payload,
+		epoch:            epoch,
 		outputs:          outputs,
 		stateDelta:       stateDelta,
 		merkleRoot:       stateRoot,
@@ -373,7 +386,7 @@ func (e *Exec) executeBatch(payload map[string]any) *batchExecutionResult {
 }
 
 func (e *Exec) handleBatch(payload map[string]any) map[string]any {
-	result := e.executeBatch(payload)
+	result := e.executeBatch(payload, e.currentExecutionEpoch())
 	e.applyBatchExecutionResult(result)
 	return map[string]any{"status": "executed", "seq_num": result.seqNum}
 }
@@ -386,6 +399,12 @@ func (e *Exec) applyBatchExecutionResult(result *batchExecutionResult) {
 		result.batchServiceSpan.End()
 	}
 	e.mu.Lock()
+	if result.canceled || result.epoch != e.executionEpoch {
+		e.batchExecuting = false
+		e.mu.Unlock()
+		e.resetWorkingStateToStable()
+		return
+	}
 	e.batchExecuting = false
 	e.replayableBatchInputs[result.seqNum] = result.payload
 	e.pendingExecResults[result.seqNum] = pendingExecResult{
@@ -395,4 +414,17 @@ func (e *Exec) applyBatchExecutionResult(result *batchExecutionResult) {
 		token:      "",
 	}
 	e.mu.Unlock()
+}
+
+func batchServiceSpanFromPayload(payload map[string]any) trace.Span {
+	if payload == nil {
+		return nil
+	}
+	spanAny, ok := payload["_batch_service_span"]
+	if !ok {
+		return nil
+	}
+	span, _ := spanAny.(trace.Span)
+	delete(payload, "_batch_service_span")
+	return span
 }

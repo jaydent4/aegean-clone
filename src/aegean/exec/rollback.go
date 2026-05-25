@@ -47,6 +47,7 @@ func (e *Exec) rollbackTo(seqNum int, token string) bool {
 	}
 	e.nextBatchSeq = seqNum + 1
 	e.nextVerifySeq = seqNum + 1
+	e.executionEpoch++
 	checkpointState := common.CopyStringMap(checkpoint.State)
 	e.stableState = State{
 		KVStore:    checkpointState,
@@ -63,9 +64,11 @@ func (e *Exec) rollbackTo(seqNum int, token string) bool {
 	e.workingState.KVStore = common.CopyStringMap(checkpointState)
 	e.workingState.Merkle = nil
 	e.workingState.MerkleRoot = checkpoint.MerkleRoot
+	e.batchCtx = nil
 	e.stateMu.Unlock()
 
 	e.scheduler.prepareRequestsForReplay(replayRequestIDs)
+	e.nestedDispatchTracker.prepareParentsForReplay(replayRequestIDs)
 	for _, payload := range replayPayloads {
 		e.ingressCh <- ingressEvent{kind: ingressBatchEvent, payload: payload}
 	}

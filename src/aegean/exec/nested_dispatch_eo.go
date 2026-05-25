@@ -2,6 +2,7 @@ package exec
 
 import (
 	"log"
+	"strings"
 	"sync"
 )
 
@@ -28,6 +29,7 @@ const (
 
 const (
 	nestedDispatchPending nestedDispatchState = iota
+	nestedDispatchSelected
 	nestedDispatchProposed
 	nestedDispatchCompleted
 )
@@ -67,7 +69,7 @@ func (e *Exec) RegisterSelectedNestedRequest(requestID string) {
 	if requestID == "" {
 		return
 	}
-	e.nestedDispatchTracker.ensurePending(requestID)
+	e.nestedDispatchTracker.markSelected(requestID)
 }
 
 func (e *Exec) DispatchNestedRequestEO(sourceRequest map[string]any, targets []string, outgoing map[string]any) {
@@ -138,7 +140,7 @@ func (e *Exec) HandleNestedResponseMessage(payload map[string]any) (map[string]a
 	switch state {
 	case nestedDispatchCompleted:
 		return nestedResponseStatus(requestID, nestedResponseIgnoredStatus), true
-	case nestedDispatchPending:
+	case nestedDispatchPending, nestedDispatchSelected:
 		return e.handlePendingNestedResponse(requestID, payload)
 	case nestedDispatchProposed:
 		return nestedResponseStatus(requestID, nestedResponseAlreadyProposedStatus), true
@@ -175,10 +177,12 @@ func (e *Exec) nextEODispatchAction(prepared map[string]any) eoDispatchAction {
 	}
 
 	if e.nestedEO.IsLeader() {
+		e.nestedDispatchTracker.markSelected(requestID)
 		return eoDispatchSendDirect
 	}
 
 	if _, ok := e.nestedEO.Leader(); !ok {
+		e.nestedDispatchTracker.markSelected(requestID)
 		return eoDispatchSendDirect
 	}
 
@@ -187,11 +191,13 @@ func (e *Exec) nextEODispatchAction(prepared map[string]any) eoDispatchAction {
 
 func (e *Exec) dispatchNestedRequestEOAfterRegister(requestID string, targets []string, prepared map[string]any) {
 	if e.nestedEO.IsLeader() {
+		e.nestedDispatchTracker.markSelected(requestID)
 		sendNestedRequestDirect(targets, prepared)
 		return
 	}
 
 	if _, ok := e.nestedEO.Leader(); !ok {
+		e.nestedDispatchTracker.markSelected(requestID)
 		sendNestedRequestDirect(targets, prepared)
 		return
 	}
@@ -284,10 +290,21 @@ func (t *nestedDispatchTracker) ensurePending(requestID string) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if state, exists := t.states[requestID]; exists {
-		return state == nestedDispatchPending
+		return state == nestedDispatchPending || state == nestedDispatchSelected
 	}
 	t.states[requestID] = nestedDispatchPending
 	return true
+}
+
+func (t *nestedDispatchTracker) markSelected(requestID string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	switch t.states[requestID] {
+	case nestedDispatchProposed, nestedDispatchCompleted:
+		return
+	default:
+		t.states[requestID] = nestedDispatchSelected
+	}
 }
 
 func (t *nestedDispatchTracker) state(requestID string) (nestedDispatchState, bool) {
@@ -300,7 +317,7 @@ func (t *nestedDispatchTracker) state(requestID string) (nestedDispatchState, bo
 func (t *nestedDispatchTracker) markProposed(requestID string) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if state, ok := t.states[requestID]; !ok || state != nestedDispatchPending {
+	if state, ok := t.states[requestID]; !ok || (state != nestedDispatchPending && state != nestedDispatchSelected) {
 		return false
 	}
 	t.states[requestID] = nestedDispatchProposed
@@ -319,4 +336,22 @@ func (t *nestedDispatchTracker) markCompleted(requestID string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.states[requestID] = nestedDispatchCompleted
+}
+
+func (t *nestedDispatchTracker) prepareParentsForReplay(parentRequestIDs []string) {
+	if len(parentRequestIDs) == 0 {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for requestID := range t.states {
+		for _, parentRequestID := range parentRequestIDs {
+			if requestID == parentRequestID || strings.HasPrefix(requestID, parentRequestID+"/") {
+				if t.states[requestID] == nestedDispatchPending {
+					delete(t.states, requestID)
+				}
+				break
+			}
+		}
+	}
 }

@@ -167,12 +167,12 @@ func findAggregatedNestedResponseByRequestID(queue []map[string]any, nestedReque
 	return nil, false
 }
 
-func (e *Exec) executeParallelBatches(parallelBatches [][]map[string]any, ndSeed int64, ndTimestamp float64) ([]map[string]any, executionSchedulerStats) {
-	return e.scheduler.executeParallelBatches(e, parallelBatches, ndSeed, ndTimestamp)
+func (e *Exec) executeParallelBatches(parallelBatches [][]map[string]any, ndSeed int64, ndTimestamp float64, epoch uint64) ([]map[string]any, executionSchedulerStats, bool) {
+	return e.scheduler.executeParallelBatches(e, parallelBatches, ndSeed, ndTimestamp, epoch)
 }
 
-func (e *Exec) executeSequentialBatches(parallelBatches [][]map[string]any, ndSeed int64, ndTimestamp float64) ([]map[string]any, executionSchedulerStats) {
-	return e.scheduler.executeSequentialBatches(e, parallelBatches, ndSeed, ndTimestamp)
+func (e *Exec) executeSequentialBatches(parallelBatches [][]map[string]any, ndSeed int64, ndTimestamp float64, epoch uint64) ([]map[string]any, executionSchedulerStats, bool) {
+	return e.scheduler.executeSequentialBatches(e, parallelBatches, ndSeed, ndTimestamp, epoch)
 }
 
 func (s *execScheduler) registerScheduledRequests(requests []*scheduledRequest) {

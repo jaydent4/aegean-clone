@@ -59,11 +59,14 @@ type ingressEvent struct {
 
 type batchExecutionTask struct {
 	payload map[string]any
+	epoch   uint64
 }
 
 type batchExecutionResult struct {
 	seqNum           int
 	payload          map[string]any
+	epoch            uint64
+	canceled         bool
 	outputs          []map[string]any
 	stateDelta       map[string]string
 	merkleRoot       string
@@ -139,6 +142,7 @@ type Exec struct {
 	nextBatchSeq          int
 	nextVerifySeq         int
 	batchExecuting        bool
+	executionEpoch        uint64
 	workerCount           int
 	scheduler             *execScheduler
 	batchCtx              *batchMerkleContext
@@ -160,6 +164,59 @@ func (e *Exec) timingLogsEnabled() bool {
 		return false
 	}
 	return loggingEnabledFromEnv()
+}
+
+func (e *Exec) currentExecutionEpoch() uint64 {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.executionEpoch
+}
+
+func (e *Exec) executionEpochChanged(epoch uint64) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.executionEpoch != epoch
+}
+
+func (e *Exec) waitForNestedReadyOrCanceled(nestedReadyCh <-chan struct{}, epoch uint64) (time.Duration, bool) {
+	waitStart := time.Now()
+	if e.executionEpochChanged(epoch) {
+		return time.Since(waitStart), true
+	}
+	timer := time.NewTimer(executionCancelPollInterval)
+	defer timer.Stop()
+	for {
+		select {
+		case <-nestedReadyCh:
+			return time.Since(waitStart), e.executionEpochChanged(epoch)
+		case <-timer.C:
+			if e.executionEpochChanged(epoch) {
+				return time.Since(waitStart), true
+			}
+			timer.Reset(executionCancelPollInterval)
+		}
+	}
+}
+
+func (e *Exec) resetWorkingStateToStable() {
+	e.mu.Lock()
+	stableKV := common.CopyStringMap(e.stableState.KVStore)
+	stableRoot := e.stableState.MerkleRoot
+	stableSeq := e.stableState.SeqNum
+	stablePrevHash := e.stableState.PrevHash
+	e.mu.Unlock()
+
+	e.stateMu.Lock()
+	e.workingState = State{
+		KVStore:    stableKV,
+		Merkle:     nil,
+		MerkleRoot: stableRoot,
+		SeqNum:     stableSeq,
+		PrevHash:   stablePrevHash,
+		Verified:   false,
+	}
+	e.batchCtx = nil
+	e.stateMu.Unlock()
 }
 
 func loggingEnabledFromEnv() bool {
@@ -375,7 +432,7 @@ func (e *Exec) HandleStateTransferRequestMessage(payload map[string]any) map[str
 
 func (e *Exec) runBatchExecutor() {
 	for task := range e.batchExecCh {
-		result := e.executeBatch(task.payload)
+		result := e.executeBatch(task.payload, task.epoch)
 		e.ingressCh <- ingressEvent{kind: ingressBatchExecutionCompleteEvent, batchResult: result}
 	}
 }

@@ -36,16 +36,17 @@ type executionSchedulerStats struct {
 }
 
 const workflowStatsOutputKey = "_workflow_stats"
+const executionCancelPollInterval = time.Millisecond
 
 func (b *parallelBatchRuntime) done() bool {
 	return b.finished >= len(b.requests)
 }
 
-func (s *execScheduler) executeParallelBatches(e *Exec, parallelBatches [][]map[string]any, ndSeed int64, ndTimestamp float64) ([]map[string]any, executionSchedulerStats) {
+func (s *execScheduler) executeParallelBatches(e *Exec, parallelBatches [][]map[string]any, ndSeed int64, ndTimestamp float64, epoch uint64) ([]map[string]any, executionSchedulerStats, bool) {
 	var stats executionSchedulerStats
 	batches, allScheduled := s.initParallelBatchRuntimes(parallelBatches)
 	if len(allScheduled) == 0 {
-		return nil, stats
+		return nil, stats, false
 	}
 
 	s.registerScheduledRequests(allScheduled)
@@ -55,6 +56,7 @@ func (s *execScheduler) executeParallelBatches(e *Exec, parallelBatches [][]map[
 	taskCh := make(chan parallelWorkerTask, totalRequests)
 	resultCh := make(chan parallelWorkerResult, totalRequests)
 	workerCount := s.startParallelWorkers(e, taskCh, resultCh, totalRequests, ndSeed, ndTimestamp)
+	defer close(taskCh)
 
 	totalFinished := 0
 	activeWorkers := 0
@@ -63,6 +65,9 @@ func (s *execScheduler) executeParallelBatches(e *Exec, parallelBatches [][]map[
 	currentBatchSeq := stableBatchSeq + 1
 
 	for totalFinished < totalRequests {
+		if e.executionEpochChanged(epoch) {
+			return nil, stats, true
+		}
 		dispatched := false
 		if currentBatchSeq <= stableBatchSeq || currentBatchSeq >= len(batches) {
 			currentBatchSeq = stableBatchSeq + 1
@@ -126,23 +131,24 @@ func (s *execScheduler) executeParallelBatches(e *Exec, parallelBatches [][]map[
 				currentBatchSeq = nextBatchSeq
 				continue
 			}
-			// No batch in window can make progress; wait for nested response arrival
-			waitStart := time.Now()
-			<-s.nestedReadyCh
+			// No batch in window can make progress; wait for nested response arrival.
+			waitDuration, canceled := e.waitForNestedReadyOrCanceled(s.nestedReadyCh, epoch)
 			stats.nestedWaits++
-			stats.nestedWait += time.Since(waitStart)
+			stats.nestedWait += waitDuration
+			if canceled {
+				return nil, stats, true
+			}
 		}
 	}
 
-	close(taskCh)
-	return s.collectParallelOutputs(batches, totalRequests), stats
+	return s.collectParallelOutputs(batches, totalRequests), stats, false
 }
 
-func (s *execScheduler) executeSequentialBatches(e *Exec, parallelBatches [][]map[string]any, ndSeed int64, ndTimestamp float64) ([]map[string]any, executionSchedulerStats) {
+func (s *execScheduler) executeSequentialBatches(e *Exec, parallelBatches [][]map[string]any, ndSeed int64, ndTimestamp float64, epoch uint64) ([]map[string]any, executionSchedulerStats, bool) {
 	var stats executionSchedulerStats
 	batches, allScheduled := s.initParallelBatchRuntimes(parallelBatches)
 	if len(allScheduled) == 0 {
-		return nil, stats
+		return nil, stats, false
 	}
 
 	s.registerScheduledRequests(allScheduled)
@@ -150,6 +156,9 @@ func (s *execScheduler) executeSequentialBatches(e *Exec, parallelBatches [][]ma
 
 	outputs := make([]map[string]any, 0, len(allScheduled))
 	for _, batch := range batches {
+		if e.executionEpochChanged(epoch) {
+			return nil, stats, true
+		}
 		s.activateBatch(e, batch, 1)
 		for _, req := range batch.requests {
 			/*
@@ -187,15 +196,17 @@ func (s *execScheduler) executeSequentialBatches(e *Exec, parallelBatches [][]ma
 				}
 				stats.blockedResponses++
 				for !s.promoteOneNestedResponse(req.id) {
-					waitStart := time.Now()
-					<-s.nestedReadyCh
+					waitDuration, canceled := e.waitForNestedReadyOrCanceled(s.nestedReadyCh, epoch)
 					stats.nestedWaits++
-					stats.nestedWait += time.Since(waitStart)
+					stats.nestedWait += waitDuration
+					if canceled {
+						return nil, stats, true
+					}
 				}
 			}
 		}
 	}
-	return outputs, stats
+	return outputs, stats, false
 }
 
 func (s *execScheduler) initParallelBatchRuntimes(parallelBatches [][]map[string]any) ([]*parallelBatchRuntime, []*scheduledRequest) {
