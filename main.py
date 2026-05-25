@@ -30,6 +30,8 @@ DEFAULT_REMOTE_CPU_PROFILE_PATH = "/tmp/cpu.pprof"
 DEFAULT_REMOTE_BLOCK_PROFILE_PATH = "/tmp/block.pprof"
 DEFAULT_REMOTE_MUTEX_PROFILE_PATH = "/tmp/mutex.pprof"
 DEFAULT_REMOTE_OTEL_TRACE_PATH = "/tmp/otel-traces.json"
+DEFAULT_EXPERIMENT_MAX_RETRIES = 10
+MAX_EXPERIMENT_RETRY_BACKOFF_SECONDS = 5 * 60
 
 BINARY_SOURCE_NODE = None
 BINARY_READY_NODES = set()
@@ -709,7 +711,13 @@ def aggregate_runs(per_run_metrics):
     return aggregated
 
 
-def run_experiment(
+def experiment_retry_backoff_seconds(retry_index, cap_seconds=MAX_EXPERIMENT_RETRY_BACKOFF_SECONDS):
+    if retry_index <= 0:
+        return 0.0
+    return min(float(cap_seconds), float(2 ** (retry_index - 1)))
+
+
+def run_experiment_once(
     config_path,
     enable_pprof=False,
     enable_tracing=False,
@@ -723,55 +731,108 @@ def run_experiment(
     run_timeout_seconds = run_config["run_timeout_seconds"]
 
     logger.info("Experiment starting: %s", relative_run_config_path)
-    stop_docker_nodes(node_names)
 
-    launch_nodes(
-        node_names,
-        node_services,
-        relative_run_config_path,
-        run_config,
-        enable_pprof=enable_pprof,
-        enable_tracing=enable_tracing,
-        enable_logging=enable_logging,
-        skip_binary_build=skip_binary_build,
-    )
-    logger.info("Waiting for all nodes to become ready")
-    all_nodes_ready = wait_for_nodes_ready(node_names, timeout=120.0, poll_interval=1.0)
-    if not all_nodes_ready:
-        logger.warning("Node readiness timeout after 120s; proceeding anyway")
+    try:
+        stop_docker_nodes(node_names)
 
-    run_start = time.monotonic()
-    if client_names:
-        client_wait_timeout = max(30.0, float(run_timeout_seconds) * 2.0)
-        logger.info(
-            "Waiting for %d client(s) to finish request logic (safety timeout %.0fs)",
-            len(client_names),
-            client_wait_timeout,
+        launch_nodes(
+            node_names,
+            node_services,
+            relative_run_config_path,
+            run_config,
+            enable_pprof=enable_pprof,
+            enable_tracing=enable_tracing,
+            enable_logging=enable_logging,
+            skip_binary_build=skip_binary_build,
         )
-        all_clients_completed = wait_for_clients_complete(
-            client_names,
-            timeout=client_wait_timeout,
-            poll_interval=1.0,
-        )
-        run_duration_seconds = max(0.0, time.monotonic() - run_start)
-        if all_clients_completed:
-            logger.info("All clients finished after %.2fs", run_duration_seconds)
-        else:
-            logger.warning(
-                "Timed out waiting for clients after %.2fs; stopping experiment anyway",
-                run_duration_seconds,
+        logger.info("Waiting for all nodes to become ready")
+        all_nodes_ready = wait_for_nodes_ready(node_names, timeout=120.0, poll_interval=1.0)
+        if not all_nodes_ready:
+            logger.warning("Node readiness timeout after 120s; proceeding anyway")
+
+        run_start = time.monotonic()
+        if client_names:
+            client_wait_timeout = max(30.0, float(run_timeout_seconds) * 2.0)
+            logger.info(
+                "Waiting for %d client(s) to finish request logic (safety timeout %.0fs)",
+                len(client_names),
+                client_wait_timeout,
             )
-    else:
-        logger.info("No client nodes found; falling back to run timeout: %ss", run_timeout_seconds)
-        time.sleep(run_timeout_seconds)
-        run_duration_seconds = max(0.0, time.monotonic() - run_start)
-        logger.info("Run timeout reached after %.2fs", run_duration_seconds)
+            all_clients_completed = wait_for_clients_complete(
+                client_names,
+                timeout=client_wait_timeout,
+                poll_interval=1.0,
+            )
+            run_duration_seconds = max(0.0, time.monotonic() - run_start)
+            if all_clients_completed:
+                logger.info("All clients finished after %.2fs", run_duration_seconds)
+            else:
+                logger.warning(
+                    "Timed out waiting for clients after %.2fs; stopping experiment anyway",
+                    run_duration_seconds,
+                )
+        else:
+            logger.info("No client nodes found; falling back to run timeout: %ss", run_timeout_seconds)
+            time.sleep(run_timeout_seconds)
+            run_duration_seconds = max(0.0, time.monotonic() - run_start)
+            logger.info("Run timeout reached after %.2fs", run_duration_seconds)
 
-    stop_docker_nodes(node_names)
-    time.sleep(3)  # wait for ports to be released before next run
-    collect_logs(run_dir, node_names, client_names, enable_pprof=enable_pprof, enable_tracing=enable_tracing)
-    logger.info("Experiment complete: %s -> %s", relative_run_config_path, run_dir)
-    return run_dir, client_names
+        stop_docker_nodes(node_names)
+        time.sleep(3)  # wait for ports to be released before next run
+        collect_logs(run_dir, node_names, client_names, enable_pprof=enable_pprof, enable_tracing=enable_tracing)
+        logger.info("Experiment complete: %s -> %s", relative_run_config_path, run_dir)
+        return run_dir, client_names
+    except Exception:
+        try:
+            stop_docker_nodes(node_names)
+            time.sleep(3)  # wait for ports to be released before retrying
+        except Exception as cleanup_exc:  # noqa: BLE001
+            logger.warning("Failed to clean up nodes after failed experiment attempt: %s", cleanup_exc)
+        raise
+
+
+def run_experiment(
+    config_path,
+    enable_pprof=False,
+    enable_tracing=False,
+    enable_logging=False,
+    timestamped=False,
+    skip_binary_build=False,
+    max_retries=DEFAULT_EXPERIMENT_MAX_RETRIES,
+):
+    max_attempts = max_retries + 1
+    for attempt_index in range(max_attempts):
+        attempt_number = attempt_index + 1
+        if attempt_number > 1:
+            logger.info("Retrying experiment attempt %d/%d: %s", attempt_number, max_attempts, config_path)
+
+        try:
+            return run_experiment_once(
+                config_path,
+                enable_pprof=enable_pprof,
+                enable_tracing=enable_tracing,
+                enable_logging=enable_logging,
+                timestamped=timestamped,
+                skip_binary_build=skip_binary_build,
+            )
+        except Exception as exc:  # noqa: BLE001
+            if attempt_index >= max_retries:
+                logger.exception("Experiment failed after %d attempt(s): %s", max_attempts, config_path)
+                raise
+
+            delay_seconds = experiment_retry_backoff_seconds(attempt_index)
+            logger.warning(
+                "Experiment failed on attempt %d/%d for %s: %s. Retrying in %.0fs",
+                attempt_number,
+                max_attempts,
+                config_path,
+                exc,
+                delay_seconds,
+            )
+            if delay_seconds > 0:
+                time.sleep(delay_seconds)
+
+    raise RuntimeError(f"experiment retry loop exited unexpectedly: {config_path}")
 
 
 def run_experiment_n_times(
@@ -781,6 +842,7 @@ def run_experiment_n_times(
     enable_tracing=False,
     enable_logging=False,
     skip_binary_build=False,
+    max_retries=DEFAULT_EXPERIMENT_MAX_RETRIES,
 ):
     logger.info("Running experiment %d times: %s", n, config_path)
     run_dirs = []
@@ -796,6 +858,7 @@ def run_experiment_n_times(
             enable_logging=enable_logging,
             timestamped=True,
             skip_binary_build=skip_binary_build,
+            max_retries=max_retries,
         )
         run_dirs.append(run_dir)
 
@@ -854,6 +917,7 @@ def run_config_paths(
     enable_logging=False,
     resume=False,
     skip_binary_build=False,
+    max_retries=DEFAULT_EXPERIMENT_MAX_RETRIES,
 ):
     completed_items = []
     for config_path in config_paths:
@@ -878,6 +942,7 @@ def run_config_paths(
                 enable_tracing=enable_tracing,
                 enable_logging=enable_logging,
                 skip_binary_build=skip_binary_build,
+                max_retries=max_retries,
             )
             completed_items.append(output_path)
         else:
@@ -887,6 +952,7 @@ def run_config_paths(
                 enable_tracing=enable_tracing,
                 enable_logging=enable_logging,
                 skip_binary_build=skip_binary_build,
+                max_retries=max_retries,
             )
             completed_items.append(run_dir)
     return completed_items
@@ -975,6 +1041,15 @@ def main():
         action="store_true",
         help="Assume /app/bin/aegean-node already exists on all nodes; do not build or distribute it.",
     )
+    parser.add_argument(
+        "--max-retries",
+        type=int,
+        default=DEFAULT_EXPERIMENT_MAX_RETRIES,
+        help=(
+            "Maximum retries after a failed experiment attempt (default: "
+            f"{DEFAULT_EXPERIMENT_MAX_RETRIES}). Backoff starts at 0s and doubles up to 5min."
+        ),
+    )
     args = parser.parse_args()
 
     enable_pprof = args.enable_pprof
@@ -985,6 +1060,8 @@ def main():
 
     if args.runs < 1:
         parser.error("--runs must be at least 1")
+    if args.max_retries < 0:
+        parser.error("--max-retries must be at least 0")
 
     if args.all:
         if args.config_paths:
@@ -1010,6 +1087,7 @@ def main():
         enable_logging=enable_logging,
         resume=args.resume,
         skip_binary_build=args.skip_binary_build,
+        max_retries=args.max_retries,
     )
 
     if args.runs > 1 and len(completed_items) == 1 and not args.all and not args.config_dir:
