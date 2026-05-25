@@ -18,6 +18,7 @@ func InitState(e workflowRuntime) map[string]string {
 	case "home_timeline":
 		state = initHomeTimelineState(e)
 	case "social_graph":
+		resetSocialGraphNonidemState()
 		state = initSocialGraphState(e)
 	default:
 		state = map[string]string{}

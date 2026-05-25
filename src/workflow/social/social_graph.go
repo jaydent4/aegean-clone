@@ -47,10 +47,14 @@ func ExecuteRequestSocialGraph(e workflowRuntime, request map[string]any, ndSeed
 		// write_home_timeline uses this read path before updating follower feeds.
 		userID := commonPayloadString(request, "user_id")
 		entry, _ := decodeSocialGraphEntry(e.ReadKV(socialGraphKey(userID)))
+		followers, nonidemVersion := socialGraphFollowersForResponse(e, userID, entry.Followers)
 		response := map[string]any{
 			"request_id": requestID,
 			"status":     "ok",
-			"followers":  entry.Followers,
+			"followers":  followers,
+		}
+		if nonidemVersion > 0 {
+			response["social_graph_nonidem_version"] = nonidemVersion
 		}
 		if parentRequestID, ok := request["parent_request_id"]; ok && parentRequestID != nil {
 			response["parent_request_id"] = parentRequestID
