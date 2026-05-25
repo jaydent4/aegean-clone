@@ -11,7 +11,7 @@ k6_max_vus: 10000
 
 # Deep spin workflow configs
 depth: 3
-spin_ms: 0.1
+spin_ms: 1
 
 # PBEO configs
 pbeo_raft_send_batch_size: 256
