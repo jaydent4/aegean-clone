@@ -25,6 +25,7 @@ def main() -> None:
         WORKLOAD_NAME,
         results_root=args.results_root,
         filename=args.filename,
+        y_max_ms=800,
     )
     print(f"Wrote {output_path}")
 

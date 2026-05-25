@@ -10,12 +10,12 @@ from latency_vs_throughput_utils import (
 )
 
 
-WORKLOAD_NAME = "response_large"
+WORKLOAD_NAME = "social_compose_nonidem_graph"
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Plot response_large latency against realized throughput."
+        description="Plot social_compose_nonidem_graph latency against realized throughput."
     )
     parser.add_argument("--results-root", type=Path, default=DEFAULT_RESULTS_ROOT)
     parser.add_argument("--filename", default=DEFAULT_FILENAME)

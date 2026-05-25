@@ -139,6 +139,7 @@ def plot_latency_vs_throughput(
     series: dict[str, list[MetricPoint]],
     output_path: Path,
     title: str,
+    y_max_ms: float = 400,
 ) -> None:
     fig, ax = plt.subplots(figsize=(8.5, 5.4))
 
@@ -175,7 +176,7 @@ def plot_latency_vs_throughput(
     ax.set_ylabel("Latency (ms)")
     ax.set_title(title)
     ax.set_xlim(left=0)
-    ax.set_ylim(0, 400)
+    ax.set_ylim(0, y_max_ms)
     ax.grid(True, linestyle="--", alpha=0.35)
     ax.legend(frameon=True, loc="upper left")
     fig.tight_layout()
@@ -197,6 +198,7 @@ def generate_workload_plot(
     min_throughput: float | None = None,
     max_throughput: float | None = None,
     drop_collapse_tolerance: float | None = None,
+    y_max_ms: float = 400,
 ) -> Path:
     series: dict[str, list[MetricPoint]] = {}
     for series_dir in existing_series_dirs(results_root, workload_name):
@@ -221,6 +223,7 @@ def generate_workload_plot(
         series,
         output_path,
         f"{humanize_workload_name(workload_name)} Latency vs Realized Throughput",
+        y_max_ms=y_max_ms,
     )
     return output_path
 
@@ -276,6 +279,7 @@ def generate_comparison_plot(
     min_throughput: float | None = None,
     max_throughput: float | None = None,
     drop_collapse_tolerance: float | None = None,
+    y_max_ms: float = 400,
 ) -> Path:
     series = collect_named_series(
         series_specs,
@@ -286,5 +290,5 @@ def generate_comparison_plot(
         drop_collapse_tolerance=drop_collapse_tolerance,
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    plot_latency_vs_throughput(series, output_path, title)
+    plot_latency_vs_throughput(series, output_path, title, y_max_ms=y_max_ms)
     return output_path
